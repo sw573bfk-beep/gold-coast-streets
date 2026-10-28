@@ -1,0 +1,162 @@
+<title>Gold Coast Streets</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bowlby+One&family=Barlow+Condensed:wght@500;600;700&display=swap">
+<style>
+/* Layout: full-bleed 3D view with a HUD pinned to the corners; single dark game look. */
+:root {
+  --ink: #0b1216;
+  --gold: #f6c445;
+  --surf: #35c6cf;
+  --coral: #ff6f4f;
+  --paper: #f7f1e3;
+  --dim: rgba(11, 18, 22, 0.62);
+  --display: 'Bowlby One', 'Arial Black', Impact, sans-serif;
+  --hud: 'Barlow Condensed', 'Arial Narrow', 'Helvetica Neue', Arial, sans-serif;
+  color-scheme: dark;
+}
+[hidden] { display: none !important; }
+html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); color: var(--paper); font-family: var(--hud); }
+#view, #view canvas { position: fixed; inset: 0; width: 100%; height: 100%; display: block; }
+.hud { position: fixed; pointer-events: none; z-index: 5; text-shadow: 0 2px 0 #000, 0 0 6px rgba(0,0,0,.6); }
+#tr { top: calc(14px + env(safe-area-inset-top, 0px)); right: calc(18px + env(safe-area-inset-right, 0px)); text-align: right; display: grid; gap: 2px; justify-items: end; }
+#clock { font: 600 26px/1 var(--hud); letter-spacing: .04em; }
+#money { font: 400 34px/1 var(--display); color: #7fdc6a; letter-spacing: .02em; font-variant-numeric: tabular-nums; }
+#stars { font-size: 30px; letter-spacing: 2px; line-height: 1; color: rgba(255,255,255,.18); }
+#stars .on { color: var(--gold); }
+#stars.flash .on { animation: blink .5s steps(2) infinite; }
+@keyframes blink { 50% { opacity: .2; } }
+#health { width: 150px; height: 9px; background: rgba(0,0,0,.55); border: 2px solid #000; margin-top: 4px; }
+#health i { display: block; height: 100%; width: 100%; background: linear-gradient(#ff8a6a, var(--coral)); }
+#mini { left: calc(18px + env(safe-area-inset-left, 0px)); bottom: calc(18px + env(safe-area-inset-bottom, 0px)); width: 210px; height: 210px; border-radius: 50%; border: 4px solid #000; box-shadow: 0 0 0 2px rgba(255,255,255,.25), 0 6px 20px rgba(0,0,0,.5); }
+#br { right: calc(22px + env(safe-area-inset-right, 0px)); bottom: calc(20px + env(safe-area-inset-bottom, 0px)); text-align: right; display: grid; gap: 4px; justify-items: end; }
+#street { font: 700 30px/1.05 var(--hud); letter-spacing: .03em; color: var(--paper); transition: opacity .6s; opacity: 0; text-transform: uppercase; }
+#district { font: 400 18px/1 var(--display); color: var(--surf); letter-spacing: .05em; transition: opacity .6s; opacity: 0; }
+#speedo { font: 400 46px/1 var(--display); color: var(--paper); font-variant-numeric: tabular-nums; }
+#speedo small { font: 600 18px var(--hud); color: var(--gold); margin-left: 4px; }
+#prompt { left: 50%; bottom: 120px; transform: translateX(-50%); font: 600 22px/1 var(--hud); background: var(--dim); padding: 8px 14px; border-left: 4px solid var(--gold); opacity: 0; transition: opacity .2s; white-space: nowrap; }
+#prompt b { color: var(--gold); }
+#big { inset: 0; display: grid; place-items: center; font: 400 clamp(48px, 11vw, 140px)/1 var(--display); letter-spacing: .04em; opacity: 0; transition: opacity .5s; }
+#big.wasted { color: #d8302a; }
+#big.busted { color: #4da3ff; }
+#toast { left: 50%; top: 22%; transform: translateX(-50%); font: 700 28px/1.1 var(--hud); color: var(--gold); opacity: 0; transition: opacity .4s; text-align: center; }
+#drift { left: 50%; top: 13%; transform: translateX(-50%); font: 400 clamp(26px, 4vw, 44px)/1 var(--display); color: var(--surf); opacity: 0; transition: opacity .25s; letter-spacing: .03em; font-variant-numeric: tabular-nums; }
+#struggle { left: 50%; bottom: 22%; transform: translateX(-50%); width: min(420px, 86vw); text-align: center; font: 700 24px/1.1 var(--hud); letter-spacing: .06em; }
+#struggle b { color: var(--gold); }
+.meter { height: 16px; background: rgba(0,0,0,.6); border: 2px solid #000; margin-top: 8px; }
+.meter i { display: block; height: 100%; width: 0; background: linear-gradient(90deg, var(--gold), #ffe48a); }
+.meter.time { height: 6px; margin-top: 4px; }
+.meter.time i { background: var(--coral); }
+#wardrobe { position: fixed; z-index: 9; right: max(16px, env(safe-area-inset-right, 0px)); top: 50%; transform: translateY(-50%); width: min(360px, calc(100vw - 32px)); background: rgba(8, 14, 18, .9); border: 2px solid #000; box-shadow: 6px 6px 0 rgba(0,0,0,.5); padding: 18px; display: grid; gap: 12px; }
+#wardrobe h3 { margin: 0; font: 400 26px/1 var(--display); color: var(--gold); }
+#wardrobe p { margin: 0; font: 500 15px/1.3 var(--hud); color: #b9c6ca; }
+.wrow { display: grid; gap: 6px; }
+.wrow > span { font: 700 14px var(--hud); letter-spacing: .12em; text-transform: uppercase; color: #9fb0b5; }
+.swatches { display: flex; flex-wrap: wrap; gap: 6px; }
+.swatches button { width: 28px; height: 28px; border: 2px solid rgba(255,255,255,.25); cursor: pointer; padding: 0; }
+.swatches button.on { outline: 3px solid var(--gold); outline-offset: 1px; }
+.swatches button.pill { width: auto; height: 30px; padding: 0 12px; background: #1c272c; color: var(--paper); font: 700 15px var(--hud); }
+.swatches button:focus-visible, #wardrobe-done:focus-visible { outline: 3px solid var(--surf); outline-offset: 2px; }
+#wardrobe-done { font: 400 20px/1 var(--display); color: var(--ink); background: var(--gold); border: 0; padding: 12px; cursor: pointer; box-shadow: 4px 4px 0 #000; }
+#weapon { font: 700 18px/1 var(--hud); letter-spacing: .08em; color: var(--paper); margin-top: 4px; }
+#cross { left: 50%; top: 50%; width: 22px; height: 22px; margin: -11px 0 0 -11px; border: 2px solid rgba(255,255,255,.9); border-radius: 50%; box-shadow: 0 0 0 1px #000; }
+#cross::after { content: ""; position: absolute; left: 8px; top: 8px; width: 2px; height: 2px; background: #fff; box-shadow: 0 0 0 1px #000; }
+#rob { left: 50%; top: 30%; transform: translateX(-50%); width: min(460px, 88vw); text-align: center; font: 700 20px/1.2 var(--hud); letter-spacing: .05em; color: #7fdc6a; }
+#shop, #bag { position: fixed; z-index: 9; left: 50%; top: 50%; transform: translate(-50%, -50%); width: min(420px, calc(100vw - 32px)); max-height: 80vh; overflow: auto; background: rgba(8, 14, 18, .94); border: 2px solid #000; box-shadow: 6px 6px 0 rgba(0,0,0,.5); padding: 18px; display: grid; gap: 10px; }
+#shop h3, #bag h3 { margin: 0; font: 400 26px/1.05 var(--display); color: var(--gold); text-wrap: balance; }
+#shop-sub { margin: 0; font: 500 15px var(--hud); color: #b9c6ca; }
+#shop-money { font: 400 22px var(--display); color: #7fdc6a; font-variant-numeric: tabular-nums; }
+.srow { display: flex; justify-content: space-between; align-items: center; gap: 12px; padding: 8px 0; border-top: 1px solid rgba(255,255,255,.08); font: 600 17px/1.2 var(--hud); }
+.srow span { min-width: 0; }
+.srow button { font: 400 17px var(--display); color: var(--ink); background: var(--gold); border: 0; padding: 8px 12px; cursor: pointer; box-shadow: 3px 3px 0 #000; flex: none; }
+.srow button:disabled { background: #555; color: #999; cursor: not-allowed; }
+#bag p { margin: 0; font: 600 17px var(--hud); padding: 6px 0; border-top: 1px solid rgba(255,255,255,.08); }
+#shop-close, #bag-close { font: 400 18px/1 var(--display); color: var(--paper); background: #26343a; border: 0; padding: 12px; cursor: pointer; }
+.srow button:focus-visible, #shop-close:focus-visible, #bag-close:focus-visible { outline: 3px solid var(--surf); outline-offset: 2px; }
+#bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
+#bigmap canvas { max-width: 96vw; max-height: 92vh; }
+#bigmap p { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
+#menu { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: radial-gradient(120% 90% at 70% 20%, rgba(255,140,80,.35), transparent 60%), linear-gradient(180deg, rgba(8,20,28,.55), rgba(8,14,18,.92)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.card { max-width: 680px; width: 100%; }
+.card h1 { font: 400 clamp(44px, 9vw, 92px)/.88 var(--display); margin: 0; color: var(--gold); text-shadow: 4px 4px 0 #000, 0 0 40px rgba(246,196,69,.35); letter-spacing: .01em; text-wrap: balance; }
+.card h2 { font: 700 clamp(18px, 3vw, 26px)/1 var(--hud); margin: 12px 0 24px; color: var(--surf); letter-spacing: .32em; text-transform: uppercase; }
+.keys { display: grid; grid-template-columns: repeat(auto-fit, minmax(190px, 1fr)); gap: 6px 22px; font: 500 18px/1.3 var(--hud); color: #dfe6e8; margin-bottom: 26px; }
+.keys b { display: inline-block; min-width: 64px; color: var(--gold); font-weight: 700; }
+#play { font: 400 26px/1 var(--display); color: var(--ink); background: var(--gold); border: 0; padding: 16px 34px; cursor: pointer; box-shadow: 5px 5px 0 #000; letter-spacing: .03em; }
+#play:hover { background: #ffd666; }
+#play:focus-visible { outline: 3px solid var(--surf); outline-offset: 3px; }
+#play:disabled { background: #6c6f70; cursor: wait; }
+.credit { margin-top: 18px; font: 500 14px var(--hud); color: #8fa0a6; }
+#load { font: 600 18px var(--hud); color: var(--surf); margin-top: 14px; min-height: 22px; }
+@media (max-width: 560px) { #mini { width: 140px; height: 140px; } #street { font-size: 22px; } #speedo { font-size: 34px; } }
+@media (prefers-reduced-motion: reduce) { #stars.flash .on { animation: none; } }
+</style>
+<div id="view"></div>
+<div class="hud" id="tr">
+  <div id="clock">15:30</div>
+  <div id="money">$00000000</div>
+  <div id="stars"><span>★</span><span>★</span><span>★</span><span>★</span><span>★</span></div>
+  <div id="health"><i></i></div>
+  <div id="weapon">FISTS</div>
+</div>
+<div class="hud" id="cross" hidden></div>
+<div class="hud" id="rob" hidden><span id="rob-text"></span><div class="meter"><i id="rob-bar"></i></div></div>
+<div id="shop" hidden>
+  <h3 id="shop-title">Shop</h3>
+  <p id="shop-sub"></p>
+  <div id="shop-money">$0</div>
+  <div id="shop-body"></div>
+  <button id="shop-close" type="button">Done</button>
+</div>
+<div id="bag" hidden>
+  <h3>Your bag</h3>
+  <div id="bag-body"></div>
+  <button id="bag-close" type="button">Close</button>
+</div>
+<canvas class="hud" id="mini" width="420" height="420"></canvas>
+<div class="hud" id="br">
+  <div id="district">Surfers Paradise</div>
+  <div id="street"></div>
+  <div id="speedo" hidden>0<small>KM/H</small></div>
+</div>
+<div class="hud" id="prompt"></div>
+<div class="hud" id="toast"></div>
+<div class="hud" id="big"></div>
+<div class="hud" id="drift"></div>
+<div class="hud" id="struggle" hidden>MASH <b>SPACE</b> TO BREAK FREE<div class="meter"><i id="struggle-bar"></i></div><div class="meter time"><i id="struggle-time"></i></div></div>
+<div id="wardrobe" hidden>
+  <h3 id="wardrobe-title">Clothes shop</h3>
+  <p>Pick your look. It's saved for next time.</p>
+  <div id="wardrobe-body"></div>
+  <button id="wardrobe-done" type="button">Done</button>
+</div>
+<div id="bigmap" hidden><canvas id="bigc"></canvas><p>Map of Surfers Paradise · press M to close</p></div>
+<div id="menu">
+  <div class="card">
+    <h1>Gold Coast Streets</h1>
+    <h2>Surfers Paradise</h2>
+    <div class="keys">
+      <div><b>W A S D</b> move / drive</div>
+      <div><b>Mouse</b> look around</div>
+      <div><b>Shift</b> sprint</div>
+      <div><b>Space</b> jump / handbrake drift</div>
+      <div><b>F</b> cars · shops · buy</div>
+      <div><b>Click / Q</b> punch · shoot</div>
+      <div><b>Right-click</b> aim a gun</div>
+      <div><b>1–4 · wheel</b> switch weapon</div>
+      <div><b>B</b> your bag</div>
+      <div><b>H</b> horn</div>
+      <div><b>C</b> camera distance</div>
+      <div><b>M</b> map</div>
+      <div><b>T</b> fast-forward time</div>
+      <div><b>N</b> sound on / off</div>
+      <div><b>Esc</b> pause</div>
+    </div>
+    <button id="play" disabled>Loading…</button>
+    <div id="load">Building Surfers Paradise…</div>
+    <div class="credit">Street, building and coastline data © OpenStreetMap contributors (ODbL).</div>
+  </div>
+</div>
+<script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
+<!--MAP-->
+<!--GAME-->
