@@ -195,14 +195,18 @@ function makeCarModel(typeName, color) {
     const m = new THREE.Mesh(wg, wheelMat); pivot.add(m); root.add(pivot);
     wheels.push({ pivot, m, front: !!front });
   }
-  return { root, bodyG, wheels, paintMat, tailMat: tailM.material, siren, doors, driver, geos: [paint.geometry, glass, trimM.geometry, lightM.geometry, tailM.geometry] };
+  const geos = [paint.geometry, glass, trimM.geometry, lightM.geometry, tailM.geometry];
+  for (const d of doors) d.hinge.traverse((o) => { if (o.geometry) geos.push(o.geometry); }); // door panels belong to this car
+  if (siren) geos.push(siren.r.geometry, siren.b.geometry);
+  return { root, bodyG, wheels, paintMat, tailMat: tailM.material, siren, doors, driver, geos };
 }
 // head and shoulders of whoever is driving, in their colours
 function setDriverLook(M, look) {
+  for (const o of M.driver.children) if (o.geometry) o.geometry.dispose();
   M.driver.clear();
   if (!look) { M.driver.visible = false; return; }
   const g = mergeGeos([box(0.42, 0.5, 0.26, 0, 0.25, 0, look.shirt), box(0.22, 0.25, 0.24, 0, 0.66, 0, look.skin), box(0.24, 0.07, 0.26, 0, 0.81, -0.01, look.hair), box(0.11, 0.38, 0.12, 0.2, 0.25, 0.18, look.skin), box(0.11, 0.38, 0.12, -0.2, 0.25, 0.18, look.skin)]);
   M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true;
 }
 const randomLook = () => ({ shirt: pick(SHIRT), skin: pick(SKIN), hair: pick(HAIR) });
-function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tailMat.dispose(); for (const g of M.geos) g.dispose(); }
+function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tailMat.dispose(); for (const g of M.geos) g.dispose(); for (const o of M.driver.children) if (o.geometry) o.geometry.dispose(); }

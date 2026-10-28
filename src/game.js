@@ -743,7 +743,7 @@ function randomCarType() {
 }
 function spawnTraffic(minD, maxD, kind) {
   for (let tries = 0; tries < 40; tries++) {
-    const ei = Math.floor(rand() * EDGES.length), E = EDGES[ei];
+    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
     if (!E || E.len < 10) continue;
     const s = rr(2, E.len - 2);
     edgePoint(E, 1, s, tmpA);
@@ -780,7 +780,7 @@ function spawnParked(maxD, minD) {
 }
 function spawnPed(minD, maxD) {
   for (let tries = 0; tries < 30; tries++) {
-    const ei = Math.floor(rand() * EDGES.length), E = EDGES[ei];
+    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
     if (!E) continue;
     const s = rr(0, E.len), side = rand() < 0.5 ? 1 : -1;
     edgePoint(E, 1, s, tmpA);
@@ -817,7 +817,7 @@ const coinMat = new THREE.MeshStandardMaterial({ color: col('#f6c445'), emissive
 const coinGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.09, 24).rotateX(Math.PI / 2);
 function placePickup(pk) {
   for (let t = 0; t < 50; t++) {
-    const E = pick(EDGES); if (!E) continue; edgePoint(E, 1, rr(0, E.len), tmpA);
+    const E = EDGES[pick(LIVE_EDGES)]; if (!E) continue; edgePoint(E, 1, rr(0, E.len), tmpA);
     const side = rand() < 0.5 ? 1 : -1, off = (E.width / 2 + 1.6) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
     if (isLand(x, z) && !resolveCircle(x, z, 0.6)) { pk.x = x; pk.z = z; pk.value = Math.round(rr(5, 30)) * 10; pk.m.position.set(x, 1, z); return; }
   }

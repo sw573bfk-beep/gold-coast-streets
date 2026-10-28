@@ -537,6 +537,7 @@ const EDGES = MAP.graph.edges.map((e) => {
   return { a: e[0], b: e[1], oneway: !!e[2], lanes: Math.max(1, e[3] || 1), name: e[4] >= 0 ? MAP.names[e[4]] : null, type: e[5], width: e[6], p, cum, len: cum[cum.length - 1] };
 }).filter((E) => E.len > 0.5);
 const ADJ = new Map();
+const LIVE_EDGES = EDGES.map((_, i) => i); // indices of loaded roads (streamed tiles add and remove theirs)
 EDGES.forEach((E, i) => {
   const push = (n, o) => { let a = ADJ.get(n); if (!a) ADJ.set(n, (a = [])); a.push(o); };
   push(E.a, { e: i, dir: 1 });

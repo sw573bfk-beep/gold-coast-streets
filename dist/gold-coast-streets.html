@@ -161,7 +161,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <div id="wardrobe-body"></div>
   <button id="wardrobe-done" type="button">Done</button>
 </div>
-<div id="bigmap" hidden><canvas id="bigc"></canvas><p>Map of Surfers Paradise · press M to close</p></div>
+<div id="bigmap" hidden><canvas id="bigc"></canvas><p>Map of the Gold Coast · press M to close</p></div>
 <div id="menu">
   <div class="card">
     <h1>Gold Coast Streets</h1>
@@ -730,6 +730,7 @@ const EDGES = MAP.graph.edges.map((e) => {
   return { a: e[0], b: e[1], oneway: !!e[2], lanes: Math.max(1, e[3] || 1), name: e[4] >= 0 ? MAP.names[e[4]] : null, type: e[5], width: e[6], p, cum, len: cum[cum.length - 1] };
 }).filter((E) => E.len > 0.5);
 const ADJ = new Map();
+const LIVE_EDGES = EDGES.map((_, i) => i); // indices of loaded roads (streamed tiles add and remove theirs)
 EDGES.forEach((E, i) => {
   const push = (n, o) => { let a = ADJ.get(n); if (!a) ADJ.set(n, (a = [])); a.push(o); };
   push(E.a, { e: i, dir: 1 });
@@ -1329,17 +1330,21 @@ function makeCarModel(typeName, color) {
     const m = new THREE.Mesh(wg, wheelMat); pivot.add(m); root.add(pivot);
     wheels.push({ pivot, m, front: !!front });
   }
-  return { root, bodyG, wheels, paintMat, tailMat: tailM.material, siren, doors, driver, geos: [paint.geometry, glass, trimM.geometry, lightM.geometry, tailM.geometry] };
+  const geos = [paint.geometry, glass, trimM.geometry, lightM.geometry, tailM.geometry];
+  for (const d of doors) d.hinge.traverse((o) => { if (o.geometry) geos.push(o.geometry); }); // door panels belong to this car
+  if (siren) geos.push(siren.r.geometry, siren.b.geometry);
+  return { root, bodyG, wheels, paintMat, tailMat: tailM.material, siren, doors, driver, geos };
 }
 // head and shoulders of whoever is driving, in their colours
 function setDriverLook(M, look) {
+  for (const o of M.driver.children) if (o.geometry) o.geometry.dispose();
   M.driver.clear();
   if (!look) { M.driver.visible = false; return; }
   const g = mergeGeos([box(0.42, 0.5, 0.26, 0, 0.25, 0, look.shirt), box(0.22, 0.25, 0.24, 0, 0.66, 0, look.skin), box(0.24, 0.07, 0.26, 0, 0.81, -0.01, look.hair), box(0.11, 0.38, 0.12, 0.2, 0.25, 0.18, look.skin), box(0.11, 0.38, 0.12, -0.2, 0.25, 0.18, look.skin)]);
   M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true;
 }
 const randomLook = () => ({ shirt: pick(SHIRT), skin: pick(SKIN), hair: pick(HAIR) });
-function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tailMat.dispose(); for (const g of M.geos) g.dispose(); }
+function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tailMat.dispose(); for (const g of M.geos) g.dispose(); for (const o of M.driver.children) if (o.geometry) o.geometry.dispose(); }
 
 // ============================================================================
 // Gold Coast Streets — street-level detail: signs, street names, traffic lights,
@@ -3239,6 +3244,7 @@ function unloadTile(k) {
     }
     EDGES[ei] = null;
   }
+  for (let q = LIVE_EDGES.length - 1; q >= 0; q--) if (gone.has(LIVE_EDGES[q])) LIVE_EDGES.splice(q, 1);
   for (const c of cars.slice()) {
     if (c === player.car || (player.seq && player.seq.car === c)) continue;
     if (c.ai && (gone.has(c.ai.e) || (c.ai.next && gone.has(c.ai.next.e)))) { if (c.kind === 'police') { c.ai.next = null; if (!attachToRoad(c)) c.remove(); } else c.remove(); }
@@ -3683,7 +3689,7 @@ function tileGraph(T, data) {
     for (let q = 2; q < p.length; q += 2) cum.push(cum[cum.length - 1] + Math.hypot(p[q] - p[q - 2], p[q + 1] - p[q - 1]));
     const len = cum[cum.length - 1]; if (len < 0.5) continue;
     const E = { a: idx(e[0]), b: idx(e[1]), oneway: !!e[2], lanes: Math.max(1, e[3] || 1), name: e[4] >= 0 ? data.names[e[4]] : null, type: e[5], width: e[6], p, cum, len, tile: T.k };
-    const ei = EDGES.length; EDGES.push(E); T.edges.push(ei);
+    const ei = EDGES.length; EDGES.push(E); T.edges.push(ei); LIVE_EDGES.push(ei);
     add(ADJ, E.a, { e: ei, dir: 1 }); if (!E.oneway) add(ADJ, E.b, { e: ei, dir: -1 });
     add(PADJ, E.a, { e: ei, dir: 1 }); add(PADJ, E.b, { e: ei, dir: -1 });
     // kerbside parking on suburban streets
@@ -4579,7 +4585,7 @@ function randomCarType() {
 }
 function spawnTraffic(minD, maxD, kind) {
   for (let tries = 0; tries < 40; tries++) {
-    const ei = Math.floor(rand() * EDGES.length), E = EDGES[ei];
+    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
     if (!E || E.len < 10) continue;
     const s = rr(2, E.len - 2);
     edgePoint(E, 1, s, tmpA);
@@ -4616,7 +4622,7 @@ function spawnParked(maxD, minD) {
 }
 function spawnPed(minD, maxD) {
   for (let tries = 0; tries < 30; tries++) {
-    const ei = Math.floor(rand() * EDGES.length), E = EDGES[ei];
+    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
     if (!E) continue;
     const s = rr(0, E.len), side = rand() < 0.5 ? 1 : -1;
     edgePoint(E, 1, s, tmpA);
@@ -4653,7 +4659,7 @@ const coinMat = new THREE.MeshStandardMaterial({ color: col('#f6c445'), emissive
 const coinGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.09, 24).rotateX(Math.PI / 2);
 function placePickup(pk) {
   for (let t = 0; t < 50; t++) {
-    const E = pick(EDGES); if (!E) continue; edgePoint(E, 1, rr(0, E.len), tmpA);
+    const E = EDGES[pick(LIVE_EDGES)]; if (!E) continue; edgePoint(E, 1, rr(0, E.len), tmpA);
     const side = rand() < 0.5 ? 1 : -1, off = (E.width / 2 + 1.6) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
     if (isLand(x, z) && !resolveCircle(x, z, 0.6)) { pk.x = x; pk.z = z; pk.value = Math.round(rr(5, 30)) * 10; pk.m.position.set(x, 1, z); return; }
   }

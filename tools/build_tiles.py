@@ -433,7 +433,7 @@ for e in els:
         tt['fuel'].append([round(p[0], 1), round(p[1], 1), name, t.get('brand') or name, sid, ring])
     else:
         tt['pois'].append([round(p[0], 1), round(p[1], 1), CATS[c], name, sid])
-    if t.get('shop') in ('mall', 'department_store') or t.get('tourism') in ('theme_park', 'attraction') or (e['type'] == 'way' and t.get('building') and t.get('name') and abs(area(geom(e))) > 6000):
+    if t.get('shop') == 'mall' or t.get('tourism') in ('theme_park', 'attraction'):
         landmarks.append([round(p[0]), round(p[1]), name])
 for e in els:  # big named buildings and centres as map landmarks
     t = e.get('tags', {})

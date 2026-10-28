@@ -114,6 +114,7 @@ function unloadTile(k) {
     }
     EDGES[ei] = null;
   }
+  for (let q = LIVE_EDGES.length - 1; q >= 0; q--) if (gone.has(LIVE_EDGES[q])) LIVE_EDGES.splice(q, 1);
   for (const c of cars.slice()) {
     if (c === player.car || (player.seq && player.seq.car === c)) continue;
     if (c.ai && (gone.has(c.ai.e) || (c.ai.next && gone.has(c.ai.next.e)))) { if (c.kind === 'police') { c.ai.next = null; if (!attachToRoad(c)) c.remove(); } else c.remove(); }
@@ -558,7 +559,7 @@ function tileGraph(T, data) {
     for (let q = 2; q < p.length; q += 2) cum.push(cum[cum.length - 1] + Math.hypot(p[q] - p[q - 2], p[q + 1] - p[q - 1]));
     const len = cum[cum.length - 1]; if (len < 0.5) continue;
     const E = { a: idx(e[0]), b: idx(e[1]), oneway: !!e[2], lanes: Math.max(1, e[3] || 1), name: e[4] >= 0 ? data.names[e[4]] : null, type: e[5], width: e[6], p, cum, len, tile: T.k };
-    const ei = EDGES.length; EDGES.push(E); T.edges.push(ei);
+    const ei = EDGES.length; EDGES.push(E); T.edges.push(ei); LIVE_EDGES.push(ei);
     add(ADJ, E.a, { e: ei, dir: 1 }); if (!E.oneway) add(ADJ, E.b, { e: ei, dir: -1 });
     add(PADJ, E.a, { e: ei, dir: 1 }); add(PADJ, E.b, { e: ei, dir: -1 });
     // kerbside parking on suburban streets
