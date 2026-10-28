@@ -2,6 +2,8 @@
 // Gold Coast Streets — gameplay: player, cars, traffic, police, pedestrians, HUD
 // ============================================================================
 const $ = (id) => document.getElementById(id);
+window.__gcsErrors = [];
+window.addEventListener('error', (e) => window.__gcsErrors.push(String(e.message)));
 const keys = {};
 const mouse = { locked: false, dragging: false, last: -10, wasLocked: false, aim: false, fire: false, fired: false };
 let ready = false, started = false, paused = true, bigMapOpen = false, uiOpen = false;
@@ -1463,6 +1465,16 @@ document.addEventListener('pointerlockchange', () => {
   if (mouse.locked) mouse.wasLocked = true;
   else if (started && !paused && !bigMapOpen && !uiOpen && mouse.wasLocked) setPaused(true);
 });
+// some keyboards and on-screen keyboards leave KeyboardEvent.code empty; fall back to the character
+function keyCode(e) {
+  if (e.code) return e.code;
+  const k = e.key || '';
+  if (k === ' ') return 'Space';
+  if (k === '`') return 'Backquote';
+  if (/^[a-z]$/i.test(k)) return 'Key' + k.toUpperCase();
+  if (/^[0-9]$/.test(k)) return 'Digit' + k;
+  return { Escape: 'Escape', Enter: 'Enter', Shift: 'ShiftLeft', ArrowUp: 'ArrowUp', ArrowDown: 'ArrowDown', ArrowLeft: 'ArrowLeft', ArrowRight: 'ArrowRight', Tab: 'Tab' }[k] || k;
+}
 function punch() { if (player.state === 'foot' && player.punchT <= 0 && player.deadT === 0) { player.punchT = 0.32; player.punchArm = 1 - player.punchArm; } }
 canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
 canvasEl.addEventListener('mousedown', (e) => {
@@ -1481,25 +1493,28 @@ window.addEventListener('mousemove', (e) => {
   mouse.last = elapsed;
 });
 window.addEventListener('keydown', (e) => {
-  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(e.code)) e.preventDefault();
-  if (e.code === 'Space') struggleTap();
+  const code = keyCode(e);
+  if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(code)) e.preventDefault();
+  if (MG.active) { if (!e.repeat && !(e.target && e.target.tagName === 'INPUT')) mgKey(code); else if (code === 'Escape') mgKey('Escape'); return; }
+  if (code === 'Space') struggleTap();
   if (e.repeat) return;
-  keys[e.code] = true;
+  keys[code] = true;
   if (!started) return;
-  if (uiOpen) { if (e.code === 'Escape' || e.code === 'KeyF' || e.code === 'Enter' || e.code === 'KeyB') { if (!$('shop').hidden) closeShop(); else if (!$('bag').hidden) closeBag(); else closeWardrobe(); } return; }
-  if (e.code === 'Escape' && !mouse.locked) { if (bigMapOpen) toggleMap(); else setPaused(!paused); return; }
+  if (uiOpen) { if (code === 'Escape' || code === 'KeyF' || code === 'Enter' || code === 'KeyB') { if (!$('shop').hidden) closeShop(); else if (!$('bag').hidden) closeBag(); else closeWardrobe(); } return; }
+  if (code === 'Escape' && !mouse.locked) { if (bigMapOpen) toggleMap(); else setPaused(!paused); return; }
   if (paused) return;
-  if (e.code === 'KeyF' || e.code === 'KeyE') useKey();
-  if (e.code === 'KeyQ') punch();
-  if (e.code === 'KeyB') openBag();
-  if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(e.code)) selectWeapon(WEAPON_ORDER[+e.code.slice(5) - 1]);
-  if (e.code === 'KeyH') { sfxTone([392, 494], 0.35, 0.07); for (const p of peds) if (Math.hypot(p.x - player.x, p.z - player.z) < 12) p.scare(player.x, player.z, 1.2); }
-  if (e.code === 'KeyC') camIdx = (camIdx + 1) % CAM_CAR.length;
-  if (e.code === 'KeyM') toggleMap();
-  if (e.code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
-  if (e.code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
+  if (code === 'KeyF' || code === 'KeyE') useKey();
+  if (code === 'KeyQ') punch();
+  if (code === 'Backquote') devToggle();
+  if (code === 'KeyB') openBag();
+  if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(code)) selectWeapon(WEAPON_ORDER[+code.slice(5) - 1]);
+  if (code === 'KeyH') { sfxTone([392, 494], 0.35, 0.07); for (const p of peds) if (Math.hypot(p.x - player.x, p.z - player.z) < 12) p.scare(player.x, player.z, 1.2); }
+  if (code === 'KeyC') camIdx = (camIdx + 1) % CAM_CAR.length;
+  if (code === 'KeyM') toggleMap();
+  if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
+  if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
 });
-window.addEventListener('keyup', (e) => { keys[e.code] = false; });
+window.addEventListener('keyup', (e) => { keys[keyCode(e)] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 function toggleMap() {
   bigMapOpen = !bigMapOpen; $('bigmap').hidden = !bigMapOpen;
@@ -1551,6 +1566,7 @@ function stepWorld(dt) {
   updateCamera(dt);
   updateHUD(dt);
   updateAudio(dt);
+  devUpdate();
 }
 let lastT = performance.now();
 function frame(now) {
@@ -1559,7 +1575,7 @@ function frame(now) {
   if (!ready) return;
   if (!started || paused || bigMapOpen || uiOpen) {
     if (!started) { camYaw += dt * 0.05; elapsed += dt; updateCamera(dt); updateSky(0); }
-    if (uiOpen) { elapsed += dt; updateCamera(dt); }
+    if (uiOpen) { elapsed += dt; updateCamera(dt); if (MG.active) mgUpdate(dt); }
     renderer.render(scene, camera);
     return;
   }
@@ -1586,7 +1602,7 @@ async function boot() {
     buildTrees(); buildStreetLights(); buildLandmarks();
     say('Putting up 500 shop and street signs…'); await nextFrame();
     buildDetails();
-    buildShops(); initShopUI();
+    buildShops(); initShopUI(); initMiniGameUI();
     finishGrid();
     scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && m.envMapIntensity === 1) m.envMapIntensity = 0.3; });
     personMat.envMapIntensity = 0.4; trimMat.envMapIntensity = 0.5; wheelMat.envMapIntensity = 0.5; coinMat.envMapIntensity = 1.2; tramMat.envMapIntensity = 0.6;

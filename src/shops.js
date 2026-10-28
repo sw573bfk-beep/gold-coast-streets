@@ -15,7 +15,10 @@ const ITEMS = {
   specs: { name: 'Illusion Specs', price: 45, specs: 40, desc: 'Trippy vision for 40 seconds' },
   spiral: { name: 'Spinning Spiral Illusion', price: 25, keep: true }, cube: { name: 'Impossible Cube', price: 30, keep: true },
   head: { name: 'Shrunken Head (replica)', price: 35, keep: true }, eye: { name: 'Optical Illusion Poster', price: 15, keep: true },
-  plush: { name: 'Timezone plushie', price: 20, keep: true }, tickets: { name: 'Arcade card (+$ prize tickets)', price: 10, keep: true },
+  plush: { name: 'Timezone plushie', price: 20, keep: true }, tickets: { name: 'Prize tickets', price: 0, keep: true },
+  crocWhack: { name: 'Play Croc Whack', price: 2, game: 'croc' }, waveRider: { name: 'Play Wave Rider', price: 2, game: 'wave' },
+  stacker: { name: 'Play Tower Stacker', price: 2, game: 'stack' }, prize: { name: 'Swap 40 tickets for a plushie', price: 0, prize: true },
+  escapeRoom: { name: 'Book the escape room (5 min)', price: 35, game: 'escape' }, trophy: { name: 'Escape room trophy', price: 0, keep: true },
   globe: { name: 'Surfers snow globe', price: 18, keep: true }, koala: { name: 'Koala keyring', price: 8, keep: true }, magnet: { name: 'Surfboard magnet', price: 6, keep: true },
   sunnies: { name: 'Sunnies', price: 25, wear: 'sunnies' }, cap: { name: 'Cap', price: 20, wear: 'cap' },
   outfit: { name: 'Change your outfit', price: 30, outfit: true },
@@ -31,6 +34,7 @@ function shopKind(cat, name) {
   if (cat === 8) return 'bank';
   if (/ripley/.test(n) && !/cargo/.test(n)) return 'ripley';
   if (/timezone|arcade/.test(n)) return 'arcade';
+  if (/escape/.test(n)) return 'escape';
   if (/gelat|ice cream|copenhagen|messina|baskin|ben & jerry|milky lane|milk bar|goo-e|minus 18/.test(n)) return 'icecream';
   if (cat === 6) return 'clothes';
   if (cat === 2) return 'bar';
@@ -57,7 +61,8 @@ function menuFor(shop) {
     case 'convenience': return ['energy', 'soda', 'fries', 'medkit'];
     case 'clothes': return ['outfit', 'sunnies', 'cap'];
     case 'ripley': return ['specs', 'spiral', 'cube', 'head', 'eye'];
-    case 'arcade': return ['tickets', 'plush', 'soda'];
+    case 'arcade': return ['crocWhack', 'waveRider', 'stacker', 'prize', 'soda'];
+    case 'escape': return ['escapeRoom', 'soda'];
     case 'hotel': return ['rest', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
@@ -68,8 +73,8 @@ function menuFor(shop) {
 // ---------------------------------------------------------------- interiors
 const INTERIOR_MAT = new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide });
 const SHOP_GLASS = new THREE.MeshStandardMaterial({ color: col('#bfe3ee'), transparent: true, opacity: 0.16, roughness: 0.05, metalness: 0.2, depthWrite: false, side: THREE.DoubleSide });
-const FLOORS = { food: '#c9b79c', icecream: '#f1e6ee', cafe: '#a07b55', bar: '#3a2a22', convenience: '#d7dadc', clothes: '#e6e0d6', ripley: '#1c1626', arcade: '#20123a', hotel: '#b9a27e', pharmacy: '#eef1f3', service: '#cfd3d6', bank: '#d9d1c2', fun: '#2a2a33', shop: '#d8cdbb' };
-const WALLC = { food: '#f2e6d2', icecream: '#fde9f2', cafe: '#efe2cc', bar: '#2b1f1a', convenience: '#f4f6f7', clothes: '#f7f4ee', ripley: '#26203a', arcade: '#1a1030', hotel: '#efe7d8', pharmacy: '#f6fbff', service: '#eef0f2', bank: '#efe9dd', fun: '#30303c', shop: '#f3ece0' };
+const FLOORS = { escape: '#2a2420', food: '#c9b79c', icecream: '#f1e6ee', cafe: '#a07b55', bar: '#3a2a22', convenience: '#d7dadc', clothes: '#e6e0d6', ripley: '#1c1626', arcade: '#20123a', hotel: '#b9a27e', pharmacy: '#eef1f3', service: '#cfd3d6', bank: '#d9d1c2', fun: '#2a2a33', shop: '#d8cdbb' };
+const WALLC = { escape: '#3a3028', food: '#f2e6d2', icecream: '#fde9f2', cafe: '#efe2cc', bar: '#2b1f1a', convenience: '#f4f6f7', clothes: '#f7f4ee', ripley: '#26203a', arcade: '#1a1030', hotel: '#efe7d8', pharmacy: '#f6fbff', service: '#eef0f2', bank: '#efe9dd', fun: '#30303c', shop: '#f3ece0' };
 function roomFrame(sh) { // room coordinates: u along the shopfront, v inward, y up
   return (u, v, y) => [sh.ax + sh.ex * u + sh.ix * v, y, sh.az + sh.ez * u + sh.iz * v];
 }
@@ -99,7 +104,7 @@ function menuTexture(kind) {
   const title = { food: 'MENU', icecream: 'FLAVOURS', cafe: 'COFFEE', bar: 'DRINKS', convenience: 'OPEN 24/7', clothes: 'NEW SEASON', ripley: 'BELIEVE IT OR NOT!', arcade: 'PLAY · WIN · PRIZES', hotel: 'RECEPTION', pharmacy: 'PHARMACY', service: 'WELCOME', bank: 'TELLERS', fun: 'TICKETS', shop: 'SOUVENIRS' }[kind] || 'WELCOME';
   x.fillText(title, 256, 50);
   x.fillStyle = '#e8eef0'; x.font = `600 22px ${FONT.cond}`;
-  const lines = menuFor({ kind, name: '' }).slice(0, 3).map((k) => `${ITEMS[k].name}  $${ITEMS[k].price}`);
+  const lines = menuFor({ kind, name: '' }).filter((k) => ITEMS[k].price > 0).slice(0, 3).map((k) => `${ITEMS[k].name}  $${ITEMS[k].price}`);
   lines.forEach((l, i) => x.fillText(l, 256, 88 + i * 26));
   const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = MAX_ANISO;
   return (MENU_TEX[kind] = new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
@@ -160,9 +165,9 @@ function furnish(B, sh, P) {
 function buildShops() {
   const B = newBuf(), G = newBuf(), boards = new Map();
   for (const q of D.signs) {
-    const [x, z, nx, nz, w, y, cat, name, bi, k, t0, t1, depth] = q;
+    const [x, z, nx, nz, w, y, cat, name, bi, k, t0, t1, depth, id] = q;
     const kind = shopKind(cat, name);
-    const sh = { name, cat, kind, x, z, nx, nz, keeper: null, robT: 0, robbedAt: -1e9, walkIn: depth > 0 };
+    const sh = { id, name, cat, kind, x, z, nx, nz, keeper: null, robT: 0, robbedAt: -1e9, walkIn: depth > 0 };
     if (depth > 0) {
       const f = MAP.buildings[bi].slice(3), n = f.length / 2;
       const ax = f[2 * k], az = f[2 * k + 1], bx = f[(2 * k + 2) % (2 * n)], bz = f[(2 * k + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az);
@@ -200,9 +205,9 @@ function buildShops() {
     }
     SHOPS.push(sh);
   }
-  for (const [x, z, cat, name] of D.freeSigns) {
+  for (const [x, z, cat, name, id] of D.freeSigns) {
     const kind = shopKind(cat, name);
-    SHOPS.push({ name, cat, kind, x, z, cx: x, cz: z, dx: x, dz: z, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9 });
+    SHOPS.push({ id, name, cat, kind, x, z, cx: x, cz: z, dx: x, dz: z, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9 });
   }
   const m = new THREE.Mesh(toGeometry(B), INTERIOR_MAT); m.frustumCulled = true; scene.add(m);
   scene.add(new THREE.Mesh(toGeometry(G), SHOP_GLASS));
@@ -278,9 +283,10 @@ function renderShop(list) {
     const it = ITEMS[id], row = document.createElement('div'); row.className = 'srow';
     const own = it.weapon && player.weapons[it.weapon] !== undefined;
     const label = document.createElement('span');
-    label.textContent = it.name + (it.keep && player.items[id] ? `  (have ${player.items[id]})` : '') + (own ? '  (owned: buys ammo)' : '');
+    label.textContent = it.name + (it.keep && player.items[id] ? `  (have ${player.items[id]})` : '') + (own ? '  (owned: buys ammo)' : '') + (it.prize ? `  (you have ${player.items.tickets || 0})` : '');
     const b = document.createElement('button'); b.type = 'button'; b.textContent = '$' + it.price;
     b.disabled = player.money < it.price;
+    if (it.price === 0) b.textContent = it.prize ? 'Swap' : 'Free';
     b.addEventListener('click', () => { buy(id); renderShop(list); });
     row.append(label, b); body.appendChild(row);
   }
@@ -291,6 +297,11 @@ function buy(id) {
   const it = ITEMS[id];
   if (player.money < it.price) return;
   if (it.outfit) { player.money -= it.price; closeShop(); openWardrobe({ name: 'Change rooms' }); return; }
+  if (it.game) { player.money -= it.price; closeShop(); startMiniGame(it.game); return; }
+  if (it.prize) {
+    if ((player.items.tickets || 0) < 40) { toast(`You need 40 tickets (you have ${player.items.tickets || 0})`); return; }
+    player.items.tickets -= 40; player.items.plush = (player.items.plush || 0) + 1; toast('You won a Timezone plushie!'); saveGame(); return;
+  }
   player.money -= it.price;
   sfxTone([660, 990], 0.12, 0.06, 'triangle');
   if (it.heal) player.health = Math.min(100, player.health + it.heal);
@@ -304,8 +315,7 @@ function buy(id) {
     if (player.weapons[it.ammoFor] === undefined) { player.money += it.price; toast(`You need a ${WEAPONS[it.ammoFor].name.toLowerCase()} first`); return; }
     player.weapons[it.ammoFor] += it.ammo;
   }
-  if (id === 'tickets') { const win = Math.round(rr(0, 4)) * 5; player.money += win; toast(win ? `Prize tickets! +$${win}` : 'No tickets this time'); }
-  else toast(`Bought: ${it.name}`);
+  toast(`Bought: ${it.name}`);
 }
 function openBag() {
   uiOpen = true; if (document.pointerLockElement) document.exitPointerLock();

@@ -73,6 +73,25 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #bag p { margin: 0; font: 600 17px var(--hud); padding: 6px 0; border-top: 1px solid rgba(255,255,255,.08); }
 #shop-close, #bag-close { font: 400 18px/1 var(--display); color: var(--paper); background: #26343a; border: 0; padding: 12px; cursor: pointer; }
 .srow button:focus-visible, #shop-close:focus-visible, #bag-close:focus-visible { outline: 3px solid var(--surf); outline-offset: 2px; }
+#mg { position: fixed; z-index: 9; inset: 0; display: grid; place-items: center; background: rgba(4, 8, 10, .72); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.mg-card { width: min(780px, 100%); background: #0b1216; border: 2px solid #000; box-shadow: 6px 6px 0 rgba(0,0,0,.5); padding: 16px; display: grid; gap: 10px; }
+.mg-card h3 { margin: 0; font: 400 24px/1.05 var(--display); color: var(--gold); }
+#mg-help { margin: 0; font: 500 15px/1.35 var(--hud); color: #b9c6ca; }
+.mg-row { display: grid; grid-template-columns: minmax(0, 3fr) minmax(0, 2fr); gap: 12px; align-items: start; }
+#mg-canvas { width: 100%; aspect-ratio: 3 / 2; display: block; border: 2px solid #000; image-rendering: pixelated; cursor: crosshair; }
+#mg-side { font: 600 16px/1.35 var(--hud); display: grid; gap: 8px; min-width: 0; }
+#mg-side p { margin: 0; }
+#mg-side .mg-big { font: 400 30px/1 var(--display); color: var(--gold); }
+#mg-side label { display: grid; gap: 4px; font: 700 13px var(--hud); letter-spacing: .1em; text-transform: uppercase; color: #9fb0b5; }
+#mg-side input { font: 700 22px var(--hud); letter-spacing: .3em; padding: 6px 8px; background: #1c272c; color: var(--paper); border: 2px solid #000; width: 100%; box-sizing: border-box; }
+#mg-side button, #mg-go, #mg-quit { font: 400 17px/1 var(--display); border: 0; padding: 10px 14px; cursor: pointer; box-shadow: 3px 3px 0 #000; }
+#mg-side button, #mg-go { background: var(--gold); color: var(--ink); }
+#mg-quit { background: #26343a; color: var(--paper); }
+.mg-buttons { display: flex; gap: 10px; flex-wrap: wrap; }
+#mg button:focus-visible, #mg input:focus-visible { outline: 3px solid var(--surf); outline-offset: 2px; }
+@media (max-width: 640px) { .mg-row { grid-template-columns: 1fr; } }
+#dev { left: calc(18px + env(safe-area-inset-left, 0px)); top: calc(14px + env(safe-area-inset-top, 0px)); font: 600 14px/1.35 var(--hud); background: rgba(8,14,18,.82); padding: 8px 10px; border-left: 4px solid var(--surf); max-width: 360px; text-shadow: none; }
+#dev b { color: var(--surf); letter-spacing: .1em; }
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
 #bigmap canvas { max-width: 96vw; max-height: 92vh; }
 #bigmap p { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
@@ -108,6 +127,18 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <div id="shop-body"></div>
   <button id="shop-close" type="button">Done</button>
 </div>
+<div id="mg" hidden>
+  <div class="mg-card">
+    <h3 id="mg-title">Game</h3>
+    <p id="mg-help"></p>
+    <div class="mg-row">
+      <canvas id="mg-canvas" width="480" height="320"></canvas>
+      <div id="mg-side"></div>
+    </div>
+    <div class="mg-buttons"><button id="mg-go" type="button">Start</button><button id="mg-quit" type="button">Quit (Esc)</button></div>
+  </div>
+</div>
+<div class="hud" id="dev" hidden></div>
 <div id="bag" hidden>
   <h3>Your bag</h3>
   <div id="bag-body"></div>

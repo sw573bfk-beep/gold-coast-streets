@@ -45,6 +45,8 @@ def nearest_road(x, z, rad=2):
                     best = d
     return best
 
+exec(open(os.path.join(ROOT, 'tools', 'mall_frontage.py')).read())
+
 bgrid = {}
 for i, pts in enumerate(bpolys):
     xs = [p[0] for p in pts]; zs = [p[1] for p in pts]
@@ -71,164 +73,7 @@ def building_at(x, z, maxd=14):
                         best, bi = d, i
     return bi
 
-# ---- shop signs on facades, a walk-in shopfront behind each one
-CATS = {'food': 0, 'cafe': 1, 'night': 2, 'shop': 3, 'hotel': 4, 'fun': 5, 'clothes': 6, 'service': 7, 'bank': 8}
-def cat_of(t):
-    a, s, tr, l = t.get('amenity'), t.get('shop'), t.get('tourism'), t.get('leisure')
-    if a == 'bank': return 'bank'
-    if s in ('clothes', 'shoes', 'boutique', 'department_store', 'sports', 'surf', 'swimwear', 'fashion_accessories'): return 'clothes'
-    if a in ('restaurant', 'fast_food', 'ice_cream', 'food_court'): return 'food'
-    if a in ('cafe',): return 'cafe'
-    if a in ('bar', 'pub', 'nightclub', 'biergarten'): return 'night'
-    if tr in ('hotel', 'motel', 'hostel', 'apartment', 'guest_house'): return 'hotel'
-    if tr in ('attraction', 'museum') or l in ('amusement_arcade', 'escape_game', 'adult_gaming_centre') or a in ('cinema', 'theatre'): return 'fun'
-    if s: return 'shop'
-    if a in ('pharmacy', 'bank', 'post_office', 'police', 'clinic', 'doctors', 'dentist', 'car_rental'): return 'service'
-    return None
-SKIP_NAMES = {'Condom Kingdom'}
-# real banks appear under made-up names (you can rob them in the game)
-BANK_NAMES = {'BOQ': 'Paradise Savings Bank'}
-
-items = []  # (x, z, cat, name)
-for e in pois_raw:
-    t = e.get('tags', {})
-    name = t.get('name')
-    if not name or name in SKIP_NAMES:
-        continue
-    c = cat_of(t)
-    if not c:
-        continue
-    if c == 'bank':
-        name = BANK_NAMES.get(name, 'Gold Coast Savings Bank')
-    p = epos(e)
-    if p and inside(p, 0):
-        items.append((p[0], p[1], c, name))
-
-# shops on Cavill that the map data is missing (from a Google Maps survey); placed by street number.
-# Odd numbers are on the north side, even on the south, counting up westward from the beach.
-cav = [(r[4 + i], r[5 + i]) for r in roads if r[2] >= 0 and names[r[2]] == 'Cavill Avenue' for i in range(0, len(r) - 4, 2)]
-def cavill_z(x):
-    best = min(cav, key=lambda q: abs(q[0] - x)) if cav else (x, 290)
-    return best[1]
-EXTRA = [('City Beach', 13, 'clothes'), ('Just In Paradise', 23, 'shop'), ('Ghanda', 25, 'clothes'), ('Pashin', 26, 'clothes'),
-         ('Cotton On', 27, 'clothes'), ('Alcotraz', 29, 'night'), ('Creamy Italiano Gelato', 15, 'food'), ('Royal Copenhagen', 22, 'food'),
-         ('El Camino Cantina', 'PC', 'food'), ('Pappa Flock', 'PC', 'food'), ('Ally Fashion', 'PC', 'clothes'), ('Kiki Koala Gifts', 'PC', 'shop'),
-         ('Unique Trendz Boutique', 'PC', 'clothes'), ('Huntress Homewares', 'PC', 'shop'), ('Gelato Messina', 'PC', 'food'),
-         ('Gold Coast Credit Union', 'PC', 'bank'), ('Goo-E', 'COC', 'food'), ('Kiki Koala Souvenirs', 23, 'shop')]
-pc_i = 0
-for name, num, c in EXTRA:
-    if num == 'PC':  # Paradise Centre frontage on the south side of the mall
-        x = 612 + (pc_i % 8) * 11; pc_i += 1; z = cavill_z(x) + 10
-    elif num == 'COC':
-        x, z = 380, 208
-    else:
-        x = 712 - 6.5 * num; z = cavill_z(x) + (-9 if num % 2 else 9)
-    if any(n.lower().startswith(name.lower()[:8]) and math.hypot(px - x, pz - z) < 80 for px, pz, _, n in items):
-        continue
-    items.append((x, z, c, name))
-
-# Ripley's moved into Soul's podium on the Cavill Mall corner; its Cargo Hold gift shop sits beside it
-soul = None
-mall_pts = [(r[4 + i], r[5 + i]) for r in roads if r[0] == ROAD_TYPES.index('pedestrian') and r[2] >= 0 and names[r[2]] == 'Cavill Avenue' for i in range(0, len(r) - 4, 2)]
-for e in osm:
-    t = e.get('tags', {})
-    if e['type'] == 'way' and t.get('name') == 'Soul':
-        g = ring_clean(geom(e)); cx = sum(q[0] for q in g) / len(g); cz = sum(q[1] for q in g) / len(g)
-        dm = min(math.hypot(cx - a, cz - b) for a, b in mall_pts)
-        if soul is None or dm < soul[2]: soul = (cx, cz, dm)
-if mall_pts:
-    # Soul's podium is the north-side frontage at the beach end of the mall
-    ex_pt = max(mall_pts, key=lambda q: q[0])
-    def mall_z(x): return min(mall_pts, key=lambda q: abs(q[0] - x))[1]
-    items = [it for it in items if not it[3].startswith('Ripley')]
-    items.insert(0, (ex_pt[0] - 22, mall_z(ex_pt[0] - 22) - 9, 'fun', 'Ripleys Believe it or Not'))
-    items.insert(1, (ex_pt[0] - 34, mall_z(ex_pt[0] - 34) - 9, 'shop', "Ripley's Cargo Hold Gift Shop"))
-    print('Ripleys at', [round(v) for v in items[0][:2]])
-
-edge_used = {}   # (building, edge, row) -> [(t, w)]
-front_used = {}  # (building, edge) -> [(t0, t1)] storefront openings
-signs = []       # x, z, nx, nz, w, y, cat, name, building, edge, t0, t1, depth  (t0/t1/depth = 0 when no walk-in front)
-clothes = []
-free_signs = []
-seen_names = set()
-
-def inward_depth(pts, mx, mz, nx, nz):
-    """how far you can go into the building from a facade point before leaving it"""
-    best = 30.0
-    ex, ez = mx - nx * 30, mz - nz * 30
-    for k in range(len(pts)):
-        ax, az = pts[k]; bx, bz = pts[(k + 1) % len(pts)]
-        rx, rz, sx, sz = ex - mx, ez - mz, bx - ax, bz - az
-        den = rx * sz - rz * sx
-        if abs(den) < 1e-9: continue
-        t = ((ax - mx) * sz - (az - mz) * sx) / den
-        u = ((ax - mx) * rz - (az - mz) * rx) / den
-        if 0.02 < t <= 1 and 0 <= u <= 1:
-            best = min(best, t * 30)
-    return best
-
-for px, pz, c, name in items:
-    key = (name, round(px / 40), round(pz / 40))
-    if key in seen_names:
-        continue
-    seen_names.add(key)
-    bi = building_at(px, pz, 24)  # mall pins often sit in the middle of the walkway
-    placed = False
-    if bi >= 0:
-        pts = bpolys[bi]
-        cands = []
-        for k in range(len(pts)):
-            ax, az = pts[k]; bx, bz = pts[(k + 1) % len(pts)]
-            L = math.hypot(bx - ax, bz - az)
-            if L < 2.5: continue
-            nx, nz = (bz - az) / L, -(bx - ax) / L
-            mx, mz = (ax + bx) / 2, (az + bz) / 2
-            rd, rx, rz = nearest_road(mx + nx * 2, mz + nz * 2)
-            if rd > 45 or (rx - mx) * nx + (rz - mz) * nz <= 0: continue
-            cands.append((rd + 0.35 * seg_dist(px, pz, ax, az, bx, bz)[0], k, ax, az, bx, bz, L, nx, nz))
-        cands.sort()
-        for _, k, ax, az, bx, bz, L, nx, nz in cands[:3]:
-            w = min(L - 0.4, max(1.8, 0.46 * len(name) + 1.0))
-            if w < 1.2: continue
-            ex, ez = (bx - ax) / L, (bz - az) / L
-            t_pref = (px - ax) * ex + (pz - az) * ez
-            rows = [3.4, 4.7] if buildings[bi][0] > 6.5 else [max(2.2, buildings[bi][0] - 0.6)]
-            for y in rows:
-                used = edge_used.setdefault((bi, k, y), [])
-                # try positions along the facade, nearest to where the shop really is first
-                for step in sorted(set([0] + [s * (w * 0.55) for s in range(-14, 15)]), key=abs):
-                    t = max(w / 2 + 0.2, min(L - w / 2 - 0.2, t_pref + step))
-                    if not all(abs(t - u0) > (w + uw) / 2 + 0.25 for u0, uw in used): continue
-                    sx, sz = ax + ex * t + nx * 0.18, az + ez * t + nz * 0.18
-                    if any(abs(q[2] * nx + q[3] * nz) > 0.8 and abs(q[5] - y) < 0.5 and math.hypot(q[0] - sx, q[1] - sz) < (w + q[4]) / 2 + 0.2 for q in signs): continue
-                    used.append((t, w))
-                    # walk-in shopfront under the lower sign row, if the facade below is free
-                    t0 = t1 = depth = 0
-                    if y == rows[0] and buildings[bi][1] < 1:
-                        sw = max(3.6, min(9.0, w + 0.8))
-                        a0, a1 = max(0.3, t - sw / 2), min(L - 0.3, t + sw / 2)
-                        fu = front_used.setdefault((bi, k), [])
-                        if a1 - a0 >= 3.2 and all(a1 <= f0 - 0.3 or a0 >= f1 + 0.3 for f0, f1 in fu):
-                            dep = inward_depth(pts, ax + ex * (a0 + a1) / 2, az + ez * (a0 + a1) / 2, nx, nz)
-                            if dep >= 3.5:
-                                t0, t1, depth = a0, a1, min(8.0, dep - 0.4)
-                                fu.append((a0, a1))
-                    signs.append([round(sx, 2), round(sz, 2), round(nx, 3), round(nz, 3), round(w, 2), round(y, 2), CATS[c], name, bi, k, round(t0, 2), round(t1, 2), round(depth, 2)])
-                    if c == 'clothes':
-                        clothes.append([round(ax + ex * t + nx * 2.2, 2), round(az + ez * t + nz * 2.2, 2), name])
-                    placed = True
-                    break
-                if placed: break
-            if placed: break
-    if not placed:  # a sign on a pole by the footpath, so nothing goes missing
-        rd, rx, rz = nearest_road(px, pz)
-        if rd < 60 and rd > 0.5:
-            fx, fz = px + (rx - px) * max(0, (rd - 4) / rd), pz + (rz - pz) * max(0, (rd - 4) / rd)
-        else:
-            fx, fz = px, pz
-        free_signs.append([round(fx, 2), round(fz, 2), CATS[c], name])
-        if c == 'clothes':
-            clothes.append([round(fx, 2), round(fz, 2), name])
+exec(open(os.path.join(ROOT, 'tools', 'shop_registry.py')).read())
 
 # back-room gun dealers (made-up people, in service lanes behind the strip)
 DEALER_NAMES = ["Shady Steve's back room", "Back-alley Barry", "Old Mate's lock-up", "Dodgy Dave's garage", "The Bait Shed (back room)"]
@@ -376,7 +221,7 @@ for e in pois_raw + osm:
 
 # footprints of hero buildings for custom models
 # when a name has several outlines, keep the one nearest the pedestrian mall (Cavill Mall for Timezone)
-mall = mall_pts
+mall = MALL
 def mall_dist(pts):
     cx = sum(q[0] for q in pts) / len(pts); cz = sum(q[1] for q in pts) / len(pts)
     return min(math.hypot(cx - mx, cz - mz) for mx, mz in mall) if mall else 0
@@ -389,7 +234,7 @@ for e in osm:
             heroes[t['name']] = flat(pts); hero_d[t['name']] = d
 print('hero mall distances', {k: round(v) for k, v in hero_d.items()})
 
-details = dict(dealers=dealers, bnames={i: n for i, n in enumerate(bnames) if n}, signs=signs, freeSigns=free_signs, towerSigns=tower_signs, clothes=clothes, trees=trees, props=props,
+details = dict(shopMeta=shop_meta, mall=[round(v, 2) for q in MALL for v in q], dealers=dealers, bnames={i: n for i, n in enumerate(bnames) if n}, signs=signs, freeSigns=free_signs, towerSigns=tower_signs, clothes=clothes, trees=trees, props=props,
                crossings=crossings, rail=rail, railLines=rail_lines, stations=stations, spots=spots, heroes=heroes)
 print('signs', len(signs), 'free', len(free_signs), 'tower signs', len(tower_signs), 'clothes', len(clothes), 'trees', len(trees),
       {k: len(v) for k, v in props.items()}, 'crossings', len(crossings), 'rail', len(rail), 'stations', stations, 'spots', list(spots), 'heroes', list(heroes))
