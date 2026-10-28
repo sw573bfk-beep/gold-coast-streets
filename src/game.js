@@ -12,7 +12,7 @@ let camYaw = Math.PI / 2, camPitch = 0.2, camIdx = 1, camDist = 6, shake = 0;
 const CAM_CAR = [6.5, 9.5, 14];
 const cars = [], peds = [], pickups = [];
 const tmpA = { x: 0, z: 0, tx: 0, tz: 1 }, tmpB = { x: 0, z: 0, tx: 0, tz: 1 }, tmpC = { x: 0, z: 0, tx: 0, tz: 1 };
-const ROAD_SPEED = { [RT.trunk]: 16.5, [RT.primary]: 15, [RT.secondary]: 13.5, [RT.tertiary]: 12, [RT.residential]: 9, [RT.unclassified]: 9, [RT.living_street]: 6 };
+const ROAD_SPEED = { [RT.motorway]: 27, [RT.trunk]: 16.5, [RT.primary]: 15, [RT.secondary]: 13.5, [RT.tertiary]: 12, [RT.residential]: 9, [RT.unclassified]: 9, [RT.living_street]: 6 };
 const PADJ = new Map(); // pedestrian adjacency: every edge, both directions
 EDGES.forEach((E, i) => {
   for (const [n, dir] of [[E.a, 1], [E.b, -1]]) { let a = PADJ.get(n); if (!a) PADJ.set(n, (a = [])); a.push({ e: i, dir }); }
@@ -293,7 +293,7 @@ class Car {
         this.h += kick; this.yaw *= 0.5;
       }
     }
-    this.x = clamp(this.x, MINX + 2, MAXX - 2); this.z = clamp(this.z, MINZ + 2, MAXZ - 2);
+    this.x = clamp(this.x, WORLD.x0 + 2, WORLD.x1 - 2); this.z = clamp(this.z, WORLD.z0 + 2, WORLD.z1 - 2);
     if (impact > 3) this.crash(impact);
   }
   crash(impact) {
@@ -402,7 +402,7 @@ function aiPoint(car, ahead, out) {
 }
 function chooseNext(e, dir) {
   const E = EDGES[e], node = dir > 0 ? E.b : E.a;
-  const opts = (ADJ.get(node) || []).filter((o) => o.e !== e);
+  const opts = (ADJ.get(node) || []).filter((o) => o.e !== e && EDGES[o.e]);
   if (!opts.length) return E.oneway ? null : { e, dir: -dir };
   edgePoint(E, dir, E.len, tmpC);
   const ix = tmpC.tx, iz = tmpC.tz;
@@ -425,18 +425,21 @@ function updateCopField(dt) {
   const ne = nearestEdge(player.x, player.z); if (ne.e < 0) return;
   const E = EDGES[ne.e], N = GN.length / 2, d = new Float32Array(N).fill(1e9), done = new Uint8Array(N);
   d[E.a] = ne.s; d[E.b] = E.len - ne.s;
+  const heap = [[d[E.a], E.a], [d[E.b], E.b]];
+  const hpush = (it) => { heap.push(it); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const hpop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
   for (;;) {
-    let u = -1, best = 1e9;
-    for (let i = 0; i < N; i++) if (!done[i] && d[i] < best) { best = d[i]; u = i; }
-    if (u < 0) break;
+    if (!heap.length) break;
+    const [du, u] = hpop();
+    if (done[u] || du > d[u]) continue;
     done[u] = 1;
-    for (const o of PADJ.get(u) || []) { const O = EDGES[o.e], v = o.dir > 0 ? O.b : O.a, nd = d[u] + O.len; if (nd < d[v]) d[v] = nd; }
+    for (const o of PADJ.get(u) || []) { const O = EDGES[o.e]; if (!O) continue; const v = o.dir > 0 ? O.b : O.a, nd = d[u] + O.len; if (nd < d[v]) { d[v] = nd; hpush([nd, v]); } }
   }
   copDist = d; copEdge = ne.e;
 }
 function chooseNextChase(e, dir) {
   const E = EDGES[e], node = dir > 0 ? E.b : E.a;
-  const opts = (PADJ.get(node) || []).filter((o) => o.e !== e);
+  const opts = (PADJ.get(node) || []).filter((o) => o.e !== e && EDGES[o.e]);
   if (!opts.length || !copDist) return opts.length ? pick(opts) : { e, dir: -dir };
   let best = null, bc = 1e18;
   for (const o of opts) { const O = EDGES[o.e], c = o.e === copEdge ? 0 : O.len + copDist[o.dir > 0 ? O.b : O.a]; if (c < bc) { bc = c; best = o; } }
@@ -469,6 +472,8 @@ function attachToRoad(car) {
 function driveAI(car, dt) {
   const a = car.ai, chase = car.kind === 'police' && player.stars > 0;
   const tgt = player.mode === 'car' && player.car ? player.car : player;
+  if (!EDGES[a.e]) { if (car.kind === 'police' && attachToRoad(car)) return; car.despawn = true; return; }
+  if (a.next && !EDGES[a.next.e]) a.next = null;
   let E = EDGES[a.e];
   a.s = projectOnEdge(E, a.dir, car.x, car.z);
   edgePoint(E, a.dir, a.s, tmpA);
@@ -617,9 +622,10 @@ class Ped {
       }
     } else {
       const E = EDGES[this.e];
+      if (!E) { this.gone = true; return; }
       this.s += sp * dt;
       if (this.s >= E.len) {
-        const node = this.dir > 0 ? E.b : E.a, opts = (PADJ.get(node) || []).filter((o) => o.e !== this.e);
+        const node = this.dir > 0 ? E.b : E.a, opts = (PADJ.get(node) || []).filter((o) => o.e !== this.e && EDGES[o.e]);
         const o = opts.length ? pick(opts) : { e: this.e, dir: -this.dir };
         if (!opts.length) this.side = -this.side;
         this.e = o.e; this.dir = o.dir; this.s = 0;
@@ -738,7 +744,7 @@ function randomCarType() {
 function spawnTraffic(minD, maxD, kind) {
   for (let tries = 0; tries < 40; tries++) {
     const ei = Math.floor(rand() * EDGES.length), E = EDGES[ei];
-    if (E.len < 10) continue;
+    if (!E || E.len < 10) continue;
     const s = rr(2, E.len - 2);
     edgePoint(E, 1, s, tmpA);
     const d = Math.hypot(tmpA.x - player.x, tmpA.z - player.z);
@@ -775,6 +781,7 @@ function spawnParked(maxD, minD) {
 function spawnPed(minD, maxD) {
   for (let tries = 0; tries < 30; tries++) {
     const ei = Math.floor(rand() * EDGES.length), E = EDGES[ei];
+    if (!E) continue;
     const s = rr(0, E.len), side = rand() < 0.5 ? 1 : -1;
     edgePoint(E, 1, s, tmpA);
     const off = (E.width / 2 + 1.7) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
@@ -810,7 +817,7 @@ const coinMat = new THREE.MeshStandardMaterial({ color: col('#f6c445'), emissive
 const coinGeo = new THREE.CylinderGeometry(0.42, 0.42, 0.09, 24).rotateX(Math.PI / 2);
 function placePickup(pk) {
   for (let t = 0; t < 50; t++) {
-    const E = pick(EDGES); edgePoint(E, 1, rr(0, E.len), tmpA);
+    const E = pick(EDGES); if (!E) continue; edgePoint(E, 1, rr(0, E.len), tmpA);
     const side = rand() < 0.5 ? 1 : -1, off = (E.width / 2 + 1.6) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
     if (isLand(x, z) && !resolveCircle(x, z, 0.6)) { pk.x = x; pk.z = z; pk.value = Math.round(rr(5, 30)) * 10; pk.m.position.set(x, 1, z); return; }
   }
@@ -1174,7 +1181,7 @@ function updatePlayer(dt) {
       if (d < r && d > 1e-4) { player.x = cx + (dx / d) * r; player.z = cz + (dz / d) * r; }
     }
   }
-  player.x = clamp(player.x, MINX + 1, MAXX - 1); player.z = clamp(player.z, MINZ + 1, MAXZ - 1);
+  player.x = clamp(player.x, WORLD.x0 + 1, WORLD.x1 - 1); player.z = clamp(player.z, WORLD.z0 + 1, WORLD.z1 - 1);
   if (player.punchT > 0) {
     const before = player.punchT; player.punchT -= dt;
     if (before > 0.16 && player.punchT <= 0.16) {
@@ -1263,6 +1270,7 @@ function updateSky(dt) {
   for (const k of ['low', 'tower', 'glass', 'grid', 'balcony', 'shop']) buildingMats[k].emissiveIntensity = smooth(0.35, 0.9, nightLevel) * (k === 'shop' ? 1.0 : 1.3);
   for (const m of NIGHT_MATS) m.mat.emissiveIntensity = m.day + smooth(0.3, 0.85, nightLevel) * m.night;
   lampMat.emissiveIntensity = smooth(0.4, 0.9, nightLevel) * 3;
+  updateTileNightLights();
   if (Math.abs(gameHour - envHour) > 0.35) { envHour = gameHour; refreshEnvironment(); }
   const c = player.state === 'car' ? player.car : null;
   headlight.intensity = c && !c.dead && nightLevel > 0.4 ? 3.5 : 0;
@@ -1291,19 +1299,21 @@ function nearestStreet(x, z) {
       if (d < best) { best = d; name = r.name === 'Cavill Avenue' && r.type === RT.pedestrian ? 'Cavill Mall' : r.name; }
     }
   }
+  if (!name && typeof tileStreetName === 'function' && REGION) name = tileStreetName(x, z).name;
   return name;
 }
 // the closest named place you're standing near (a shop, hotel, attraction), for the location text
 function nearestPlace(x, z) {
   let best = 14, name = '';
-  for (const s of D.signs) { const d = Math.hypot(s[0] - x, s[1] - z); if (d < best) { best = d; name = s[7]; } }
+  for (const s of SHOPS) { if (Math.abs(s.x - x) > 20 || Math.abs(s.z - z) > 20) continue; const d = Math.hypot(s.x - x, s.z - z); if (d < best) { best = d; name = s.name; } }
   for (const [n, p] of Object.entries(D.spots)) { const d = Math.hypot(p[0] - x, p[1] - z); if (d < best + 6) { best = d; name = n.replace('Observaton', 'Observation'); } }
   return name;
 }
 function district(x, z) {
   if (onBeach(x, z) && x > 700) return 'Surfers Paradise Beach';
-  if (x < -40 && z > -520 && z < 160) return 'Chevron Island';
-  return 'Surfers Paradise';
+  if (x < -40 && z > -520 && z < 160 && x > MINX) return 'Chevron Island';
+  if (inCore(x, z)) return 'Surfers Paradise';
+  return suburbAt(x, z) || 'Gold Coast';
 }
 const MINI_PAL = {
   base: '#2b3530', residential: '#2f3a33', commercial: '#33373a', construction: '#3a352c', grass: '#2f4a2c', scrub: '#2f402b', wood: '#29432a',
@@ -1323,6 +1333,8 @@ function drawMinimap() {
   mctx.fillStyle = MINI_PAL.water; mctx.fillRect(0, 0, S, S);
   mctx.translate(R, R); mctx.rotate(theta);
   const k = zoomPx / MAPPPM; mctx.scale(k, k);
+  if (OVERVIEW) mctx.drawImage(OVERVIEW.canvas, (OVERVIEW.x0 - tx) * MAPPPM, (OVERVIEW.z0 - tz) * MAPPPM, OVERVIEW.canvas.width * MAPPPM / OV_PPM, OVERVIEW.canvas.height * MAPPPM / OV_PPM);
+  for (const T of TILES.values()) if (T.mini && Math.abs(T.x0 + 500 - tx) < 1400 && Math.abs(T.z0 + 500 - tz) < 1400) mctx.drawImage(T.mini, (T.x0 - tx) * MAPPPM, (T.z0 - tz) * MAPPPM);
   mctx.drawImage(mapCanvas, -(tx - GX0) * MAPPPM, -(tz - GZ0) * MAPPPM);
   const dot = (x, z, r, color) => { mctx.fillStyle = color; mctx.beginPath(); mctx.arc((x - tx) * MAPPPM, (z - tz) * MAPPPM, r / k, 0, TAU); mctx.fill(); };
   for (const pk of pickups) if (Math.abs(pk.x - tx) < 260 && Math.abs(pk.z - tz) < 260) dot(pk.x, pk.z, 5, '#7fdc6a');
@@ -1344,33 +1356,35 @@ function drawMinimap() {
   mctx.restore();
 }
 function drawBigMap() {
-  const c = $('bigc'), W = Math.min(window.innerWidth * 0.96, (window.innerHeight * 0.92 * mapCanvas.width) / mapCanvas.height);
-  const scale = W / mapCanvas.width, dpr = Math.min(2, window.devicePixelRatio || 1);
-  c.width = Math.round(W * dpr); c.height = Math.round(mapCanvas.height * scale * dpr);
-  c.style.width = W + 'px'; c.style.height = mapCanvas.height * scale + 'px';
+  const c = $('bigc'), B = REGION ? REGION.bounds : [GX0, GZ0, GX0 + GW, GZ0 + GH];
+  const wW = B[2] - B[0], wH = B[3] - B[1];
+  const S = Math.min((window.innerWidth * 0.96) / wW, (window.innerHeight * 0.92) / wH), dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = Math.round(wW * S * dpr); c.height = Math.round(wH * S * dpr); c.style.width = wW * S + 'px'; c.style.height = wH * S + 'px';
   const x = c.getContext('2d');
-  x.setTransform(scale * dpr, 0, 0, scale * dpr, 0, 0);
-  x.drawImage(mapCanvas, 0, 0);
-  const P = (wx, wz) => [(wx - GX0) * MAPPPM, (wz - GZ0) * MAPPPM];
+  x.setTransform(S * dpr, 0, 0, S * dpr, -B[0] * S * dpr, -B[1] * S * dpr);
+  x.fillStyle = MINI_PAL.water; x.fillRect(B[0], B[1], wW, wH);
+  if (OVERVIEW) x.drawImage(OVERVIEW.canvas, OVERVIEW.x0, OVERVIEW.z0, OVERVIEW.canvas.width / OV_PPM, OVERVIEW.canvas.height / OV_PPM);
+  for (const T of TILES.values()) if (T.mini) x.drawImage(T.mini, T.x0, T.z0, T.mini.width / MAPPPM, T.mini.height / MAPPPM);
+  x.drawImage(mapCanvas, GX0, GZ0, mapCanvas.width / MAPPPM, mapCanvas.height / MAPPPM);
   const label = (text, wx, wz, size, color) => {
-    const [px, pz] = P(wx, wz);
-    x.font = `700 ${size / scale}px "Barlow Condensed", sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
-    x.lineWidth = 4 / scale; x.strokeStyle = 'rgba(0,0,0,0.75)'; x.strokeText(text, px, pz); x.fillStyle = color; x.fillText(text, px, pz);
+    x.font = `700 ${size / S}px "Barlow Condensed", sans-serif`; x.textAlign = 'center'; x.textBaseline = 'middle';
+    x.lineWidth = 4 / S; x.strokeStyle = 'rgba(0,0,0,0.75)'; x.strokeText(text, wx, wz); x.fillStyle = color; x.fillText(text, wx, wz);
   };
-  const lm = MAP.landmarks;
-  for (const n of ['Q1', 'Circle on Cavill Shopping Centre', 'Paradise Centre', 'Chevron Renaissance Shopping Centre', 'Surfers Paradise Police Centre', 'Soul'])
-    if (lm[n]) label(n.replace(' Shopping Centre', ''), lm[n][0], lm[n][1] - 18, 15, '#f7f1e3');
-  for (const n of ['Timezone', 'Ripleys Believe it or Not', 'Infinity', "Surfer's Paradise Arch"]) if (D.spots[n]) label(n.replace('Ripleys Believe it or Not', "Ripley's"), D.spots[n][0], D.spots[n][1] + 14, 13, '#ff8ad8');
-  for (const [sx, sz, nm] of D.stations) { const [px, pz] = P(sx, sz); x.fillStyle = '#2ec4b6'; x.beginPath(); x.arc(px, pz, 4 / scale, 0, TAU); x.fill(); label(nm, sx + 40, sz, 12, '#7fe8dc'); }
-  label('PACIFIC OCEAN', MAXX - 120, (MINZ + MAXZ) / 2, 24, '#8fd3e8');
-  label('Chevron Island', -260, -200, 17, '#35c6cf');
-  for (const pk of pickups) { const [px, pz] = P(pk.x, pk.z); x.fillStyle = '#7fdc6a'; x.beginPath(); x.arc(px, pz, 3 / scale, 0, TAU); x.fill(); }
-  for (const s of OUTFIT_SHOPS) { const [px, pz] = P(s.x, s.z); x.fillStyle = '#ffd400'; x.beginPath(); x.arc(px, pz, 4 / scale, 0, TAU); x.fill(); }
-  for (const d of DEALERS) { const [px, pz] = P(d.x, d.z); x.fillStyle = '#ff3030'; x.beginPath(); x.arc(px, pz, 6 / scale, 0, TAU); x.fill(); label('GUNS · ' + d.name, d.x, d.z - 16, 12, '#ff8080'); }
-  for (const sh of SHOPS) if (sh.kind === 'bank') { const [px, pz] = P(sh.x, sh.z); x.fillStyle = '#33d17a'; x.beginPath(); x.arc(px, pz, 6 / scale, 0, TAU); x.fill(); label('BANK · ' + sh.name, sh.x, sh.z + 16, 12, '#8af0b4'); }
-  const [px, pz] = P(player.x, player.z);
-  x.save(); x.translate(px, pz); x.rotate(Math.atan2(Math.cos(player.h), Math.sin(player.h)) + Math.PI / 2);
-  const s = 1 / scale; x.fillStyle = '#f6c445'; x.strokeStyle = '#000'; x.lineWidth = 3 * s;
+  const dot = (wx, wz, r, color) => { x.fillStyle = color; x.beginPath(); x.arc(wx, wz, r / S, 0, TAU); x.fill(); };
+  if (REGION) {
+    for (const [sx, sz, nm, place] of REGION.suburbs) if (place === 'suburb' || place === 'town') label(nm.toUpperCase(), sx, sz, 15, '#cfe8ef');
+    const seen = new Set();
+    for (const [lx, lz, nm] of REGION.landmarks) { if (seen.has(nm)) continue; seen.add(nm); dot(lx, lz, 3, '#ff8ad8'); label(nm, lx, lz - 14 / S, 11, '#ffc2ea'); }
+  }
+  label('Surfers Paradise', (MINX + MAXX) / 2, MINZ + 120, 16, '#f6c445');
+  for (const n of ['Timezone', 'Ripleys Believe it or Not', "Surfer's Paradise Arch"]) if (D.spots[n]) dot(D.spots[n][0], D.spots[n][1], 3, '#ff8ad8');
+  for (const sh of SHOPS) if (sh.kind === 'fuel') dot(sh.x, sh.z, 4, '#ffb000');
+  for (const d of DEALERS) { dot(d.x, d.z, 5, '#ff3030'); }
+  for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
+  for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
+  label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
+  x.save(); x.translate(player.x, player.z); x.rotate(Math.atan2(Math.cos(player.h), Math.sin(player.h)) + Math.PI / 2);
+  const s = 1.4 / S; x.fillStyle = '#f6c445'; x.strokeStyle = '#000'; x.lineWidth = 3 * s;
   x.beginPath(); x.moveTo(0, -14 * s); x.lineTo(10 * s, 10 * s); x.lineTo(0, 5 * s); x.lineTo(-10 * s, 10 * s); x.closePath(); x.stroke(); x.fill();
   x.restore();
 }
@@ -1554,6 +1568,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
+  updateTiles(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
@@ -1603,6 +1618,7 @@ async function boot() {
     say('Putting up 500 shop and street signs…'); await nextFrame();
     buildDetails();
     buildShops(); initShopUI(); initMiniGameUI();
+    say('Loading the Gold Coast around Surfers…'); await loadRegion();
     finishGrid();
     scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && m.envMapIntensity === 1) m.envMapIntensity = 0.3; });
     personMat.envMapIntensity = 0.4; trimMat.envMapIntensity = 0.5; wheelMat.envMapIntensity = 0.5; coinMat.envMapIntensity = 1.2; tramMat.envMapIntensity = 0.6;

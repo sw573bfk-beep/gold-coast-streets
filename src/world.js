@@ -29,10 +29,10 @@ const col = (hex) => new THREE.Color(hex);
 
 // ---------------------------------------------------------------- road data
 const ROAD_TYPES = ['trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'pedestrian',
-  'footway', 'cycleway', 'path', 'steps', 'unclassified', 'living_street', 'track'];
+  'footway', 'cycleway', 'path', 'steps', 'unclassified', 'living_street', 'track', 'motorway'];
 const RT = {}; ROAD_TYPES.forEach((t, i) => (RT[t] = i));
-const DRIVE = new Set([RT.trunk, RT.primary, RT.secondary, RT.tertiary, RT.residential, RT.unclassified, RT.living_street]);
-const MAJOR = new Set([RT.trunk, RT.primary, RT.secondary, RT.tertiary]);
+const DRIVE = new Set([RT.motorway, RT.trunk, RT.primary, RT.secondary, RT.tertiary, RT.residential, RT.unclassified, RT.living_street]);
+const MAJOR = new Set([RT.motorway, RT.trunk, RT.primary, RT.secondary, RT.tertiary]);
 const ROADS = MAP.roads.map((r) => ({ type: r[0], w: r[1], name: r[2] >= 0 ? MAP.names[r[2]] : null, bridge: !!r[3], p: r.slice(4) }));
 
 // ---------------------------------------------------------------- renderer + scene
@@ -49,7 +49,7 @@ const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 4200);
-scene.fog = new THREE.Fog(0xbfe3f2, 320, 1800);
+scene.fog = new THREE.Fog(0xbfe3f2, 300, 1350); // the streamed world loads about 1.3 km around you
 
 const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8a8068, 0.7);
 scene.add(hemi);
@@ -97,7 +97,7 @@ function refreshEnvironment() {
 }
 
 // ---------------------------------------------------------------- canvas helpers (world metres -> pixels)
-const GM = 260, GX0 = MINX - GM, GZ0 = MINZ - GM, GW = MAXX - MINX + 2 * GM, GH = MAXZ - MINZ + 2 * GM;
+const GM = 0, GX0 = MINX - GM, GZ0 = MINZ - GM, GW = MAXX - MINX + 2 * GM, GH = MAXZ - MINZ + 2 * GM;
 function worldCanvas(ppm) {
   const c = document.createElement('canvas');
   c.width = Math.round(GW * ppm); c.height = Math.round(GH * ppm);
@@ -212,7 +212,7 @@ function makeWaveNormals() {
 }
 function buildWater() {
   waterMat = new THREE.MeshStandardMaterial({ color: col('#1c8fb2'), roughness: 0.08, metalness: 0.1, normalMap: makeWaveNormals(), normalScale: new THREE.Vector2(0.35, 0.35), envMapIntensity: 1.1 });
-  const w = new THREE.Mesh(new THREE.PlaneGeometry(9000, 9000), waterMat);
+  const w = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), waterMat);
   w.rotation.x = -Math.PI / 2; w.position.set((MINX + MAXX) / 2, -0.55, (MINZ + MAXZ) / 2);
   w.receiveShadow = true;
   scene.add(w);
@@ -282,7 +282,8 @@ function maskAt(mask, x, z) {
   if (i < 0 || j < 0 || i >= MW || j >= MH) return 1;
   return mask[j * MW + i];
 }
-const isLand = (x, z) => maskAt(landMask, x, z) === 1;
+const inCore = (x, z) => x >= MINX && x <= MAXX && z >= MINZ && z <= MAXZ;
+const isLand = (x, z) => (inCore(x, z) ? maskAt(landMask, x, z) === 1 : tileIsLand(x, z));
 
 // ---------------------------------------------------------------- collision grid (building walls, trunks, poles)
 const CELL = 16;
@@ -302,9 +303,35 @@ function addBox(x, z, half, h) {
   addSeg(x - half, z - half, x + half, z - half, h); addSeg(x + half, z - half, x + half, z + half, h);
   addSeg(x + half, z + half, x - half, z + half, h); addSeg(x - half, z + half, x - half, z - half, h);
 }
-function finishGrid() { SEG = new Float32Array(SEG); segStamp = new Int32Array(SEG.length / 5); }
-const qbuf = [];
-function querySegs(x0, z0, x1, z1) {
+function finishGrid() { SEG = new Float32Array(SEG); segStamp = new Int32Array(SEG.length / 5); CORE_GRID.segs = SEG; CORE_GRID.stamp = segStamp; }
+// collision grids: the Surfers core, plus one per streamed tile (added and removed as tiles load)
+const CORE_GRID = { segs: null, cells: gridMap, stamp: null, stampId: 1, x0: -1e9, z0: -1e9, x1: 1e9, z1: 1e9 };
+const GRIDS = [CORE_GRID];
+function makeGrid(flatSegs, x0, z0, x1, z1) {
+  const G = { segs: new Float32Array(flatSegs), cells: new Map(), stamp: new Int32Array(flatSegs.length / 5), stampId: 1, x0, z0, x1, z1 };
+  for (let id = 0; id < flatSegs.length / 5; id++) {
+    const o = id * 5, ax = flatSegs[o], az = flatSegs[o + 1], bx = flatSegs[o + 2], bz = flatSegs[o + 3];
+    for (let i = Math.floor(Math.min(ax, bx) / CELL); i <= Math.floor(Math.max(ax, bx) / CELL); i++)
+      for (let j = Math.floor(Math.min(az, bz) / CELL); j <= Math.floor(Math.max(az, bz) / CELL); j++) {
+        const k = cellKey(i, j); let c = G.cells.get(k); if (!c) G.cells.set(k, (c = [])); c.push(id);
+      }
+  }
+  return G;
+}
+// call fn(segs, offset) once for every wall segment near the box
+function forSegs(x0, z0, x1, z1, fn) {
+  const ax = Math.min(x0, x1), az = Math.min(z0, z1), bx = Math.max(x0, x1), bz = Math.max(z0, z1);
+  const i0 = Math.floor(ax / CELL), i1 = Math.floor(bx / CELL), j0 = Math.floor(az / CELL), j1 = Math.floor(bz / CELL);
+  for (const G of GRIDS) {
+    if (!G.segs || bx < G.x0 || ax > G.x1 || bz < G.z0 || az > G.z1) continue;
+    const st = ++G.stampId;
+    for (let i = i0; i <= i1; i++) for (let j = j0; j <= j1; j++) {
+      const c = G.cells.get(cellKey(i, j)); if (!c) continue;
+      for (const id of c) if (G.stamp[id] !== st) { G.stamp[id] = st; fn(G.segs, id * 5); }
+    }
+  }
+}
+function querySegs(x0, z0, x1, z1) { // core grid only (kept for older callers)
   qbuf.length = 0; stampId++;
   const i0 = Math.floor(Math.min(x0, x1) / CELL), i1 = Math.floor(Math.max(x0, x1) / CELL);
   const j0 = Math.floor(Math.min(z0, z1) / CELL), j1 = Math.floor(Math.max(z0, z1) / CELL);
@@ -314,25 +341,27 @@ function querySegs(x0, z0, x1, z1) {
   }
   return qbuf;
 }
+const qbuf = [];
 const hitRes = { x: 0, z: 0, nx: 0, nz: 0, hit: false };
+let _rc = null;
 function resolveCircle(x, z, r) {
-  let px = x, pz = z, nx = 0, nz = 0, hit = false;
-  const ids = querySegs(x - r, z - r, x + r, z + r);
-  for (let pass = 0; pass < 2; pass++) for (const id of ids) {
-    const o = id * 5, ax = SEG[o], az = SEG[o + 1], bx = SEG[o + 2], bz = SEG[o + 3];
-    const ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez || 1;
-    const t = clamp(((px - ax) * ex + (pz - az) * ez) / L2, 0, 1);
-    const cx = ax + ex * t, cz = az + ez * t;
-    let dx = px - cx, dz = pz - cz; const d2 = dx * dx + dz * dz;
-    if (d2 >= r * r) continue;
-    let d = Math.sqrt(d2);
-    if (d < 1e-5) { const L = Math.sqrt(L2); dx = ez / L; dz = -ex / L; d = 1; } else { dx /= d; dz /= d; }
-    const pen = r - (d === 1 && d2 < 1e-10 ? 0 : d);
-    px += dx * pen; pz += dz * pen; nx += dx; nz += dz; hit = true;
-  }
-  const nl = Math.hypot(nx, nz) || 1;
-  hitRes.x = px; hitRes.z = pz; hitRes.nx = nx / nl; hitRes.nz = nz / nl; hitRes.hit = hit;
-  return hit;
+  const st = (_rc = _rc || { px: 0, pz: 0, nx: 0, nz: 0, hit: false, r: 0 });
+  st.px = x; st.pz = z; st.nx = 0; st.nz = 0; st.hit = false; st.r = r;
+  for (let pass = 0; pass < 2; pass++) forSegs(x - r, z - r, x + r, z + r, pushOut);
+  const nl = Math.hypot(st.nx, st.nz) || 1;
+  hitRes.x = st.px; hitRes.z = st.pz; hitRes.nx = st.nx / nl; hitRes.nz = st.nz / nl; hitRes.hit = st.hit;
+  return st.hit;
+}
+function pushOut(S, o) {
+  const st = _rc, r = st.r, ax = S[o], az = S[o + 1], bx = S[o + 2], bz = S[o + 3];
+  const ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez || 1;
+  const t = clamp(((st.px - ax) * ex + (st.pz - az) * ez) / L2, 0, 1);
+  let dx = st.px - (ax + ex * t), dz = st.pz - (az + ez * t); const d2 = dx * dx + dz * dz;
+  if (d2 >= r * r) return;
+  let d = Math.sqrt(d2);
+  if (d < 1e-5) { const L = Math.sqrt(L2); dx = ez / L; dz = -ex / L; d = 0; } else { dx /= d; dz /= d; }
+  const pen = r - d;
+  st.px += dx * pen; st.pz += dz * pen; st.nx += dx; st.nz += dz; st.hit = true;
 }
 function segIntersect(ax, az, bx, bz, cx, cz, dx, dz) {
   const rx = bx - ax, rz = bz - az, sx = dx - cx, sz = dz - cz;
@@ -343,11 +372,11 @@ function segIntersect(ax, az, bx, bz, cx, cz, dx, dz) {
 // first wall hit along a->b (fraction 0..1), or 1 if clear; walls lower than minH are ignored
 function rayWalls(ax, az, bx, bz, minH) {
   let best = 1;
-  for (const id of querySegs(ax, az, bx, bz)) {
-    const o = id * 5; if (SEG[o + 4] < minH) continue;
-    const t = segIntersect(ax, az, bx, bz, SEG[o], SEG[o + 1], SEG[o + 2], SEG[o + 3]);
+  forSegs(ax, az, bx, bz, (S, o) => {
+    if (S[o + 4] < minH) return;
+    const t = segIntersect(ax, az, bx, bz, S[o], S[o + 1], S[o + 2], S[o + 3]);
     if (t >= 0 && t < best) best = t;
-  }
+  });
   return best;
 }
 
@@ -540,7 +569,7 @@ function projectOnEdge(E, dir, x, z) {
 function nearestEdge(x, z, filter) {
   let best = 1e18, be = -1, bs = 0;
   for (let i = 0; i < EDGES.length; i++) {
-    const E = EDGES[i]; if (filter && !filter(E)) continue;
+    const E = EDGES[i]; if (!E || (filter && !filter(E))) continue;
     const p = E.p;
     for (let k = 0; k < p.length / 2 - 1; k++) {
       const ax = p[2 * k], az = p[2 * k + 1], ex = p[2 * k + 2] - ax, ez = p[2 * k + 3] - az, L2 = ex * ex + ez * ez || 1;
@@ -745,7 +774,9 @@ function boxInto(B, x, y, z, sx, sy, sz, c) {
 }
 
 // ---------------------------------------------------------------- trees and street furniture
+let PALM_GEOS = null;
 function palmGeometries() {
+  if (PALM_GEOS) return PALM_GEOS;
   const trunk = new THREE.CylinderGeometry(0.15, 0.26, 1, 7, 8, true);
   trunk.translate(0, 0.5, 0);
   const tp = trunk.attributes.position;
@@ -776,7 +807,7 @@ function palmGeometries() {
   crown.setAttribute('position', new THREE.Float32BufferAttribute(B.pos, 3));
   crown.setAttribute('color', new THREE.Float32BufferAttribute(B.col, 3));
   crown.computeVertexNormals();
-  return [trunk, crown];
+  return (PALM_GEOS = [trunk, crown]);
 }
 function buildTrees() {
   const spots = [], taken = new Map();

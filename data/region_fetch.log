@@ -1,0 +1,14 @@
+block 0 0 2940 KB
+block 0 1 6074 KB
+block 0 2 4806 KB
+block 1 0 3289 KB
+block 1 1 busy, retry in 20 s
+block 1 1 busy, retry in 40 s
+block 1 1 4458 KB
+block 1 2 5008 KB
+block 2 0 busy, retry in 20 s
+block 2 0 busy, retry in 40 s
+block 2 0 3155 KB
+block 2 1 5724 KB
+block 2 2 2522 KB
+block 3 0 busy, retry in 20 s

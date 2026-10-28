@@ -87,6 +87,44 @@ window.runRegression = async () => {
     const spot = serviceSpot(); expect(spot && spot.dealer, 'no dealer spot'); openShop(spot); document.querySelector('#shop-body .srow button').click(); closeShop();
     expect(player.weapons.pistol === 36 && player.money === 200 && gunMesh && gunMesh.parent, 'purchase failed'); return '$500 → $200, 36 rounds';
   });
+  // ---------------------------------------------------------------- the streamed region
+  const ll = (lat, lon) => [(lon - 153.4235) * Math.cos(-27.9995 * Math.PI / 180) * 111320, (-27.9995 - lat) * 110574];
+  const goTo = async (lat, lon, need = 4) => {
+    home(); [player.x, player.z] = ll(lat, lon);
+    for (let k = 0; k < 600; k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 10)); if (k > 30 && !tileBusy && TILES.size >= need) break; }
+  };
+  await test('region index loaded and the world spans Southport to Burleigh', () => {
+    expect(REGION && REGION.tiles.length > 150, 'no region'); expect(WORLD.z1 - WORLD.z0 > 18000 && WORLD.x1 - WORLD.x0 > 10000, 'world too small');
+    return `${REGION.tiles.length} tiles, ${((WORLD.x1 - WORLD.x0) / 1000).toFixed(1)} x ${((WORLD.z1 - WORLD.z0) / 1000).toFixed(1)} km`;
+  });
+  await test('Robina streams in with houses, streets and a suburb name', async () => {
+    await goTo(-28.0745, 153.3925);
+    const n = [...TILES.values()].length; expect(n >= 4, 'tiles ' + n);
+    expect(suburbAt(player.x, player.z) === 'Robina', 'suburb ' + suburbAt(player.x, player.z));
+    expect(EDGES.some((e) => e && e.tile), 'no tile roads'); return `${n} tiles loaded, street: ${nearestStreet(player.x, player.z)}`;
+  });
+  await test('walls in streamed tiles are solid', () => {
+    let hit = 0; for (const T of TILES.values()) if (T.grid && T.grid.segs.length) { const o = 0, S = T.grid.segs; if (resolveCircle((S[o] + S[o + 2]) / 2, (S[o + 1] + S[o + 3]) / 2, 0.4)) hit++; }
+    expect(hit > 0, 'no wall collisions'); return `${hit} tiles checked`;
+  });
+  await test('leaving an area unloads its tiles and their roads', async () => {
+    const before = [...TILES.keys()]; await goTo(-27.9985, 153.428, 1);
+    for (let k = 0; k < 40; k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 10)); }
+    const still = before.filter((k) => TILES.has(k)); expect(still.length === 0, 'still loaded: ' + still.join(' '));
+    expect(!EDGES.some((e) => e && before.includes(e.tile)), 'roads left behind'); return `${before.length} tiles unloaded`;
+  });
+  await test('ocean is water, suburbs are land', async () => {
+    await goTo(-28.0, 153.385, 2); expect(isLand(player.x, player.z), 'Benowa should be land');
+    const [sx, sz] = ll(-28.06, 153.466); expect(!isLand(sx, sz), 'the sea off Broadbeach should be water'); return 'ok';
+  });
+  await test('petrol station repairs your car', async () => {
+    const f = SHOPS.find((s) => s.kind === 'fuel') || (await goTo(-27.975, 153.405, 3), SHOPS.find((s) => s.kind === 'fuel'));
+    expect(f, 'no petrol station loaded'); player.x = f.cx; player.z = f.cz;
+    const c = new Car('sedan', null, f.cx + 3, f.cz, 0); c.kind = 'abandoned'; c.health = 20; cars.push(c); player.money = 200;
+    const spot = serviceSpot(); expect(spot && spot.kind === 'fuel', 'no counter'); openShop(spot);
+    [...document.querySelectorAll('#shop-body .srow')].find((r) => /repair/i.test(r.textContent)).querySelector('button').click(); closeShop();
+    expect(c.health === 100 && player.money === 140, `health ${c.health} money ${player.money}`); c.remove(); return `${f.name}: $200 → $140, car fixed`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

@@ -2,3 +2,5 @@ dist/index.html
 dist/harness.js
 __pycache__/
 dist/tests/
+data/region/
+dist/tiles/

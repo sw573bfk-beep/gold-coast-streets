@@ -167,11 +167,12 @@ use = {}
 for w in graph_ways:
     for i, nid in enumerate(w['ids']):
         use[nid] = use.get(nid, 0) + (2 if i in (0, len(w['ids']) - 1) else 1)
-node_index, nodes = {}, []
+node_index, nodes, node_ids = {}, [], []
 def nidx(nid, p):
     if nid not in node_index:
         node_index[nid] = len(nodes) // 2
         nodes.extend(p)
+        node_ids.append(nid)  # OSM node id, so streamed tiles can join this road network
     return node_index[nid]
 edges = []
 for w in graph_ways:
@@ -355,7 +356,7 @@ exec(open(os.path.join(ROOT, 'tools', 'build_details.py')).read())
 out = dict(bounds=[MINX, MINZ, MAXX, MAXZ], origin=[LAT0, LON0], names=names, roads=roads,
            buildings=buildings, areas=areas, ocean=ocean, piers=linear, towers=towers,
            landmarks=landmarks, details=details,
-           graph=dict(nodes=nodes, edges=edges))
+           graph=dict(nodes=nodes, edges=edges, ids=node_ids))
 path = os.path.join(ROOT, 'data', 'map.json')
 json.dump(out, open(path, 'w'), separators=(',', ':'))
 print('roads', len(roads), 'buildings', len(buildings), 'graph nodes', len(nodes) // 2,

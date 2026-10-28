@@ -22,6 +22,7 @@ const ITEMS = {
   globe: { name: 'Surfers snow globe', price: 18, keep: true }, koala: { name: 'Koala keyring', price: 8, keep: true }, magnet: { name: 'Surfboard magnet', price: 6, keep: true },
   sunnies: { name: 'Sunnies', price: 25, wear: 'sunnies' }, cap: { name: 'Cap', price: 20, wear: 'cap' },
   outfit: { name: 'Change your outfit', price: 30, outfit: true },
+  repair: { name: 'Repair your car (park at the pumps)', price: 60, repair: true },
   rest: { name: 'Room for the night (full health, wake at 8am)', price: 90, rest: true },
   pistol: { name: 'Pistol + 36 rounds', price: 300, weapon: 'pistol', ammo: 36 }, smg: { name: 'SMG + 120 rounds', price: 1200, weapon: 'smg', ammo: 120 },
   shotgun: { name: 'Shotgun + 16 shells', price: 900, weapon: 'shotgun', ammo: 16 },
@@ -32,6 +33,7 @@ const ITEMS = {
 function shopKind(cat, name) {
   const n = name.toLowerCase();
   if (cat === 8) return 'bank';
+  if (cat === 9) return 'fuel';
   if (/ripley/.test(n) && !/cargo/.test(n)) return 'ripley';
   if (/timezone|arcade/.test(n)) return 'arcade';
   if (/escape/.test(n)) return 'escape';
@@ -66,6 +68,7 @@ function menuFor(shop) {
     case 'hotel': return ['rest', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
+    case 'fuel': return ['repair', 'energy', 'soda', 'fries', 'medkit'];
     default: return /souvenir|gift|koala|paradise/.test(n) ? ['globe', 'koala', 'magnet', 'sunnies'] : ['soda', 'energy', 'globe', 'magnet'];
   }
 }
@@ -162,6 +165,39 @@ function furnish(B, sh, P) {
     if (space > 1.6) ibox(B, P, u0 + 0.6, u0 + 2.4, 1.0, 1.8, 0, 0.5, '#4a5a6a');
   }
 }
+// a walk-in shop room behind a shopfront: sh needs ax, az (edge start), ex, ez (along), ix, iz (inward), t0, t1, depth, kind.
+// Walls go to segFn(ax, az, bx, bz, height) so the Surfers core and streamed tiles can each keep their own.
+function buildInterior(B, G, boards, sh, segFn) {
+  const { t0, t1, depth, kind } = sh;
+  sh.counterV = depth < 4.6 ? depth - 1.5 : Math.min(depth * 0.58, depth - 1.6);
+  const P = roomFrame(sh), wc = col(WALLC[kind] || '#f0ebe0'), fc = col(FLOORS[kind] || '#d8cdbb'), H = 3.5;
+  quad4(B, P(t0, 0.02, 0.025), P(t1, 0.02, 0.025), P(t1, depth, 0.025), P(t0, depth, 0.025), fc, 0.95);
+  quad4(B, P(t0, 0, H), P(t1, 0, H), P(t1, depth, H), P(t0, depth, H), wc, 1.0);
+  quad4(B, P(t0, depth, 0), P(t1, depth, 0), P(t1, depth, H), P(t0, depth, H), wc, 0.9);
+  quad4(B, P(t0, 0, 0), P(t0, depth, 0), P(t0, depth, H), P(t0, 0, H), wc, 0.8);
+  quad4(B, P(t1, 0, 0), P(t1, depth, 0), P(t1, depth, H), P(t1, 0, H), wc, 0.8);
+  for (let u = t0 + 1; u < t1 - 0.6; u += 2.2) ibox(B, P, u, u + 1.2, depth * 0.3, depth * 0.3 + 0.5, H - 0.04, H - 0.01, '#ffffff'); // lights
+  // glass shopfront with a doorway in the middle
+  const uc = (t0 + t1) / 2;
+  for (const [a, b2] of [[t0, uc - 0.85], [uc + 0.85, t1]]) quad4(G, P(a, 0.03, 0), P(b2, 0.03, 0), P(b2, 0.03, 3.4), P(a, 0.03, 3.4), col('#ffffff'), 1);
+  for (const u of [t0, uc - 0.85, uc + 0.85, t1]) ibox(B, P, u - 0.04, u + 0.04, -0.02, 0.06, 0, 3.6, '#2a2f33');
+  ibox(B, P, t0, t1, -0.02, 0.06, 3.4, 3.6, '#2a2f33');
+  furnish(B, sh, P);
+  // walls and counter you bump into
+  const wp = (u, v) => P(u, v, 0);
+  const seg = (p, q2, h) => segFn(p[0], p[2], q2[0], q2[2], h);
+  seg(wp(t0, 0), wp(t0, depth), 3.5); seg(wp(t1, 0), wp(t1, depth), 3.5); seg(wp(t0, depth), wp(t1, depth), 3.5);
+  seg(wp(t0 + 0.45, sh.counterV - 0.4), wp(t1 - 0.45, sh.counterV - 0.4), 1.1);
+  seg(wp(t0 + 0.45, sh.counterV - 0.4), wp(t0 + 0.45, sh.counterV + 0.4), 1.1); seg(wp(t1 - 0.45, sh.counterV - 0.4), wp(t1 - 0.45, sh.counterV + 0.4), 1.1);
+  // menu board on the back wall
+  const bw = Math.min(3.4, t1 - t0 - 1), mat = menuTexture(kind);
+  if (!boards.has(mat)) boards.set(mat, newBuf());
+  const MB = boards.get(mat), c0 = P(uc - bw / 2, depth - 0.04, 2.2), c1 = P(uc + bw / 2, depth - 0.04, 2.2), c2 = P(uc + bw / 2, depth - 0.04, 3.1), c3 = P(uc - bw / 2, depth - 0.04, 3.1);
+  MB.pos.push(...c0, ...c1, ...c2, ...c0, ...c2, ...c3); MB.uv.push(1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1);
+  const kp = P(uc, sh.counterV + 0.75, 0); sh.kx = kp[0]; sh.kz = kp[2];
+  const dp = P(uc, -1.4, 0); sh.dx = dp[0]; sh.dz = dp[2];
+  const cp = P(uc, sh.counterV - 0.9, 0); sh.cx = cp[0]; sh.cz = cp[2];
+}
 function buildShops() {
   const B = newBuf(), G = newBuf(), boards = new Map();
   for (const q of D.signs) {
@@ -172,34 +208,7 @@ function buildShops() {
       const f = MAP.buildings[bi].slice(3), n = f.length / 2;
       const ax = f[2 * k], az = f[2 * k + 1], bx = f[(2 * k + 2) % (2 * n)], bz = f[(2 * k + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az);
       Object.assign(sh, { ax, az, ex: (bx - ax) / L, ez: (bz - az) / L, ix: -nx, iz: -nz, t0, t1, depth });
-      sh.counterV = depth < 4.6 ? depth - 1.5 : Math.min(depth * 0.58, depth - 1.6);
-      const P = roomFrame(sh), wc = col(WALLC[kind] || '#f0ebe0'), fc = col(FLOORS[kind] || '#d8cdbb'), H = 3.5;
-      quad4(B, P(t0, 0.02, 0.025), P(t1, 0.02, 0.025), P(t1, depth, 0.025), P(t0, depth, 0.025), fc, 0.95);
-      quad4(B, P(t0, 0, H), P(t1, 0, H), P(t1, depth, H), P(t0, depth, H), wc, 1.0);
-      quad4(B, P(t0, depth, 0), P(t1, depth, 0), P(t1, depth, H), P(t0, depth, H), wc, 0.9);
-      quad4(B, P(t0, 0, 0), P(t0, depth, 0), P(t0, depth, H), P(t0, 0, H), wc, 0.8);
-      quad4(B, P(t1, 0, 0), P(t1, depth, 0), P(t1, depth, H), P(t1, 0, H), wc, 0.8);
-      for (let u = t0 + 1; u < t1 - 0.6; u += 2.2) ibox(B, P, u, u + 1.2, depth * 0.3, depth * 0.3 + 0.5, H - 0.04, H - 0.01, '#ffffff'); // lights
-      // glass shopfront with a doorway in the middle
-      const uc = (t0 + t1) / 2;
-      for (const [a, b2] of [[t0, uc - 0.85], [uc + 0.85, t1]]) quad4(G, P(a, 0.03, 0), P(b2, 0.03, 0), P(b2, 0.03, 3.4), P(a, 0.03, 3.4), col('#ffffff'), 1);
-      for (const u of [t0, uc - 0.85, uc + 0.85, t1]) ibox(B, P, u - 0.04, u + 0.04, -0.02, 0.06, 0, 3.6, '#2a2f33');
-      ibox(B, P, t0, t1, -0.02, 0.06, 3.4, 3.6, '#2a2f33');
-      furnish(B, sh, P);
-      // walls and counter you bump into
-      const wp = (u, v) => P(u, v, 0);
-      const seg = (p, q2, h) => addSeg(p[0], p[2], q2[0], q2[2], h);
-      seg(wp(t0, 0), wp(t0, depth), 3.5); seg(wp(t1, 0), wp(t1, depth), 3.5); seg(wp(t0, depth), wp(t1, depth), 3.5);
-      seg(wp(t0 + 0.45, sh.counterV - 0.4), wp(t1 - 0.45, sh.counterV - 0.4), 1.1);
-      seg(wp(t0 + 0.45, sh.counterV - 0.4), wp(t0 + 0.45, sh.counterV + 0.4), 1.1); seg(wp(t1 - 0.45, sh.counterV - 0.4), wp(t1 - 0.45, sh.counterV + 0.4), 1.1);
-      // menu board on the back wall
-      const bw = Math.min(3.4, t1 - t0 - 1), mat = menuTexture(kind);
-      if (!boards.has(mat)) boards.set(mat, newBuf());
-      const MB = boards.get(mat), c0 = P(uc - bw / 2, depth - 0.04, 2.2), c1 = P(uc + bw / 2, depth - 0.04, 2.2), c2 = P(uc + bw / 2, depth - 0.04, 3.1), c3 = P(uc - bw / 2, depth - 0.04, 3.1);
-      MB.pos.push(...c0, ...c1, ...c2, ...c0, ...c2, ...c3); MB.uv.push(1, 0, 0, 0, 0, 1, 1, 0, 0, 1, 1, 1);
-      const kp = P(uc, sh.counterV + 0.75, 0); sh.kx = kp[0]; sh.kz = kp[2];
-      const dp = P(uc, -1.4, 0); sh.dx = dp[0]; sh.dz = dp[2];
-      const cp = P(uc, sh.counterV - 0.9, 0); sh.cx = cp[0]; sh.cz = cp[2];
+      buildInterior(B, G, boards, sh, addSeg);
     } else {
       sh.cx = x + nx * 1.6; sh.cz = z + nz * 1.6; sh.dx = sh.cx; sh.dz = sh.cz;
     }
@@ -298,6 +307,11 @@ function buy(id) {
   if (player.money < it.price) return;
   if (it.outfit) { player.money -= it.price; closeShop(); openWardrobe({ name: 'Change rooms' }); return; }
   if (it.game) { player.money -= it.price; closeShop(); startMiniGame(it.game); return; }
+  if (it.repair) {
+    const c = cars.filter((q) => (q.kind === 'abandoned' || q === player.car) && !q.dead && Math.hypot(q.x - player.x, q.z - player.z) < 25).sort((p, q) => Math.hypot(p.x - player.x, p.z - player.z) - Math.hypot(q.x - player.x, q.z - player.z))[0];
+    if (!c) { toast('Drive your car up to the pumps first'); return; }
+    player.money -= it.price; c.health = 100; c.burn = -1; toast('Car repaired — good as new'); sfxTone([523, 784], 0.2, 0.06, 'triangle'); return;
+  }
   if (it.prize) {
     if ((player.items.tickets || 0) < 40) { toast(`You need 40 tickets (you have ${player.items.tickets || 0})`); return; }
     player.items.tickets -= 40; player.items.plush = (player.items.plush || 0) + 1; toast('You won a Timezone plushie!'); saveGame(); return;
