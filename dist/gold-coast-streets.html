@@ -3129,6 +3129,25 @@ function devRebuild() {
   const mall = D.mall, ml = [];
   for (let i = 0; i < mall.length - 2; i += 2) ml.push(mall[i], 0.3, mall[i + 1], mall[i + 2], 0.3, mall[i + 3]);
   lines(ml, 0xffffff);
+  // streamed terrain: tile (chunk) boundaries draped on the ground, and every fence or wall with its source
+  const seams = [], bcol = { fence: [], wall: [], hedge: [], rail: [], house: [] }, ticks = [];
+  for (const T of TILES.values()) {
+    if (Math.abs(T.x0 + 500 - player.x) > 1200 || Math.abs(T.z0 + 500 - player.z) > 1200) continue;
+    for (let t = 0; t < 1000; t += 10) for (const [ax, az, bx, bz] of [[T.x0 + t, T.z0, T.x0 + t + 10, T.z0], [T.x0, T.z0 + t, T.x0, T.z0 + t + 10]])
+      seams.push(ax, groundAt(ax, az) + 0.4, az, bx, groundAt(bx, bz) + 0.4, bz);
+    for (const B of T.barriers || []) {
+      if (Math.abs(B.pts[0] - player.x) > 160 || Math.abs(B.pts[1] - player.z) > 160) continue;
+      const arr = bcol[B.cls] || bcol.fence;
+      for (let q = 0; q + 3 < B.pts.length; q += 2) {
+        const ax = B.pts[q], az = B.pts[q + 1], bx = B.pts[q + 2], bz = B.pts[q + 3];
+        arr.push(ax, groundAt(ax, az) + B.h + 0.15, az, bx, groundAt(bx, bz) + B.h + 0.15, bz);
+        ticks.push(ax, groundAt(ax, az), az, ax, groundAt(ax, az) + B.h + 0.6, az);
+      }
+    }
+    for (const F of T.fences || []) if (Math.abs(F[0] - player.x) < 160 && Math.abs(F[1] - player.z) < 160) bcol.house.push(F[0], groundAt(F[0], F[1]) + 1.75, F[1], F[2], groundAt(F[2], F[3]) + 1.75, F[3]);
+  }
+  lines(seams, 0x00e5ff); lines(ticks, 0xffffff);
+  lines(bcol.fence, 0xff9a3c); lines(bcol.wall, 0xb0b0b0); lines(bcol.hedge, 0x33d17a); lines(bcol.rail, 0xffe14d); lines(bcol.house, 0xff4fd8);
 }
 // project a point onto the mall: distance along it, side (+1 south, -1 north), distance from the centreline
 function devMallProj(x, z) {
@@ -3171,7 +3190,13 @@ function devUpdate() {
   if (Math.hypot(player.x - DEV.lastX, player.z - DEV.lastZ) > 40) devRebuild();
   const p = devMallProj(player.x, player.z), near = SHOPS.reduce((a, s) => (Math.hypot(s.dx - player.x, s.dz - player.z) < (a ? Math.hypot(a.dx - player.x, a.dz - player.z) : 1e9) ? s : a), null);
   const [status, order, ref] = near ? devMeta(near) : ['', '', ''];
-  $('dev').innerHTML = `<b>INSPECT</b> x ${player.x.toFixed(1)} · z ${player.z.toFixed(1)}<br>mall ${p.d < 25 ? `${p.s.toFixed(1)} m · ${p.side > 0 ? 'south' : 'north'} side` : '—'}<br>nearest: ${near ? `${near.name} (${order || 'off-mall'})<br>${near.id}<br>${status} · ${ref}` : '—'}<br>mall order issues: ${DEV.report ? DEV.report.issues.length : '?'} · draw calls ${renderer.info.render.calls}`;
+  $('dev').innerHTML = `<b>INSPECT</b> x ${player.x.toFixed(1)} · z ${player.z.toFixed(1)}<br>mall ${p.d < 25 ? `${p.s.toFixed(1)} m · ${p.side > 0 ? 'south' : 'north'} side` : '—'}<br>nearest: ${near ? `${near.name} (${order || 'off-mall'})<br>${near.id}<br>${status} · ${ref}` : '—'}<br>mall order issues: ${DEV.report ? DEV.report.issues.length : '?'} · draw calls ${renderer.info.render.calls}${devTerrainText()}`;
+}
+// terrain readout: game height, height above sea level, slope, the tile it comes from and the data behind it
+function devTerrainText() {
+  const g = groundAt(player.x, player.z), [sx, sz] = groundSlope(player.x, player.z), T = tileAt(player.x, player.z);
+  const src = inCore(player.x, player.z) ? 'Surfers core: flat (hand-built)' : T && T.hgt ? 'Qld LiDAR DEM (5 m), sampled every 10 m, 3x3 smoothed' : 'no height data (flat)';
+  return `<br><b>TERRAIN</b> ${g.toFixed(2)} m game · ~${(g > 0.01 ? g + 3 : '≤3')}${g > 0.01 ? ' m' : ''} above sea · slope ${(Math.hypot(sx, sz) * 100).toFixed(1)}%<br>tile ${T ? T.k : '—'} · ${src}<br><span style="color:#00e5ff">cyan: tile edges</span> · <span style="color:#ff9a3c">fence</span> · <span style="color:#b0b0b0">wall</span> · <span style="color:#33d17a">hedge</span> · <span style="color:#ffe14d">railing</span> · <span style="color:#ff4fd8">house side fence (estimated)</span>`;
 }
 window.gcsDev = { toggle: () => devToggle(), mallCheck: () => devMallCheck(), shop: (q) => SHOPS.filter((s) => s.name.toLowerCase().includes(String(q).toLowerCase()) || s.id === q) };
 
@@ -3971,6 +3996,64 @@ function clipToRing(ax, az, bx, bz, f) {
   return out;
 }
 
+// ---------------------------------------------------------------- real fences, walls, hedges and railings (OpenStreetMap barrier=*)
+const BARRIER_KIND = ['fence', 'wall', 'hedge', 'rail', 'wall'];
+const BARRIER_COL = [col('#6f6a5e'), col('#cfc7b8'), col('#3d6b2e'), col('#a3a8ad'), col('#9e9686')];
+const POST_GEO = new THREE.BoxGeometry(0.1, 1, 0.1).translate(0, 0.5, 0);
+function tileBarriers(T, data, segs) {
+  T.barriers = [];
+  if (!data.barriers || !data.barriers.length) return;
+  const B = newBuf(), posts = [];
+  for (const b of data.barriers) {
+    const cls = b[0], h = b[1], pts = b.slice(2), c = BARRIER_COL[cls], thick = cls === 2 ? 0.45 : cls === 1 || cls === 4 ? 0.12 : 0.03;
+    T.barriers.push({ cls: BARRIER_KIND[cls], h, pts });
+    for (let q = 0; q + 3 < pts.length; q += 2) {
+      const ax = pts[q], az = pts[q + 1], bx = pts[q + 2], bz = pts[q + 3], L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
+      const ex = (bx - ax) / L, ez = (bz - az) / L, nx = -ez, nz = ex, steps = Math.max(1, Math.ceil(L / 2.5));
+      segs.push(ax, az, bx, bz, h);
+      for (let k = 0; k < steps; k++) { // short panels so the top follows the slope
+        const t0 = (k / steps) * L, t1 = ((k + 1) / steps) * L, px = ax + ex * t0, pz = az + ez * t0, qx = ax + ex * t1, qz = az + ez * t1;
+        const g0 = groundAt(px, pz), g1 = groundAt(qx, qz);
+        for (const sd of [1, -1]) { // both faces, each a little off the line
+          const ox = nx * thick * sd, oz = nz * thick * sd, s0 = B.pos.length;
+          wallInto(B, px + ox, pz + oz, qx + ox, qz + oz, 0, 1, nx * sd, nz * sd, c);
+          for (let v = s0; v < B.pos.length; v += 3) { const on1 = Math.abs(B.pos[v] - (qx + ox)) + Math.abs(B.pos[v + 2] - (qz + oz)) < 1e-4, g = on1 ? g1 : g0; B.pos[v + 1] = B.pos[v + 1] > 0.5 ? g + h : g - 0.15; }
+        }
+        if (thick > 0.05) { // a top cap on walls and hedges
+          const s0 = B.pos.length; triInto(B, [px + nx * thick, g0 + h, pz + nz * thick], [qx + nx * thick, g1 + h, qz + nz * thick], [qx - nx * thick, g1 + h, qz - nz * thick], 1);
+          triInto(B, [px + nx * thick, g0 + h, pz + nz * thick], [qx - nx * thick, g1 + h, qz - nz * thick], [px - nx * thick, g0 + h, pz - nz * thick], 1);
+          for (let v = s0; v < B.pos.length; v += 3) { B.nor.push(0, 1, 0); B.col.push(c.r, c.g, c.b); }
+        }
+        if (cls === 0 || cls === 3) posts.push([px, g0, pz, h]);
+      }
+      if (cls === 0 || cls === 3) posts.push([bx, groundAt(bx, bz), bz, h]);
+    }
+  }
+  if (B.pos.length) { const g = toGeometry(B), m = new THREE.Mesh(g, buildingMats.plain); m.castShadow = true; m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); }
+  if (posts.length) {
+    const im = new THREE.InstancedMesh(POST_GEO, new THREE.MeshStandardMaterial({ color: col('#4f4b44'), roughness: 0.8 }), posts.length), m4 = new THREE.Matrix4(), sc = new THREE.Vector3(), v = new THREE.Vector3(), q = new THREE.Quaternion();
+    posts.forEach(([x, y, z, h], k) => { m4.compose(v.set(x, y - 0.1, z), q, sc.set(1, h + 0.15, 1)); im.setMatrixAt(k, m4); });
+    im.castShadow = true; im.frustumCulled = false; T.meshes.push(im); T.disposables.push(im, im.material);
+  }
+}
+// school entrance signs: a name board on two posts, readable from both sides
+function tileSigns(T, data) {
+  if (!data.signs || !data.signs.length) return;
+  const c = document.createElement('canvas'); c.width = 1024; c.height = 1024; const x = c.getContext('2d'), B = newBuf(), P = newBuf();
+  data.signs.slice(0, 32).forEach(([sx, sz, ang, nm], n) => {
+    const u = (n % 2) * 512, v = Math.floor(n / 2) * 64;
+    x.fillStyle = '#123d6b'; x.fillRect(u, v, 512, 64); x.fillStyle = '#f6c445'; x.fillRect(u, v + 56, 512, 8);
+    x.save(); x.translate(u, v); fitFont(x, nm, 488, 40, '700', FONT.cond); x.fillStyle = '#ffffff'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText(nm, 256, 30); x.restore();
+    const nx = Math.sin(ang), nz = Math.cos(ang), g = groundAt(sx, sz), w = Math.min(7, 0.17 * nm.length + 2.5), uv = { u0: u / 1024, u1: (u + 512) / 1024, v0: 1 - (v + 64) / 1024, v1: 1 - v / 1024 };
+    quadInto(B, sx + nx * 0.06, g + 1.6, sz + nz * 0.06, nx, nz, w, w / 8, uv); quadInto(B, sx - nx * 0.06, g + 1.6, sz - nz * 0.06, -nx, -nz, w, w / 8, uv);
+    for (const sd of [-1, 1]) boxInto(P, sx + nz * sd * w * 0.42, g - 0.2, sz - nx * sd * w * 0.42, 0.12, 2.0, 0.12, col('#6f7478'));
+  });
+  const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding;
+  const m = new THREE.Mesh(toGeometry(B), new THREE.MeshStandardMaterial({ map: t, roughness: 0.6 })), pm = new THREE.Mesh(toGeometry(P), buildingMats.plain);
+  T.meshes.push(m, pm); T.disposables.push(m.geometry, m.material, t, pm.geometry);
+}
+const nearRealBarrier = (T, x, z, r) => (T.barriers || []).some((b) => { for (let q = 0; q + 3 < b.pts.length; q += 2) { const ax = b.pts[q], az = b.pts[q + 1], ex = b.pts[q + 2] - ax, ez = b.pts[q + 3] - az, L2 = ex * ex + ez * ez || 1, t = clamp(((x - ax) * ex + (z - az) * ez) / L2, 0, 1); if (Math.hypot(x - ax - ex * t, z - az - ez * t) < r) return true; } return false; });
+
 // ---------------------------------------------------------------- doors and fences, made with the tile
 const DOOR_W = { front: 1.0, back: 0.9 }, DOOR_H = 2.1;
 // openings for tileBuildings: edge index -> [[t0, t1, lintel above the base]], and the door records
@@ -3997,6 +4080,7 @@ const DOOR_COLS = ['#6e4a2f', '#8a5a36', '#2f3b45', '#3d4a3a', '#f0ede6', '#5a2f
 const FENCE_COL = col('#5f6b5a');
 // after the walls exist: fences in the side gaps beside each front wall, then the door panels
 function tileHouses(T, data, segs) {
+  tileBarriers(T, data, segs); tileSigns(T, data);
   if (!T.houses || !T.houses.length) return;
   const temp = makeGrid(segs, T.x0 - 60, T.z0 - 60, T.x0 + REGION.tile + 60, T.z0 + REGION.tile + 60);
   GRIDS.push(temp);
@@ -4013,6 +4097,7 @@ function tileHouses(T, data, segs) {
       const t = rayWalls(ox + sx * 0.12, oz + sz * 0.12, ox + sx * 6, oz + sz * 6, 1), len = t < 1 ? t * 5.88 + 0.12 : 3.5;
       if (len < 0.5 || !tileIsLand(ox + sx * len, oz + sz * len)) continue;
       const bx = ox + sx * len, bz = oz + sz * len;
+      if (nearRealBarrier(T, (ox + bx) / 2, (oz + bz) / 2, 3)) continue; // a mapped fence is already there
       segs.push(ox, oz, bx, bz, 1.6); T.fences.push([ox, oz, bx, bz]);
       const g0 = groundAt(ox, oz), g1 = groundAt(bx, bz);
       // panel as a thin wall both ways
@@ -4263,10 +4348,11 @@ function pushDoors(x, z, r) {
   return [x, z];
 }
 function nearFence(maxD) {
-  const T = tileAt(player.x, player.z); if (!T || !T.fences) return null;
+  const T = tileAt(player.x, player.z); if (!T) return null;
   const hx = Math.sin(player.h), hz = Math.cos(player.h);
   let best = null, bd = maxD;
-  for (const [ax, az, bx, bz] of T.fences) {
+  const all = (T.fences || []).concat((T.barriers || []).filter((b) => (b.cls === 'fence' || b.cls === 'rail') && b.h <= 2.1).flatMap((b) => { const o = []; for (let q = 0; q + 3 < b.pts.length; q += 2) o.push([b.pts[q], b.pts[q + 1], b.pts[q + 2], b.pts[q + 3]]); return o; }));
+  for (const [ax, az, bx, bz] of all) {
     const ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez || 1, t = clamp(((player.x - ax) * ex + (player.z - az) * ez) / L2, 0.02, 0.98);
     const px = ax + ex * t, pz = az + ez * t, dx = px - player.x, dz = pz - player.z, dd = Math.hypot(dx, dz);
     if (dd < bd && (dx * hx + dz * hz) > 0.3 * dd) { bd = dd; best = { px, pz, dx: dx / (dd || 1), dz: dz / (dd || 1) }; }

@@ -206,6 +206,10 @@ window.runRegression = async () => {
     const n = SPAWN_PLACES.length, north = SPAWN_PLACES.filter((p) => / — north$/.test(p[0])).length;
     expect(n > 40 && north >= 15, `${n} places, ${north} north`); return `${sw.length} skin tones, ${n} start places`;
   });
+  await test('registry: verified schools on the map and terrain readout in inspection mode', () => {
+    const em = REGION.search.find((e) => e[0] === 'Emmanuel College'); expect(em, 'Emmanuel College missing from the map');
+    expect(typeof devTerrainText === 'function' && /TERRAIN/.test(devTerrainText()), 'no terrain readout'); return 'Emmanuel College found; terrain readout ok';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

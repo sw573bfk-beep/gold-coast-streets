@@ -48,6 +48,25 @@ function devRebuild() {
   const mall = D.mall, ml = [];
   for (let i = 0; i < mall.length - 2; i += 2) ml.push(mall[i], 0.3, mall[i + 1], mall[i + 2], 0.3, mall[i + 3]);
   lines(ml, 0xffffff);
+  // streamed terrain: tile (chunk) boundaries draped on the ground, and every fence or wall with its source
+  const seams = [], bcol = { fence: [], wall: [], hedge: [], rail: [], house: [] }, ticks = [];
+  for (const T of TILES.values()) {
+    if (Math.abs(T.x0 + 500 - player.x) > 1200 || Math.abs(T.z0 + 500 - player.z) > 1200) continue;
+    for (let t = 0; t < 1000; t += 10) for (const [ax, az, bx, bz] of [[T.x0 + t, T.z0, T.x0 + t + 10, T.z0], [T.x0, T.z0 + t, T.x0, T.z0 + t + 10]])
+      seams.push(ax, groundAt(ax, az) + 0.4, az, bx, groundAt(bx, bz) + 0.4, bz);
+    for (const B of T.barriers || []) {
+      if (Math.abs(B.pts[0] - player.x) > 160 || Math.abs(B.pts[1] - player.z) > 160) continue;
+      const arr = bcol[B.cls] || bcol.fence;
+      for (let q = 0; q + 3 < B.pts.length; q += 2) {
+        const ax = B.pts[q], az = B.pts[q + 1], bx = B.pts[q + 2], bz = B.pts[q + 3];
+        arr.push(ax, groundAt(ax, az) + B.h + 0.15, az, bx, groundAt(bx, bz) + B.h + 0.15, bz);
+        ticks.push(ax, groundAt(ax, az), az, ax, groundAt(ax, az) + B.h + 0.6, az);
+      }
+    }
+    for (const F of T.fences || []) if (Math.abs(F[0] - player.x) < 160 && Math.abs(F[1] - player.z) < 160) bcol.house.push(F[0], groundAt(F[0], F[1]) + 1.75, F[1], F[2], groundAt(F[2], F[3]) + 1.75, F[3]);
+  }
+  lines(seams, 0x00e5ff); lines(ticks, 0xffffff);
+  lines(bcol.fence, 0xff9a3c); lines(bcol.wall, 0xb0b0b0); lines(bcol.hedge, 0x33d17a); lines(bcol.rail, 0xffe14d); lines(bcol.house, 0xff4fd8);
 }
 // project a point onto the mall: distance along it, side (+1 south, -1 north), distance from the centreline
 function devMallProj(x, z) {
@@ -90,6 +109,12 @@ function devUpdate() {
   if (Math.hypot(player.x - DEV.lastX, player.z - DEV.lastZ) > 40) devRebuild();
   const p = devMallProj(player.x, player.z), near = SHOPS.reduce((a, s) => (Math.hypot(s.dx - player.x, s.dz - player.z) < (a ? Math.hypot(a.dx - player.x, a.dz - player.z) : 1e9) ? s : a), null);
   const [status, order, ref] = near ? devMeta(near) : ['', '', ''];
-  $('dev').innerHTML = `<b>INSPECT</b> x ${player.x.toFixed(1)} · z ${player.z.toFixed(1)}<br>mall ${p.d < 25 ? `${p.s.toFixed(1)} m · ${p.side > 0 ? 'south' : 'north'} side` : '—'}<br>nearest: ${near ? `${near.name} (${order || 'off-mall'})<br>${near.id}<br>${status} · ${ref}` : '—'}<br>mall order issues: ${DEV.report ? DEV.report.issues.length : '?'} · draw calls ${renderer.info.render.calls}`;
+  $('dev').innerHTML = `<b>INSPECT</b> x ${player.x.toFixed(1)} · z ${player.z.toFixed(1)}<br>mall ${p.d < 25 ? `${p.s.toFixed(1)} m · ${p.side > 0 ? 'south' : 'north'} side` : '—'}<br>nearest: ${near ? `${near.name} (${order || 'off-mall'})<br>${near.id}<br>${status} · ${ref}` : '—'}<br>mall order issues: ${DEV.report ? DEV.report.issues.length : '?'} · draw calls ${renderer.info.render.calls}${devTerrainText()}`;
+}
+// terrain readout: game height, height above sea level, slope, the tile it comes from and the data behind it
+function devTerrainText() {
+  const g = groundAt(player.x, player.z), [sx, sz] = groundSlope(player.x, player.z), T = tileAt(player.x, player.z);
+  const src = inCore(player.x, player.z) ? 'Surfers core: flat (hand-built)' : T && T.hgt ? 'Qld LiDAR DEM (5 m), sampled every 10 m, 3x3 smoothed' : 'no height data (flat)';
+  return `<br><b>TERRAIN</b> ${g.toFixed(2)} m game · ~${(g > 0.01 ? g + 3 : '≤3')}${g > 0.01 ? ' m' : ''} above sea · slope ${(Math.hypot(sx, sz) * 100).toFixed(1)}%<br>tile ${T ? T.k : '—'} · ${src}<br><span style="color:#00e5ff">cyan: tile edges</span> · <span style="color:#ff9a3c">fence</span> · <span style="color:#b0b0b0">wall</span> · <span style="color:#33d17a">hedge</span> · <span style="color:#ffe14d">railing</span> · <span style="color:#ff4fd8">house side fence (estimated)</span>`;
 }
 window.gcsDev = { toggle: () => devToggle(), mallCheck: () => devMallCheck(), shop: (q) => SHOPS.filter((s) => s.name.toLowerCase().includes(String(q).toLowerCase()) || s.id === q) };

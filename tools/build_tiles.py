@@ -656,6 +656,39 @@ def scan_photo(ti, tj, tt):
                         crowns.append((x0 + (vx + 0.5) * P, z0 + (vy + 0.5) * P, 3.6))
     return pools, crowns
 
+# ---------------------------------------------------------------- school, hospital and shopping-centre grounds: their buildings aren't houses
+GROUNDS = []  # (kind, name, ring)
+for e in els:
+    t = e.get('tags', {})
+    k = 'school' if t.get('amenity') in ('school', 'college', 'university', 'kindergarten') else 'hospital' if t.get('amenity') == 'hospital' else 'mall' if t.get('shop') == 'mall' else None
+    if not k or e['type'] != 'way': continue
+    ring = ring_clean(geom(e))
+    if len(ring) >= 3: GROUNDS.append((k, t.get('name'), ring, min(q[0] for q in ring), min(q[1] for q in ring), max(q[0] for q in ring), max(q[1] for q in ring)))
+n_inst = 0
+for (ti, tj), tt in tiles.items():
+    for b in tt['buildings']:
+        if b[2] != 0: continue
+        f = b[3:]; cx = sum(f[0::2]) / (len(f) / 2); cz = sum(f[1::2]) / (len(f) / 2)
+        for k, nm, ring, x0, z0, x1, z1 in GROUNDS:
+            if x0 <= cx <= x1 and z0 <= cz <= z1 and pip((cx, cz), ring): b[2] = 2; n_inst += 1; break
+# a name sign at each school's street entrance (the grounds' edge nearest a drivable road)
+n_sign = 0
+for k, nm, ring, x0, z0, x1, z1 in GROUNDS:
+    if k != 'school' or not nm: continue
+    cx, cz = sum(q[0] for q in ring) / len(ring), sum(q[1] for q in ring) / len(ring)
+    rp = nearest_drive(cx, cz)
+    if not rp or in_core(*rp): continue
+    best, bd = None, 1e9
+    for i in range(len(ring)):
+        a, b2 = ring[i], ring[(i + 1) % len(ring)]; ex, ez = b2[0] - a[0], b2[1] - a[1]; L2 = ex * ex + ez * ez or 1
+        tt_ = max(0, min(1, ((rp[0] - a[0]) * ex + (rp[1] - a[1]) * ez) / L2)); px, pz = a[0] + ex * tt_, a[1] + ez * tt_
+        d = math.hypot(px - rp[0], pz - rp[1])
+        if d < bd: bd, best = d, (px, pz)
+    if not best or bd > 60: continue
+    dx, dz = cx - best[0], cz - best[1]; dl = math.hypot(dx, dz) or 1
+    sx, sz = best[0] + dx / dl * 3, best[1] + dz / dl * 3
+    T(tkey(sx, sz)).setdefault('signs', []).append([round(sx, 1), round(sz, 1), round(math.atan2(rp[0] - sx, rp[1] - sz), 2), nm]); n_sign += 1
+print('buildings in school/hospital/centre grounds made non-residential', n_inst, '| school entrance signs', n_sign)
 n_pool = n_tree = n_col = 0
 for (ti, tj), tt in tiles.items():
     tt['bdoor'] = [house_doors(b[3:]) if b[2] == 0 else 0 for b in tt['buildings']]
@@ -745,6 +778,56 @@ for ln in coast:
             run = []
         else: run.append(q)
     if len(run) > 1: ov_coast.append(flat(simplify(run, 1.5)))
+# ---------------------------------------------------------------- fences, walls, hedges and railings (OpenStreetMap barrier=*), with gate gaps
+BARRIER_CLS = {'fence': 0, 'wall': 1, 'city_wall': 1, 'hedge': 2, 'guard_rail': 3, 'handrail': 3, 'cable_barrier': 3, 'jersey_barrier': 3, 'retaining_wall': 4}
+BARRIER_H = {0: 1.5, 1: 1.8, 2: 1.4, 3: 0.85, 4: 1.0}
+n_bar = n_gate = 0
+bar_els = {}
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'barriers_*.json'))):
+    for e in json.load(open(path))['elements']: bar_els[(e['type'], e['id'])] = e
+gates = [proj(e['lat'], e['lon']) + (e['tags'].get('barrier'),) for e in bar_els.values() if e['type'] == 'node']
+GG = 20.0
+ggrid = {}
+for gx_, gz_, kind in gates: ggrid.setdefault((int(gx_ // GG), int(gz_ // GG)), []).append((gx_, gz_, kind))
+def gate_at(x, z):
+    for gx_, gz_, kind in ggrid.get((int(x // GG), int(z // GG)), ()):
+        if abs(gx_ - x) < 0.6 and abs(gz_ - z) < 0.6: return kind
+    return None
+for e in bar_els.values():
+    if e['type'] != 'way': continue
+    t = e.get('tags', {}); cls = BARRIER_CLS.get(t.get('barrier'))
+    if cls is None: continue
+    pts = geom(e)
+    if len(pts) < 2: continue
+    try: h = float(str(t.get('height', '')).replace('m', '').strip())
+    except ValueError: h = BARRIER_H[cls]
+    h = max(0.4, min(4.0, h))
+    # cut a gap at every mapped gate on the line (vehicle gates wider than pedestrian ones)
+    pieces, cur = [], [pts[0]]
+    for i in range(1, len(pts)):
+        a, b = pts[i - 1], pts[i]; g = gate_at(*b)
+        if g and g not in ('bollard',):
+            w = 3.5 if g in ('lift_gate', 'sliding_gate', 'swing_gate') else 1.2
+            L = math.hypot(b[0] - a[0], b[1] - a[1]) or 1
+            cut = max(0, L - w / 2) / L
+            cur.append((a[0] + (b[0] - a[0]) * cut, a[1] + (b[1] - a[1]) * cut)); pieces.append(cur); n_gate += 1
+            nxt = pts[i + 1] if i + 1 < len(pts) else None
+            if nxt:
+                L2 = math.hypot(nxt[0] - b[0], nxt[1] - b[1]) or 1; c2 = min(1, (w / 2) / L2)
+                cur = [(b[0] + (nxt[0] - b[0]) * c2, b[1] + (nxt[1] - b[1]) * c2)]
+            else: cur = []
+        else: cur.append(b)
+    if len(cur) > 1: pieces.append(cur)
+    for pc in pieces:
+        xs = [q[0] for q in pc]; zs = [q[1] for q in pc]
+        for ti in range(tkey(min(xs), 0)[0], tkey(max(xs), 0)[0] + 1):
+            for tj in range(tkey(0, min(zs))[1], tkey(0, max(zs))[1] + 1):
+                x0, z0 = ti * TILE, tj * TILE
+                for cpc in clip_polyline(pc, x0, z0, x0 + TILE, z0 + TILE):
+                    if len(cpc) < 2 or all(in_core(q[0], q[1]) for q in cpc): continue
+                    T((ti, tj)).setdefault('barriers', []).append([cls, round(h, 1)] + flat(cpc)); n_bar += 1
+print('barriers', n_bar, 'pieces; gate gaps', n_gate, '; gates and bollards mapped', len(gates))
+
 # ---------------------------------------------------------------- the map search: every named street and place, as [name, kind, x, z]
 SEARCH_KINDS = ['street', 'school', 'park', 'beach', 'hospital', 'shopping centre', 'shop', 'suburb', 'hotel', 'petrol', 'attraction', 'sport', 'food', 'service', 'transport']
 def search_kind(t):

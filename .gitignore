@@ -6,3 +6,4 @@ data/region/
 dist/tiles/
 data/region_fetch.log
 data/terrain_fetch.log
+data/barrier_fetch.log
