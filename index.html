@@ -291,6 +291,9 @@ const MAJOR = new Set([RT.motorway, RT.trunk, RT.primary, RT.secondary, RT.terti
 const ROADS = MAP.roads.map((r) => ({ type: r[0], w: r[1], name: r[2] >= 0 ? MAP.names[r[2]] : null, bridge: !!r[3], p: r.slice(4) }));
 
 // ---------------------------------------------------------------- renderer + scene
+// colour grade: a touch more saturation and contrast before the filmic curve (ACES alone washes the coast out)
+THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace('vec3 ACESFilmicToneMapping( vec3 color ) {',
+  'vec3 ACESFilmicToneMapping( vec3 color ) {\n\tfloat lum = dot( color, vec3( 0.2126, 0.7152, 0.0722 ) );\n\tcolor = max( mix( vec3( lum ), color, 1.18 ), 0.0 );\n\tcolor = pow( color, vec3( 1.06 ) ) * 1.04;');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -335,17 +338,26 @@ scene.add(sun, sun.target);
 // ---------------------------------------------------------------- sky dome
 const skyU = {
   top: { value: col('#3f8fd6') }, horizon: { value: col('#bfe3f2') }, bottom: { value: col('#8fb7c4') },
-  sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: col('#fff2d0') },
+  sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: col('#fff2d0') }, time: { value: 0 }, cloud: { value: 1 },
 };
 const skyMat = new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunCol; uniform vec3 sunDir; varying vec3 vDir;
+  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunCol; uniform vec3 sunDir; uniform float time; uniform float cloud; varying vec3 vDir;
+    float cH(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
+    float cN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(cH(i), cH(i + vec2(1.0, 0.0)), f.x), mix(cH(i + vec2(0.0, 1.0)), cH(i + vec2(1.0, 1.0)), f.x), f.y); }
     void main(){
       vec3 d = normalize(vDir); float h = d.y;
       vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.5)) : mix(horizon, bottom, clamp(-h * 6.0, 0.0, 1.0));
       float s = max(dot(d, normalize(sunDir)), 0.0);
       c += sunCol * (pow(s, 1200.0) * 8.0 + pow(s, 14.0) * 0.28);
+      if (h > 0.01) { // fair-weather cumulus drifting off the sea, thinning towards the horizon
+        vec2 uv = d.xz / (h + 0.12) * 1.6 + vec2(time * 0.006, time * 0.002);
+        float n = cN(uv) * 0.5 + cN(uv * 2.1) * 0.27 + cN(uv * 4.3) * 0.15 + cN(uv * 9.0) * 0.08;
+        float k = smoothstep(0.52, 0.78, n) * smoothstep(0.01, 0.2, h) * cloud;
+        vec3 lit = mix(horizon * 1.05, vec3(1.0), 0.75) * (0.75 + 0.35 * max(dot(normalize(sunDir), vec3(0.0, 1.0, 0.0)), 0.0)) + sunCol * pow(s, 6.0) * 0.4;
+        c = mix(c, mix(lit * 0.82, lit, smoothstep(0.55, 0.9, n)), k * 0.9);
+      }
       gl_FragColor = vec4(c, 1.0);
       #include <tonemapping_fragment>
       #include <encodings_fragment>
@@ -555,6 +567,30 @@ function maskAt(mask, x, z) {
 }
 const inCore = (x, z) => x >= MINX && x <= MAXX && z >= MINZ && z <= MAXZ;
 const isLand = (x, z) => (inCore(x, z) ? maskAt(landMask, x, z) === 1 : tileIsLand(x, z));
+// street furniture (lamp posts, poles) belongs beside the carriageway, never on it
+const CARRIAGEWAY = new Set([0, 1, 2, 3, 4, 5, 11, 12, 14]); // road types cars use, driveways and car-park lanes included
+function onCarriageway(roads, x, z, pad = 0.5) {
+  for (const r of roads) {
+    if (!CARRIAGEWAY.has(r[0])) continue;
+    const hw = r[1] / 2 + pad;
+    for (let i = 4; i < r.length - 2; i += 2) {
+      const ax = r[i], az = r[i + 1], ex = r[i + 2] - ax, ez = r[i + 3] - az;
+      if (Math.abs(x - ax) > 40 + Math.abs(ex) || Math.abs(z - az) > 40 + Math.abs(ez)) continue;
+      const L2 = ex * ex + ez * ez || 1, t = clamp(((x - ax) * ex + (z - az) * ez) / L2, 0, 1);
+      if (Math.hypot(x - ax - ex * t, z - az - ez * t) < hw) return true;
+    }
+  }
+  return false;
+}
+// the nearest spot just off the road, or null when there's no room (a lamp in the middle of an intersection)
+function besideRoad(roads, x, z) {
+  if (!onCarriageway(roads, x, z)) return [x, z];
+  for (const d of [1.5, 3, 4.5, 6]) for (let a = 0; a < 8; a++) {
+    const px = x + Math.cos(a * Math.PI / 4) * d, pz = z + Math.sin(a * Math.PI / 4) * d;
+    if (!onCarriageway(roads, px, pz)) return [px, pz];
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------- collision grid (building walls, trunks, poles)
 const CELL = 16;
@@ -600,6 +636,56 @@ function forSegs(x0, z0, x1, z1, fn) {
       const c = G.cells.get(cellKey(i, j)); if (!c) continue;
       for (const id of c) if (G.stamp[id] !== st) { G.stamp[id] = st; fn(G.segs, id * 5); }
     }
+  }
+}
+// ---------------------------------------------------------------- street furniture a car can knock over
+// lamp posts and bins are instances in shared meshes; a hard hit hides the instance, drops its collision and
+// swaps in a loose copy that topples (posts) or tumbles away (bins)
+const BREAKABLES = [], LOOSE = [];
+const _bm = new THREE.Matrix4(), _bzero = new THREE.Matrix4().makeScale(0, 0, 0);
+function addBreakable(x, z, parts, h, kind, tile) { BREAKABLES.push({ x, z, parts, h, kind, tile, broken: false }); }
+// clear the small collision boxes (posts, bins) standing at a point
+function knockWalls(x, z, r) {
+  forSegs(x - r, z - r, x + r, z + r, (S, o) => {
+    if (Math.abs(S[o] - S[o + 2]) > 1.2 || Math.abs(S[o + 1] - S[o + 3]) > 1.2) return;
+    if (Math.hypot((S[o] + S[o + 2]) / 2 - x, (S[o + 1] + S[o + 3]) / 2 - z) > r) return;
+    S[o] = S[o + 2] = 1e7; S[o + 1] = S[o + 3] = 1e7;
+  });
+}
+// called for a fast car just before it resolves walls: anything in its path breaks instead of stopping it
+function hitBreakables(c) {
+  const sp = c.speed; if (sp < 7) return;
+  const fx = Math.sin(c.h), fz = Math.cos(c.h);
+  for (const b of BREAKABLES) {
+    if (b.broken || Math.abs(b.x - c.x) > 5 || Math.abs(b.z - c.z) > 5) continue;
+    if (!c.offs.some((s) => Math.hypot(c.x + fx * s - b.x, c.z + fz * s - b.z) < c.r + 0.35)) continue;
+    b.broken = true; knockWalls(b.x, b.z, 0.7);
+    const gy = groundAt(b.x, b.z), g = new THREE.Group(); g.position.set(b.x, gy, b.z);
+    for (const [m, k] of b.parts) {
+      m.getMatrixAt(k, _bm); const piece = new THREE.Mesh(m.geometry, m.material); piece.applyMatrix4(_bm); piece.position.x -= b.x; piece.position.y -= gy; piece.position.z -= b.z;
+      piece.castShadow = true; g.add(piece); m.setMatrixAt(k, _bzero); m.instanceMatrix.needsUpdate = true;
+    }
+    scene.add(g);
+    const ux = c.vx / sp, uz = c.vz / sp;
+    LOOSE.push({ g, kind: b.kind, axis: new THREE.Vector3(uz, 0, -ux), ang: 0, av: 1.5 + sp * 0.12, vx: c.vx * (b.kind === 'bin' ? 0.9 : 0.25), vz: c.vz * (b.kind === 'bin' ? 0.9 : 0.25), vy: b.kind === 'bin' ? 3 + sp * 0.15 : 0, y: 0, t: 0 });
+    c.vx *= b.kind === 'bin' ? 0.93 : 0.72; c.vz *= b.kind === 'bin' ? 0.93 : 0.72; c.health -= b.kind === 'bin' ? 1 : 5;
+    if (c === player.car) { shake = Math.min(1, shake + (b.kind === 'bin' ? 0.1 : 0.35)); sfxNoise(0.35, b.kind === 'bin' ? 900 : 300, 0.5); }
+  }
+}
+function updateLoose(dt) {
+  for (let q = LOOSE.length - 1; q >= 0; q--) {
+    const L = LOOSE[q]; L.t += dt;
+    if (L.kind === 'bin') { // thrown: flies, bounces, rolls to a stop
+      L.vy -= 20 * dt; L.y += L.vy * dt; L.ang += L.av * 3 * dt;
+      if (L.y < 0) { L.y = 0; L.vy = Math.abs(L.vy) > 1.5 ? -L.vy * 0.35 : 0; L.vx *= 0.7; L.vz *= 0.7; L.av *= 0.7; }
+    } else if (L.ang < Math.PI / 2) { // toppling: gravity speeds it up the further it leans
+      L.av += (2 + 9 * Math.sin(L.ang)) * dt; L.ang = Math.min(Math.PI / 2, L.ang + L.av * dt);
+      if (L.ang >= Math.PI / 2 && L.av > 1) { L.av = 0; sfxNoise(0.2, 500, 0.25); }
+    }
+    const fr = Math.exp(-(L.kind === 'bin' && L.y > 0 ? 0.2 : 2.5) * dt); L.vx *= fr; L.vz *= fr;
+    L.g.position.x += L.vx * dt; L.g.position.z += L.vz * dt; L.g.position.y = groundAt(L.g.position.x, L.g.position.z) + L.y;
+    L.g.quaternion.setFromAxisAngle(L.axis, L.ang);
+    if (L.t > 40) { scene.remove(L.g); LOOSE.splice(q, 1); }
   }
 }
 function querySegs(x0, z0, x1, z1) { // core grid only (kept for older callers)
@@ -1762,7 +1848,8 @@ function buildProps() {
   instanced(bench, vc, D.props.bench, true, true);
   D.props.bench.forEach(([x, z]) => addBox(x, z, 0.4, 0.8));
   const bin = mergeGeos([paintGeo(new THREE.CylinderGeometry(0.3, 0.27, 0.95, 10).translate(0, 0.47, 0), '#2f5a3a'), paintGeo(new THREE.CylinderGeometry(0.32, 0.32, 0.08, 10).translate(0, 0.98, 0), '#c43a2a')]);
-  instanced(bin, vc, D.props.bin, false, true);
+  const binM = instanced(bin, vc, D.props.bin, false, true);
+  D.props.bin.forEach(([x, z], k) => addBreakable(x, z, [[binM, k]], 1, 'bin'));
   D.props.bin.forEach(([x, z]) => addBox(x, z, 0.3, 1));
   const shower = mergeGeos([paintGeo(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6).translate(0, 1.2, 0), '#c9ced2'), box(0.5, 0.05, 0.08, 0.22, 2.38, 0, '#c9ced2'), paintGeo(new THREE.CylinderGeometry(0.1, 0.06, 0.08, 8).translate(0.45, 2.32, 0), '#c9ced2'), box(0.9, 0.04, 0.9, 0, 0.02, 0, '#bdb6a8')]);
   instanced(shower, vc, D.props.shower, false, true);
@@ -1770,10 +1857,12 @@ function buildProps() {
   instanced(bubbler, vc, D.props.water, false, true);
   const shelter = mergeGeos([box(3.6, 0.08, 1.6, 0, 2.5, 0, '#e4e6e8'), box(3.6, 2.4, 0.04, 0, 1.25, -0.75, '#9fc4d4'), box(0.06, 2.5, 1.6, -1.78, 1.25, 0, '#5f6468'), box(0.06, 2.5, 1.6, 1.78, 1.25, 0, '#5f6468'), box(2.4, 0.06, 0.4, 0, 0.5, -0.5, '#5f6468'), box(0.5, 0.5, 0.05, 1.5, 2.15, 0.78, '#f2c200')]);
   const sm = instanced(shelter, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.2, transparent: true, opacity: 0.92 }), D.props.bus.map(([x, z]) => { const rd = roadNear(x, z, isDrive, 1); return rd ? [x + (x - rd.cx) / (rd.d || 1) * 1.2, z + (z - rd.cz) / (rd.d || 1) * 1.2] : [x, z]; }), true, true);
+  D.props.lamp = D.props.lamp.map(([x, z, ...rest]) => { const p = besideRoad(MAP.roads, x, z); return p && [p[0], p[1], ...rest]; }).filter(Boolean);
   const lampG = mergeGeos([paintGeo(new THREE.CylinderGeometry(0.06, 0.09, 5, 6).translate(0, 2.5, 0), '#55595d')]);
-  instanced(lampG, vc, D.props.lamp, false, true);
+  const poleM = instanced(lampG, vc, D.props.lamp, false, true);
   const globe = new THREE.SphereGeometry(0.25, 10, 8).translate(0, 5.1, 0);
-  instanced(globe, nightMat(new THREE.MeshStandardMaterial({ color: col('#f4efe2'), emissive: col('#ffd8a0'), emissiveIntensity: 0 }), 0, 3), D.props.lamp, false);
+  const globeM = instanced(globe, nightMat(new THREE.MeshStandardMaterial({ color: col('#f4efe2'), emissive: col('#ffd8a0'), emissiveIntensity: 0 }), 0, 3), D.props.lamp, false);
+  D.props.lamp.forEach(([x, z], k) => addBreakable(x, z, [[poleM, k], [globeM, k]], 5, 'lamp'));
   D.props.lamp.forEach(([x, z]) => addBox(x, z, 0.1, 5));
 }
 
@@ -4163,7 +4252,7 @@ async function loadTile(i, j) {
     tileRoads(T, data); await tileYield(); if (!TILES.has(k)) return;
     const plan = planFronts(data);
     const segs = tileBuildings(T, data, plan.fronts); await tileYield(); if (!TILES.has(k)) return;
-    tileTrees(T, data); tileLamps(T, data, segs);
+    tileTrees(T, data, segs); tileLamps(T, data, segs);
     tileShops(T, data, segs, plan); tileFuel(T, data, segs);
     tileTowerNames(T, data); tileSignals(T, data, segs);
     tileHouses(T, data, segs);
@@ -4179,6 +4268,7 @@ async function loadTile(i, j) {
 function unloadTile(k) {
   const T = TILES.get(k); if (!T) return;
   TILES.delete(k);
+  for (let q = BREAKABLES.length - 1; q >= 0; q--) if (BREAKABLES[q].tile === k) BREAKABLES.splice(q, 1);
   for (const H of HOUSE_ACTIVE.slice()) if (H.tile === k) disposeHouseInterior(H);
   for (const m of T.meshes) scene.remove(m);
   for (const d of T.disposables) d.dispose();
@@ -4419,7 +4509,7 @@ function tileBuildings(T, data, fronts) {
 
 // ---------------------------------------------------------------- trees and street lights
 const LEAFY_GEO = (() => {
-  const ico = new THREE.IcosahedronGeometry(1, 1), ip = ico.attributes.position;
+  const ico = new THREE.DodecahedronGeometry(1, 0), ip = ico.attributes.position; // 36 triangles a crown: there are thousands
   for (let q = 0; q < ip.count; q++) { const x = ip.getX(q), y = ip.getY(q), z = ip.getZ(q), k = 0.88 + 0.24 * (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 0.5 + 0.5); ip.setXYZ(q, x * k, y * k, z * k); }
   ico.computeVertexNormals();
   const tr = new THREE.CylinderGeometry(0.12, 0.2, 1, 6); tr.translate(0, 0.5, 0);
@@ -4427,7 +4517,22 @@ const LEAFY_GEO = (() => {
 })();
 const TREE_MATS = { trunk: new THREE.MeshStandardMaterial({ color: col('#8b7a62'), roughness: 0.95, envMapIntensity: 0.3 }), crown: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide, envMapIntensity: 0.3 }),
   ltrunk: new THREE.MeshStandardMaterial({ color: col('#6b5844'), envMapIntensity: 0.3 }), leaf: new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true, envMapIntensity: 0.3 }) };
-const GREENS = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a'].map(col);
+// leaves and palm fronds sway in the sea breeze: each instance moves out of step, more at the top
+const TREE_WIND = { value: 0 };
+function addWind(mat, amt) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.windT = TREE_WIND;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windT;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+#ifdef USE_INSTANCING
+{ float ph = instanceMatrix[3].x * 0.37 + instanceMatrix[3].z * 0.23; float w = sin(windT * 1.3 + ph) * 0.6 + sin(windT * 2.9 + ph * 1.7) * 0.25;
+  transformed.x += w * ${amt.toFixed(3)} * max(position.y + 1.0, 0.0); transformed.z += w * ${(amt * 0.6).toFixed(3)} * max(position.y + 1.0, 0.0); }
+#endif`);
+  };
+  return mat;
+}
+addWind(TREE_MATS.leaf, 0.035); addWind(TREE_MATS.crown, 0.05);
+const GREENS = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a', '#6f7f4a', '#7d8b5a', '#46663a', '#5d7444'].map(col); // greens plus grey-green gums
 // a lighter palm crown for the suburbs (7 fronds x 4 segments instead of 11 x 7)
 const LIGHT_CROWN = (() => {
   const pos = [], colr = [], r = mulberry32(42);
@@ -4446,29 +4551,94 @@ const LIGHT_CROWN = (() => {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3)); g.computeVertexNormals();
   return g;
 })();
-function tileTrees(T, data) {
+// extra trees the maps don't list: stands in parks and bush, and street trees along suburban verges
+function extraTrees(T, data, have) {
+  const r = mulberry32(T.i * 7349 + T.j * 1931), out = [], S = REGION.tile;
+  const used = new Set(), cell = (x, z) => Math.floor(x / 4) + ',' + Math.floor(z / 4);
+  for (const t of have) used.add(cell(t[0], t[1]));
+  const bcells = new Set(); // 4 m cells covered by a building (with a metre to spare)
+  for (const b of data.buildings) {
+    const f = b.slice(3); let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
+    for (let gx = Math.floor((x0 - 1) / 4); gx <= Math.floor((x1 + 1) / 4); gx++) for (let gz = Math.floor((z0 - 1) / 4); gz <= Math.floor((z1 + 1) / 4); gz++) bcells.add(gx + ',' + gz);
+  }
+  const ok = (x, z) => {
+    if (x < T.x0 || z < T.z0 || x >= T.x0 + S || z >= T.z0 + S) return false;
+    const c = cell(x, z); if (used.has(c) || bcells.has(c)) return false;
+    if (T.mask && T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] !== 1) return false;
+    if (onCarriageway(data.roads, x, z, 1.4)) return false;
+    used.add(c); return true;
+  };
+  const inRing = (x, z, f) => { let c = false; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) if ((f[i + 1] > z) !== (f[j + 1] > z) && x < ((f[j] - f[i]) * (z - f[i + 1])) / (f[j + 1] - f[i + 1]) + f[i]) c = !c; return c; };
+  // parks get a scattering, bush and scrub a dense stand
+  for (const [kind, per] of [['park', 260], ['grass', 420], ['wood', 55], ['scrub', 90]]) for (const poly of data.areas[kind] || []) {
+    const f = Array.isArray(poly[0]) ? poly[0] : poly; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
+    const n = Math.min(900, Math.round((x1 - x0) * (z1 - z0) / per));
+    for (let k = 0; k < n && out.length < 2400; k++) { const x = x0 + r() * (x1 - x0), z = z0 + r() * (z1 - z0); if (inRing(x, z, f) && ok(x, z)) out.push([x, z, r() < 0.12 ? 1 : 0]); }
+  }
+  // a tree or two in most yards
+  for (const b of data.buildings) {
+    if (b[2] !== 0 || out.length >= 4200) continue;
+    const f = b.slice(3); let cx = 0, cz = 0, rad = 0; const n = f.length / 2;
+    for (let q = 0; q < f.length; q += 2) { cx += f[q] / n; cz += f[q + 1] / n; }
+    for (let q = 0; q < f.length; q += 2) rad = Math.max(rad, Math.hypot(f[q] - cx, f[q + 1] - cz));
+    for (let k = 0, want = r() < 0.3 ? 0 : 1 + (r() < 0.45); k < want; k++) {
+      const a = r() * TAU, d = rad + 2 + r() * 5, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+      if (ok(x, z)) out.push([x, z, r() < 0.3 ? 1 : 0]);
+    }
+  }
+  // street trees on the verges of residential streets, with gaps
+  for (const rd of data.roads) {
+    if (rd[0] !== 4 || rd[3]) continue;
+    const off = rd[1] / 2 + 2.2; let acc = r() * 12;
+    for (let i = 4; i < rd.length - 2; i += 2) {
+      const ax = rd[i], az = rd[i + 1], bx = rd[i + 2], bz = rd[i + 3], L = Math.hypot(bx - ax, bz - az) || 1;
+      for (; acc < L; acc += 10 + r() * 7) for (const side of [1, -1]) {
+        if (r() < 0.3 || out.length >= 5200) continue;
+        const t = acc / L, x = ax + (bx - ax) * t + (bz - az) / L * off * side, z = az + (bz - az) * t - (bx - ax) / L * off * side;
+        if (ok(x, z)) out.push([x, z, r() < 0.2 ? 1 : 0, 0, 1]); // street trees stay modest
+      }
+      acc -= L;
+    }
+  }
+  return out;
+}
+function tileTrees(T, data, segs) {
   // dark water in the aerial photo can pass for tree canopy: nothing grows where the tile is water
-  const trees = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
+  const mapped = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
+  const trees = mapped.concat(extraTrees(T, data, mapped));
   const palms = trees.filter((t) => t[2] === 1), leafy = trees.filter((t) => t[2] !== 1);
   const trunkG = palmGeometries()[0], crownG = LIGHT_CROWN, r = mulberry32(T.i * 31 + T.j * 17);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
   if (palms.length) {
     const tm = new THREE.InstancedMesh(trunkG, TREE_MATS.trunk, palms.length), cm = new THREE.InstancedMesh(crownG, TREE_MATS.crown, palms.length);
     palms.forEach(([x, z], k) => {
-      const H = 6 + r() * 6, a = r() * TAU, gy = groundAt(x, z); e.set(0, a, 0); q.setFromEuler(e);
+      const H = 3 + r() * r() * 11, a = r() * TAU, gy = groundAt(x, z); e.set(0, a, 0); q.setFromEuler(e); // mostly mid-height, a few towering ones
       m4.compose(v.set(x, gy, z), q, sc.set(1, H, 1)); tm.setMatrixAt(k, m4);
-      e.set(0, r() * TAU, 0); q.setFromEuler(e); const s = 0.85 + r() * 0.3;
+      e.set(0, r() * TAU, 0); q.setFromEuler(e); const s = 0.6 + r() * 0.6;
       m4.compose(v.set(x + Math.cos(a) * 0.9, gy + H, z - Math.sin(a) * 0.9), q, sc.set(s, s, s)); cm.setMatrixAt(k, m4);
     });
     tm.castShadow = cm.castShadow = true; T.meshes.push(tm, cm); T.disposables.push(tm, cm);
   }
   if (leafy.length) {
     const lt = new THREE.InstancedMesh(LEAFY_GEO.tr, TREE_MATS.ltrunk, leafy.length), lc = new THREE.InstancedMesh(LEAFY_GEO.ico, TREE_MATS.leaf, leafy.length);
-    leafy.forEach(([x, z, , crown], k) => { // crowns measured from the aerial photo carry their radius
-      const R = crown ? crown * (0.85 + r() * 0.2) : 1.8 + r() * 1.8, H = crown ? 1.6 + R * 0.7 + r() * 1.5 : 2.2 + r() * 2.6, gy = groundAt(x, z);
-      m4.compose(v.set(x, gy, z), q.identity(), sc.set(1, H, 1)); lt.setMatrixAt(k, m4);
-      e.set(r(), r() * TAU, 0); q.setFromEuler(e); m4.compose(v.set(x, gy + H + R * 0.55, z), q, sc.set(R, R * (0.7 + r() * 0.25), R)); lc.setMatrixAt(k, m4);
+    leafy.forEach(([x, z, , crown, street], k) => { // crowns measured from the aerial photo carry their radius
+      let R, H, tw = 1;
+      if (crown) { R = crown * (0.85 + r() * 0.25); H = 1.4 + R * (0.6 + r() * 0.5) + r() * 2.5; }
+      else { // a mix of sizes: shrubs, small trees, shade trees and the odd big gum
+        const k2 = r(), big = street ? 0.85 : 0.88;
+        if (k2 < 0.25) { R = 0.7 + r() * 0.6; H = 0.3 + r() * 0.6; tw = 0.5; }
+        else if (k2 < 0.6) { R = 1.4 + r() * 1.0; H = 1.5 + r() * 1.5; }
+        else if (k2 < big) { R = 2.5 + r() * 1.3; H = 3 + r() * 2.2; }
+        else { R = 4 + r() * 2.5; H = 6 + r() * 5; tw = 1.7; }
+      }
+      const gy = groundAt(x, z);
+      m4.compose(v.set(x, gy, z), q.identity(), sc.set(tw, H, tw)); lt.setMatrixAt(k, m4);
+      const tall = R > 3.8 && r() < 0.6 ? 1.25 : 0.7 + r() * 0.25; // gums: taller, open crowns
+      e.set(r(), r() * TAU, 0); q.setFromEuler(e); m4.compose(v.set(x, gy + H + R * 0.55 * tall, z), q, sc.set(R, R * tall, R)); lc.setMatrixAt(k, m4);
       lc.setColorAt(k, GREENS[Math.floor(r() * GREENS.length)]);
+      if (R > 3 && segs) segs.push(x - 0.3 * tw, z - 0.3 * tw, x + 0.3 * tw, z + 0.3 * tw, H); // big trunks stop cars
     });
     lt.castShadow = lc.castShadow = true; T.meshes.push(lt, lc); T.disposables.push(lt, lc);
   }
@@ -4480,11 +4650,12 @@ const LAMP_GEOS = (() => {
   return { pole, arm, head, metal: new THREE.MeshStandardMaterial({ color: col('#9aa1a6'), metalness: 0.6, roughness: 0.4, envMapIntensity: 0.3 }) };
 })();
 function tileLamps(T, data, segs) {
-  const L = data.lamps; if (!L.length) return;
+  const L = data.lamps.map(([x, z, a]) => { const p = besideRoad(data.roads, x, z); return p && [p[0], p[1], a]; }).filter(Boolean); if (!L.length) return;
   const ms = [new THREE.InstancedMesh(LAMP_GEOS.pole, LAMP_GEOS.metal, L.length), new THREE.InstancedMesh(LAMP_GEOS.arm, LAMP_GEOS.metal, L.length), new THREE.InstancedMesh(LAMP_GEOS.head, lampMat, L.length)];
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   L.forEach(([x, z, a], k) => { e.set(0, a, 0); q.setFromEuler(e); m4.compose(v.set(x, groundAt(x, z), z), q, one); for (const m of ms) m.setMatrixAt(k, m4); segs.push(x - 0.14, z - 0.14, x + 0.14, z + 0.14, 8); });
   ms[0].castShadow = true;
+  L.forEach(([x, z], k) => addBreakable(x, z, ms.map((m) => [m, k]), 8, 'lamp', T.k));
   for (const m of ms) { T.meshes.push(m); T.disposables.push(m); }
 }
 
@@ -4928,8 +5099,12 @@ const nearRealBarrier = (T, x, z, r) => (T.barriers || []).some((b) => { for (le
 const DOOR_W = { front: 1.0, back: 0.9 }, DOOR_H = 2.1;
 // openings for tileBuildings: edge index -> [[t0, t1, lintel above the base]], and the door records
 function houseOpenings(data, bi, f, base) {
-  const d = data.bdoor && data.bdoor[bi]; if (!d) return null;
   const n = f.length / 2, cuts = new Map(), doors = [];
+  let d = data.bdoor && data.bdoor[bi];
+  if (!d || d[0] < 0) { // no street found when the map was built: the longest wall gets the front door, the one opposite the back
+    let q0 = -1, best = 0; for (let q = 0; q < n; q++) { const L = Math.hypot(f[(2 * q + 2) % (2 * n)] - f[2 * q], f[(2 * q + 3) % (2 * n)] - f[2 * q + 1]); if (L > best) { best = L; q0 = q; } }
+    d = [q0, n >= 4 ? (q0 + Math.floor(n / 2)) % n : -1];
+  }
   let floorY = -Infinity; for (let q = 0; q < n; q++) floorY = Math.max(floorY, groundAt(f[2 * q], f[2 * q + 1]));
   floorY += 0.12;
   ['front', 'back'].forEach((type, k) => {
@@ -5116,12 +5291,24 @@ function buildHouseInterior(H) {
     const m = new THREE.Mesh(LOOT_GEO, lootMat(L.kind.col)); m.scale.set(L.kind.w, L.kind.h, L.kind.w * 0.7); m.position.set(L.x, L.y + L.kind.h / 2, L.z); scene.add(m); L.mesh = m;
   }
   const grid = makeGrid(segs, H.x0, H.z0, H.x1, H.z1); GRIDS.push(grid);
-  H.inside = { mesh, geo, grid, loot, top };
+  // whoever's home: more of the household in at night
+  const residents = [], night = gameHour < 7 || gameHour > 19;
+  const want = H.called ? 0 : Math.max(0, [0, 1, 1, 2, 2, 2, 3, 4][Math.floor(r() * 8)] - (!night && r() < 0.4 ? 1 : 0));
+  for (let k = 0, tries = 0; k < want && tries < 40; tries++) {
+    const x = H.x0 + r() * (H.x1 - H.x0), z = H.z0 + r() * (H.z1 - H.z0);
+    if (!inRing(x, z, f) || resolveCircle(x, z, 0.4)) continue;
+    const p = new Ped(x, z, 0, 1, 0, 1); p.home = H; p.idle = r() * 4; p.h = r() * TAU; p.m.root.position.set(x, y0, z); peds.push(p); residents.push(p); k++;
+  }
+  H.inside = { mesh, geo, grid, loot, top, residents };
 }
 function disposeHouseInterior(H) {
   const I = H.inside; if (!I) return;
   scene.remove(I.mesh); I.geo.dispose(); I.mesh.material.dispose();
   for (const L of I.loot) if (L.mesh) scene.remove(L.mesh);
+  for (const p of I.residents || []) { // those still indoors go with the house; anyone who ran outside carries on down the street
+    if (inRing(p.x, p.z, H.f) || p.state === 'down') { p.remove(); continue; }
+    p.home = null; const ne = nearestEdge(p.x, p.z); if (ne.e >= 0) { p.e = ne.e; p.dir = 1; p.s = ne.s; } else p.gone = true;
+  }
   const gi = GRIDS.indexOf(I.grid); if (gi >= 0) GRIDS.splice(gi, 1);
   H.inside = null;
   const k = HOUSE_ACTIVE.indexOf(H); if (k >= 0) HOUSE_ACTIVE.splice(k, 1);
@@ -5811,6 +5998,7 @@ class Car {
     if (this.driver === 'player') this.stepTyres(dt); else this.stepSimple(dt);
     this.x += this.vx * dt; this.z += this.vz * dt;
     this.spin += (this.vf / this.spec.wr) * dt;
+    hitBreakables(this);
     this.collideWorld();
     this.stepGround(dt);
     // the shallow edge of the water can be driven through, slowly; out where it's deep the engine floods and the car is lost
@@ -6271,7 +6459,7 @@ class Ped {
       if (resolveCircle(this.x, this.z, 0.3)) { this.x = hitRes.x; this.z = hitRes.z; this.vx *= -0.3; this.vz *= -0.3; }
       R.rotation.x = lerp(R.rotation.x, this.faceDown ? Math.PI / 2 : -Math.PI / 2, Math.min(1, dt * 7));
       R.rotation.y += this.spin * dt * (this.y > 0 ? 1 : 0);
-      R.position.set(this.x, groundAt(this.x, this.z) + this.y + 0.13, this.z);
+      R.position.set(this.x, this.feet() + this.y + 0.13, this.z);
       animatePerson(P, 0, 0);
       if (!this.hard && this.downT > this.downDur) { this.state = 'getup'; this.t = 0; this.h = R.rotation.y; }
       if (this.hard && this.downT > 16) this.gone = true;
@@ -6280,7 +6468,7 @@ class Ped {
     if (this.state === 'getup') {
       this.t += dt; const k = Math.min(1, this.t / 0.75);
       R.rotation.x = lerp(this.faceDown ? Math.PI / 2 : -Math.PI / 2, 0, k * k);
-      R.position.set(this.x, groundAt(this.x, this.z) + 0.13 * (1 - k), this.z);
+      R.position.set(this.x, this.feet() + 0.13 * (1 - k), this.z);
       animatePerson(P, 0, 0); P.legL.rotation.x = P.legR.rotation.x = -1.2 * (1 - k); P.armL.rotation.x = P.armR.rotation.x = -0.8 * (1 - k);
       if (k >= 1) { R.rotation.x = 0; if (this.cop) this.state = 'chase'; else if (this.brave && player.mode === 'foot') this.state = 'fight'; else this.scare(player.x, player.z, rr(4, 7)); }
       return;
@@ -6289,7 +6477,7 @@ class Ped {
       this.t -= dt; this.x += this.vx * dt; this.z += this.vz * dt; this.vx *= 0.9; this.vz *= 0.9;
       R.rotation.x = -0.3 * Math.sin(Math.max(0, this.t) / 0.45 * Math.PI);
       if (this.t <= 0) { R.rotation.x = 0; this.state = this.cop ? 'chase' : this.brave ? 'fight' : 'flee'; if (this.state === 'flee') this.scare(player.x, player.z, rr(4, 7)); }
-      R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.y = this.h;
+      R.position.set(this.x, this.feet() + 0, this.z); R.rotation.y = this.h;
       return;
     }
     if (this.cop) { this.updateCop(dt); return; }
@@ -6308,12 +6496,18 @@ class Ped {
         if (before > 0.17 && this.punchT <= 0.17 && d < 1.5 && player.state === 'foot') { damagePlayer(6); sfxNoise(0.08, 1800, 0.18); shake = Math.min(1, shake + 0.15); player.kx = dx / d * 1.5; player.kz = dz / d * 1.5; }
       }
     } else if (this.state === 'flee') {
-      this.flee -= dt; sp = 4.8; mx = this.fx; mz = this.fz;
-      if (this.flee <= 0) {
+      this.flee -= dt; sp = this.home ? 3.4 : 4.8; mx = this.fx; mz = this.fz;
+      if (this.home && this.calling > 0) { this.updateHome(dt); sp = 1.6; } // backing away with the phone out
+      if (this.flee <= 0 && this.home) this.state = 'walk';
+      else if (this.flee <= 0) {
         const ne = nearestEdge(this.x, this.z);
         if (ne.e >= 0) { this.e = ne.e; this.dir = rand() < 0.5 ? 1 : -1; this.s = this.dir > 0 ? ne.s : EDGES[ne.e].len - ne.s; }
         this.state = 'walk';
       }
+    } else if (this.home) {
+      const m = this.updateHome(dt); if (m === 0) return;
+      if (!m) { R.position.set(this.x, this.feet(), this.z); R.rotation.set(0, this.h, 0); return; }
+      [mx, mz] = m; sp = 0.9;
     } else {
       const E = EDGES[this.e];
       if (!E) { this.gone = true; return; }
@@ -6339,7 +6533,7 @@ class Ped {
     }
     this.move(mx, mz, sp, dt);
     if (this.punchT > 0) P.armR.rotation.x = -1.5 * Math.sin((1 - this.punchT / 0.35) * Math.PI);
-    R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.set(0, this.h, 0);
+    R.position.set(this.x, this.feet() + 0, this.z); R.rotation.set(0, this.h, 0);
   }
   updateCop(dt) {
     const R = this.m.root, P = this.m;
@@ -6384,6 +6578,30 @@ class Ped {
     }
     this.move(mx, mz, sp, dt);
     R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.set(0, this.h, 0);
+  }
+  feet() { return this.home && inRing(this.x, this.z, this.home.f) ? this.home.floorY : groundAt(this.x, this.z); }
+  // people at home: potter between rooms; a stranger inside makes them fight or run and phone the police
+  updateHome(dt) {
+    const H = this.home, dx = player.x - this.x, dz = player.z - this.z, d = Math.hypot(dx, dz);
+    const intruder = player.state === 'foot' && (houseAt(player.x, player.z) === H ? d < 9 : d < 4 && rayWalls(this.x, this.z, player.x, player.z, 1.5) >= 1);
+    if (intruder && !this.alerted) {
+      this.alerted = true; sfxNoise(0.3, 1400, 0.25);
+      if (this.brave) { this.state = 'fight'; toast('“Get out of my house!”'); return 0; }
+      this.scare(player.x, player.z, rr(2, 4)); if (!H.called) { this.calling = 3.5; toast('Someone inside is phoning the police — stop them!'); }
+    }
+    if (this.calling > 0) {
+      this.calling -= dt;
+      if (this.calling <= 0 && !H.called) { H.called = true; addCrime(1, 'breakin', true); toast('The resident called the cops!'); }
+    }
+    if (this.idle > 0) { this.idle -= dt; animatePerson(this.m, this.phase, 0); return null; }
+    if (!this.goal || Math.hypot(this.goal[0] - this.x, this.goal[1] - this.z) < 0.5) {
+      this.idle = rr(1.5, 6);
+      for (let k = 0; k < 12; k++) { const x = rr(H.x0, H.x1), z = rr(H.z0, H.z1); if (inRing(x, z, H.f)) { this.goal = [x, z]; break; } }
+      return null;
+    }
+    const gx = this.goal[0] - this.x, gz = this.goal[1] - this.z, gd = Math.hypot(gx, gz) || 1;
+    if (rand() < dt * 0.15) this.goal = null; // a wall in the way: pick somewhere else now and then
+    return [gx / gd, gz / gd];
   }
   remove() { disposePerson(this.m); const i = peds.indexOf(this); if (i >= 0) peds.splice(i, 1); }
 }
@@ -7035,7 +7253,7 @@ function updateSky(dt) {
   const top = C_NIGHT_TOP.clone().lerp(C_DAY_TOP, day).lerp(C_SET_TOP, dusk * 0.6);
   const hor = C_NIGHT_HOR.clone().lerp(C_DAY_HOR, day).lerp(C_SET_HOR, dusk * 0.85);
   skyU.top.value.copy(top); skyU.horizon.value.copy(hor); skyU.bottom.value.copy(hor).multiplyScalar(0.75);
-  skyU.sunDir.value.copy(sunDir);
+  skyU.sunDir.value.copy(sunDir); skyU.time.value = elapsed; skyU.cloud.value = 0.35 + 0.65 * day; TREE_WIND.value = elapsed;
   skyU.sunCol.value.set(dusk > 0.3 ? '#ffb070' : '#fff2d0').multiplyScalar(smooth(-0.08, 0.05, el));
   scene.fog.color.copy(hor);
   if (el > -0.04) { lightDir.copy(sunDir); sun.intensity = 2.2 * day; sun.color.set('#fff0d8').lerp(col('#ff9a50'), dusk * 0.8); }
@@ -7523,7 +7741,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
