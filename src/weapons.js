@@ -131,13 +131,13 @@ function applyHit(hit, hp, d, dmg, byPlayer) {
     if (p.hp <= 0) p.knock(d[0] * 3.5, 1.4, d[2] * 3.5, true);
     else { p.state = 'stagger'; p.t = 0.4; p.vx = d[0] * 2; p.vz = d[2] * 2; }
     for (let i = 0; i < 4; i++) emit(hp[0], hp[1], hp[2], rr(-1, 1), rr(0, 2), rr(-1, 1), 0.25, 0.15, 0.05, '#f2e0c8', 1);
-    if (byPlayer) addCrime(p.cop ? 2 : 1, p.cop ? 'shootCop' : 'shootPed');
+    if (byPlayer) addCrime(p.cop ? 2 : 1, p.cop ? 'shootCop' : 'shootPed', p.cop);
   } else if (hit.kind === 'keeper') {
     if (byPlayer) { hit.obj.robbedAt = elapsed; addCrime(1, 'shootPed'); }
   } else if (hit.kind === 'car') {
     const c = hit.obj; c.health -= dmg * 7;
     for (let i = 0; i < 5; i++) emit(hp[0], hp[1], hp[2], rr(-2, 2), rr(0.5, 3), rr(-2, 2), 0.3, 0.12, 0.04, '#ffd27a', 1);
-    if (byPlayer && c.kind === 'police') addCrime(1, 'police');
+    if (byPlayer && c.kind === 'police') addCrime(1, 'shootCop', true);
     if (c.ai && c.kind === 'traffic') { c.ai.shock = 0; c.ai.mul = 1.6; } // drivers floor it away from gunfire
   } else if (hit.kind === 'player') {
     damagePlayer(6); shake = Math.min(1, shake + 0.2);
@@ -192,7 +192,7 @@ function updateRobbery(dt) {
     if (target.robT >= need) {
       const cash = target.kind === 'bank' ? Math.round(rr(25, 60)) * 100 : Math.round(rr(15, 45)) * 10;
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
-      addCrime(target.kind === 'bank' ? 4 : 2, 'robDone'); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
+      addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
       toast(`${target.kind === 'bank' ? 'Bank job done' : 'Cash register emptied'} · +$${cash} — get out of there!`); sfxTone([523, 659, 784], 0.4, 0.08, 'triangle');
       saveGame();
     }
@@ -200,7 +200,7 @@ function updateRobbery(dt) {
     robLost += dt;
     if (robLost > 1.2) {
       robbing.robT = 0; robbing.robbedAt = elapsed - 280; robbing = null; el.hidden = true;
-      addCrime(1, 'alarm'); toast('The alarm went off!');
+      addCrime(1, 'alarm', true); toast('The alarm went off!');
     }
   } else el.hidden = true;
 }

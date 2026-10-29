@@ -258,6 +258,35 @@ window.runRegression = async () => {
     expect(player.money === 0 && ECON.bank >= 420, 'deposit failed'); closeShop();
     ECON.home = null; ECON.bank = 0; player.money = 100; saveGame(); return 'room booked, $420 deposited';
   });
+  // ---------------------------------------------------------------- police: witnesses, no stacking, search area, fines
+  const quiet = () => { home(); player.stars = 0; crimeCool = {}; for (const r of reports) scene.remove(r.icon); reports.length = 0; searchArea = null;
+    for (const p of peds.slice()) if (Math.hypot(p.x - player.x, p.z - player.z) < 80) p.remove(); for (const c of cars.slice()) if (c.kind === 'police') c.remove(); };
+  await test('police: a crime nobody sees brings no stars', () => { quiet(); addCrime(1, 'ped'); expect(player.stars === 0 && !reports.length, 'stars ' + player.stars); return 'no witness, no stars'; });
+  await test('police: a witness phones it in after a few seconds', () => {
+    quiet(); const w = new Ped(player.x + 6, player.z, 0, 1, 0, 1); peds.push(w); addCrime(1, 'punch');
+    expect(reports.length === 1 && player.stars === 0, 'no report'); for (let k = 0; k < 300; k++) updateWanted(1 / 60);
+    expect(player.stars === 1, 'stars ' + player.stars); return 'witness called: 1 star';
+  });
+  await test('police: getting away before the call finishes means no stars', () => {
+    quiet(); const w = new Ped(player.x + 6, player.z, 0, 1, 0, 1); peds.push(w); addCrime(1, 'punch'); expect(reports.length === 1, 'no report');
+    player.x += 120; for (let k = 0; k < 300; k++) updateWanted(1 / 60); expect(player.stars === 0 && !reports.length, 'stars ' + player.stars); return 'call dropped';
+  });
+  await test('police: small crimes don\'t stack in a chase; serious ones do; five stars only for fighting the police', () => {
+    quiet(); player.stars = 2; addCrime(1, 'jack', true); expect(player.stars === 2, 'jack stacked');
+    addCrime(3, 'shootPed', true); expect(player.stars === 3, 'shooting should make 3, got ' + player.stars);
+    crimeCool = {}; player.stars = 4; addCrime(3, 'shootPed', true); expect(player.stars === 4, 'went past 4 without fighting police');
+    addCrime(3, 'shootCop', true); expect(player.stars === 5, 'fighting police at 4 should make 5'); player.stars = 0; return '2→2 (car), →3 (shooting), 4→5 only for shooting at police';
+  });
+  await test('police: leave the search circle and stay hidden to lose them; one star gives up', () => {
+    quiet(); player.stars = 2; lastSeen = { x: player.x, z: player.z }; updateWanted(1 / 60); expect(searchArea, 'no search area');
+    player.x += searchArea.r + 30; for (let k = 0; k < 60 * 9; k++) updateWanted(1 / 60); expect(player.stars === 0, 'still wanted: ' + player.stars);
+    quiet(); player.stars = 1; lastSeen = { x: player.x, z: player.z }; wantedT = 0; for (let k = 0; k < 60 * 31; k++) { player.starCool = 0; updateWanted(1 / 60); }
+    expect(player.stars === 0, 'one star did not give up'); return 'lost them after leaving the circle; 1 star gave up after 30 s';
+  });
+  await test('police: hands up at two stars pays a fine', () => {
+    quiet(); player.stars = 2; player.money = 500; const c = new Car('police', null, player.x + 20, player.z, 0); c.kind = 'police'; cars.push(c);
+    surrender(); const ok = player.stars === 0 && player.money === 350; c.remove(); expect(ok, `stars ${player.stars} money ${player.money}`); player.money = 100; return '$150 fine, stars cleared';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

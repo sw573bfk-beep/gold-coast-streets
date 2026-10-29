@@ -334,7 +334,7 @@ function updateHouses(dt) {
     else if (houseSeq.t > 1.6) {
       const d = houseSeq.door; houseSeq = null; d.target = 1; d.locked = false; sfxTone([660], 0.08, 0.04);
       const w = witnessed(d.x, d.z, 12);
-      if (w && rand() < 0.5) { addCrime(1, 'breakin'); toast('A neighbour saw you sneak in — cops called!'); } else toast('You slipped in the back door');
+      if (w && rand() < 0.5) { addCrime(1, 'breakin', true); toast('A neighbour saw you sneak in — cops called!'); } else toast('You slipped in the back door');
     }
   }
   // hints
@@ -364,7 +364,7 @@ function houseUse() {
   if (d.target > 0) { d.target = 0; return true; } // close it behind you
   if (d.type === 'front' && !d.kicked) {
     d.kicked = true; d.target = 1; player.punchT = 0.32; shake = Math.min(1, shake + 0.4); sfxNoise(0.25, 500, 0.6);
-    addCrime(2, 'breakin'); toast('You kicked the front door in — the neighbours called the cops!');
+    addCrime(2, 'breakin', true); toast('You kicked the front door in — the neighbours called the cops!');
     return true;
   }
   if (d.type === 'front') { d.target = 1; return true; }
@@ -401,7 +401,7 @@ function tryVault() {
   player.vault = { t: 0, fx: player.x, fz: player.z, tx: F.px + F.dx * 0.75, tz: F.pz + F.dz * 0.75 };
   sfxNoise(0.15, 900, 0.15);
   const w = witnessed(F.px, F.pz, 14);
-  if (w && rand() < 0.4) { addCrime(1, 'trespass'); toast('Someone saw you jump the fence — cops called!'); }
+  if (w && rand() < 0.4) { addCrime(1, 'trespass', true); toast('Someone saw you jump the fence — cops called!'); }
   return true;
 }
 function updateVault(dt) {

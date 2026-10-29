@@ -408,7 +408,7 @@ function collideCars() {
           a.crash(impact); b.crash(impact);
           for (const [me, other] of [[a, b], [b, a]]) {
             if (me.ai && me.kind === 'traffic') me.ai.shock = 2.5;
-            if (other === player.car && me.kind === 'police') addCrime(1, 'police');
+            if (other === player.car && me.kind === 'police') addCrime(1, 'police', true);
           }
         }
       }
@@ -584,7 +584,7 @@ class Ped {
   }
   punched(hx, hz) {
     this.hp--;
-    if (this.cop) addCrime(1, 'copPunch'); else addCrime(1, 'punch');
+    if (this.cop) addCrime(1, 'copPunch', true); else addCrime(1, 'punch');
     if (this.hp <= 0 || this.state === 'down') { this.knock(hx * 4, 2.5, hz * 4, false, rr(3, 5)); return; }
     this.state = 'stagger'; this.t = 0.45; this.vx = hx * 2.5; this.vz = hz * 2.5;
   }
@@ -736,7 +736,13 @@ function carsVsPeople() {
       if (sp > 3.5) {
         p.knock(c.vx * 0.85 + lx * Math.sign(h.la) * 2, 2 + sp * 0.22, c.vz * 0.85 + lz * Math.sign(h.la) * 2, sp > 11);
         c.vx *= 0.93; c.vz *= 0.93;
-        if (c === player.car) { addCrime(1, p.cop ? 'copHit' : 'ped'); scareNear(p.x, p.z, 25); }
+        if (c === player.car) {
+          scareNear(p.x, p.z, 25);
+          if (sp > 7) { // under ~25 km/h it's an accident: they fall over and swear at you
+            pedHits = pedHits.filter((t) => elapsed - t < 6); pedHits.push(elapsed);
+            if (pedHits.length >= 3) addCrime(2, 'crowd', true); else addCrime(1, p.cop ? 'copHit' : 'ped', p.cop);
+          } else if (rand() < 0.5) toast(pick(['"Watch where you\'re going!"', '"Oi! Learn to drive!"', '"Are you serious?!"']));
+        }
       } else { const push = hw - Math.abs(h.la) + 0.05; p.x += lx * Math.sign(h.la) * push; p.z += lz * Math.sign(h.la) * push; }
     }
     if (player.state === 'foot' && c !== player.car && player.deadT === 0) {
@@ -838,7 +844,7 @@ function manageWorld(dt) {
   if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
   spawnParked(190, 70);
   if (peds.filter((p) => !p.cop).length < 46) { spawnPed(60, 150); spawnPed(60, 150); }
-  const want = [0, 2, 3, 4, 5, 6][player.stars];
+  const want = [0, 1, 2, 4, 6, 8][player.stars];
   if (cars.filter((c) => c.kind === 'police' && !c.dead).length < want) spawnTraffic(110, 240, 'police');
   for (const c of cars) if (c.kind === 'police') c.siren = player.stars > 0 && (c.driver === 'cop' || !!c.copOut);
 }
@@ -891,38 +897,100 @@ function updateDrift(dt) {
 function driftCrash() { if (drift.active && drift.score > 100) { toast('Drift ruined!'); } drift.score = 0; drift.timer = 0; drift.active = false; $('drift').style.opacity = 0; }
 
 // ---------------------------------------------------------------- wanted level and arrests
-let crimeCool = {};
-function addCrime(stars, what) {
+// How serious each crime is (the stars it brings). During a chase only serious crimes push the level up:
+// shooting, attacking police, or ploughing through a crowd. Five stars come only from fighting the police at four.
+const CRIME_LEVEL = { ped: 1, punch: 1, breakin: 1, trespass: 1, jack: 1, rob: 1, alarm: 1, police: 1, resist: 1, copHit: 3, copPunch: 3,
+  shots: 2, robDone: 2, crowd: 2, shootPed: 3, shootCop: 3 };
+const CRIME_TEXT = { ped: 'you hit someone with your car', punch: 'you punched someone', breakin: 'breaking into a house', trespass: 'jumping a fence',
+  jack: 'stealing a car', rob: 'robbing a shop', alarm: 'setting off an alarm', police: 'ramming a police car', resist: 'resisting arrest', copHit: 'running down a cop',
+  copPunch: 'attacking a cop', shots: 'firing a gun near people', robDone: 'a robbery', crowd: 'hitting a crowd of people', shootPed: 'shooting someone', shootCop: 'shooting at the police' };
+const WITNESS_CRIMES = new Set(['ped', 'punch', 'breakin', 'trespass', 'jack', 'shots', 'shootPed', 'rob']); // someone has to see these and phone them in
+const COP_ATTACK = new Set(['copHit', 'copPunch', 'shootCop']);
+let crimeCool = {}, reports = [], searchArea = null, wantedT = 0, lastSeen = { x: 0, z: 0 }, pedHits = [];
+function copCanSee(x, z) {
+  for (const p of peds) if (p.cop && p.state !== 'down' && Math.hypot(p.x - x, p.z - z) < 40 && rayWalls(p.x, p.z, x, z, 1.5) >= 1) return true;
+  for (const c of cars) if (c.kind === 'police' && !c.dead && c.driver === 'cop' && Math.hypot(c.x - x, c.z - z) < 55 && rayWalls(c.x, c.z, x, z, 1.5) >= 1) return true;
+  return false;
+}
+function addCrime(stars, what, direct) {
   if ((crimeCool[what] || 0) > elapsed) return;
   crimeCool[what] = elapsed + (what === 'ped' ? 1.5 : 3);
+  const level = Math.max(stars, CRIME_LEVEL[what] || 1);
+  // not wanted yet and no cop saw it: it only counts if a witness phones it in
+  if (!direct && player.stars === 0 && WITNESS_CRIMES.has(what) && !copCanSee(player.x, player.z)) {
+    let w = null, bd = 30;
+    for (const p of peds) if (!p.cop && p.state !== 'down' && !reports.some((r) => r.p === p)) { const d = Math.hypot(p.x - player.x, p.z - player.z); if (d < bd && rayWalls(p.x, p.z, player.x, player.z, 1.5) >= 1) { bd = d; w = p; } }
+    if (!w) return; // nobody saw it
+    reports.push({ p: w, t: 4, level, what, icon: phoneIcon() });
+    toast('Someone saw that and is phoning the cops — get away or stop them!');
+    return;
+  }
+  raiseWanted(level, what);
+}
+function raiseWanted(level, what) {
   const before = player.stars;
-  player.stars = clamp(Math.max(player.stars, stars) + (player.stars >= stars ? 1 : 0), 0, 5);
-  if (what === 'jack' && before >= 1) player.stars = before;
-  player.starCool = 0;
-  if (player.stars > before) sfxTone([220, 180], 0.25, 0.05, 'sawtooth');
+  let next = before;
+  if (level > before) next = level;
+  else if (before > 0 && (level >= 3 || what === 'crowd')) next = before + 1; // only serious crimes stack during a chase
+  if (next >= 5 && !(before >= 4 && COP_ATTACK.has(what))) next = Math.min(next, 4); // five stars: fighting the police at four
+  next = clamp(next, 0, 5);
+  wantedT = 0; player.starCool = 0; searchArea = null;
+  if (next > before) { player.stars = next; sfxTone([220, 180], 0.25, 0.05, 'sawtooth'); toast(`Wanted ${'★'.repeat(next)} — ${CRIME_TEXT[what] || 'a crime'}`); }
+}
+let PHONE_TEX = null;
+function phoneIcon() {
+  if (!PHONE_TEX) { const c = document.createElement('canvas'); c.width = c.height = 64; const x = c.getContext('2d'); x.fillStyle = '#ffcf3f'; x.beginPath(); x.arc(32, 32, 30, 0, TAU); x.fill(); x.font = '40px sans-serif'; x.textAlign = 'center'; x.textBaseline = 'middle'; x.fillText('📞', 32, 35); PHONE_TEX = new THREE.CanvasTexture(c); }
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: PHONE_TEX, depthTest: false })); s.scale.set(0.7, 0.7, 1); s.renderOrder = 15; scene.add(s); return s;
+}
+// hands up (G) at one or two stars with police nearby: pay a fine instead of being busted
+function surrender() {
+  if (player.stars === 0) return;
+  if (player.stars > 2) { toast('Too serious for a fine — you have to lose them'); return; }
+  const copNear = cars.some((c) => c.kind === 'police' && !c.dead && Math.hypot(c.x - player.x, c.z - player.z) < 60) || peds.some((p) => p.cop && Math.hypot(p.x - player.x, p.z - player.z) < 60);
+  if (!copNear) { toast('No police nearby to give yourself up to'); return; }
+  const fine = 75 * player.stars, fromWallet = Math.min(player.money, fine), fromBank = Math.min(ECON.bank, fine - fromWallet);
+  player.money -= fromWallet; ECON.bank -= fromBank; player.stars = 0; searchArea = null; saveGame();
+  toast(`Hands up. You paid a $${fromWallet + fromBank} fine and walked away.`);
 }
 function updateWanted(dt) {
-  if (player.stars === 0) return;
+  // witnesses on the phone: get far away, or knock them down / scare them off, before they finish the call
+  for (const r of reports.slice()) {
+    r.t -= dt; const p = r.p, gone = !peds.includes(p) || p.state === 'down' || Math.hypot(p.x - player.x, p.z - player.z) > 55;
+    if (!gone) r.icon.position.set(p.x, standAt(p.x, p.z) + 2.4 + Math.sin(elapsed * 6) * 0.06, p.z);
+    if (gone || r.t <= 0) {
+      scene.remove(r.icon); r.icon.material.dispose(); reports.splice(reports.indexOf(r), 1);
+      if (gone && r.t > 0) toast('The call never went through'); else raiseWanted(r.level, r.what);
+    }
+  }
+  if (player.stars === 0) { searchArea = null; return; }
+  wantedT += dt;
   let near = 1e9;
   for (const c of cars) if (c.kind === 'police' && !c.dead && c.driver === 'cop') { const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < near && (d < 25 || rayWalls(c.x, c.z, player.x, player.z, 2) >= 1)) near = d; }
-  for (const p of peds) if (p.cop && p.state !== 'down') near = Math.min(near, Math.hypot(p.x - player.x, p.z - player.z));
-  const seen = near < 80;
-  if (seen || player.state === 'tackled' || player.state === 'cuffed') player.starCool = 0; else player.starCool += dt;
+  for (const p of peds) if (p.cop && p.state !== 'down') { const d = Math.hypot(p.x - player.x, p.z - player.z); if (d < 25 || rayWalls(p.x, p.z, player.x, player.z, 1.5) >= 1) near = Math.min(near, d); }
+  const seen = near < 80 || player.state === 'tackled' || player.state === 'cuffed';
   $('stars').classList.toggle('flash', !seen);
-  if (player.starCool > 14 + player.stars * 3) { player.stars--; player.starCool = 0; if (player.stars === 0) toast('You lost the cops'); }
-  // backup on foot when no cop has reached you for a while (you can't hide off-road)
+  if (seen) { lastSeen = { x: player.x, z: player.z }; searchArea = null; player.starCool = 0; }
+  else {
+    // the police search around where they last saw you: leave the circle and stay hidden (indoors counts double)
+    if (!searchArea) searchArea = { x: lastSeen.x, z: lastSeen.z, r: 70 + 45 * player.stars };
+    const out = Math.hypot(player.x - searchArea.x, player.z - searchArea.z) > searchArea.r;
+    const indoors = !!(indoorAt(player.x, player.z) || shopAt(player.x, player.z));
+    if (out || indoors) player.starCool += dt * (indoors ? 2 : 1);
+    if (player.starCool > [0, 5, 8, 12, 16, 22][player.stars]) { player.stars = 0; searchArea = null; toast('You lost the cops'); return; }
+  }
+  if (player.stars === 1 && wantedT > 30 && player.state !== 'tackled' && player.state !== 'cuffed') { player.stars = 0; searchArea = null; toast('The cops gave up'); return; }
+  // backup on foot only for serious chases, and never appearing right in front of you
   if (near > 45) player.noCopT = (player.noCopT || 0) + dt; else player.noCopT = 0;
-  if (player.noCopT > 12 && peds.filter((p) => p.cop).length < 2 + player.stars) {
+  if (player.stars >= 3 && player.noCopT > 15 && peds.filter((p) => p.cop).length < player.stars) {
     player.noCopT = 0;
-    for (let i = 0; i < Math.min(3, player.stars); i++) {
-      for (let tries = 0; tries < 30; tries++) {
-        const a = rand() * TAU, r = rr(35, 55), x = player.x + Math.cos(a) * r, z = player.z + Math.sin(a) * r;
-        if (!isLand(x, z) || resolveCircle(x, z, 0.5)) continue;
+    for (let i = 0; i < player.stars - 2; i++) {
+      for (let tries = 0; tries < 40; tries++) {
+        const a = rand() * TAU, r = rr(45, 65), x = player.x + Math.cos(a) * r, z = player.z + Math.sin(a) * r;
+        if (!isLand(x, z) || resolveCircle(x, z, 0.5) || rayWalls(x, z, player.x, player.z, 1.5) >= 1) continue; // out of your sight
         const cop = new Ped(x, z, 0, 1, 0, 1, COP_LOOK); cop.cop = true; cop.state = 'chase'; cop.hp = 3; peds.push(cop);
         break;
       }
     }
-    toast('Police backup on foot!');
   }
   // cops get out of stopped cars near you and come on foot
   const onFoot = peds.filter((p) => p.cop).length;
@@ -968,7 +1036,7 @@ function updateTackled(dt) {
   if (q.p >= 1) { // broke free
     $('struggle').hidden = true;
     if (cop) { cop.state = 'down'; cop.knock(Math.cos(player.h) * 5, 2, -Math.sin(player.h) * 5, false, 3); }
-    player.state = 'getup'; player.t = 0; addCrime(1, 'resist'); toast('You broke free — run!');
+    player.state = 'getup'; player.t = 0; addCrime(1, 'resist', true); toast('You broke free — run!');
   } else if (q.time <= 0) {
     $('struggle').hidden = true;
     player.state = 'cuffed'; player.t = 0; sfxTone([2400, 3100], 0.08, 0.06, 'square'); toast('Cuffed');
@@ -1382,6 +1450,10 @@ function drawMinimap() {
   for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 7, Math.floor(elapsed * 4) % 2 ? '#ff3b3b' : '#3b7bff');
   for (const p of peds) if (p.cop) dot(p.x, p.z, 5, '#6aa8ff');
   if (player.mode === 'foot') { for (const c of cars) if (!c.dead && Math.hypot(c.x - tx, c.z - tz) < 40 && c.kind !== 'police') dot(c.x, c.z, 3, 'rgba(255,255,255,0.55)'); }
+  if (searchArea && player.stars) { // the police search area: get out of it and stay hidden
+    mctx.strokeStyle = 'rgba(90,150,255,0.9)'; mctx.fillStyle = 'rgba(60,110,255,0.12)'; mctx.lineWidth = 3 / k;
+    mctx.beginPath(); mctx.arc((searchArea.x - tx) * MAPPPM, (searchArea.z - tz) * MAPPPM, searchArea.r * MAPPPM, 0, TAU); mctx.fill(); mctx.stroke();
+  }
   mctx.restore();
   if (WAYPOINT) { // the waypoint, pinned to the rim when it's off the minimap
     const dx = (WAYPOINT.x - tx) * zoomPx, dz = (WAYPOINT.z - tz) * zoomPx;
@@ -1659,6 +1731,7 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyH') { sfxTone([392, 494], 0.35, 0.07); for (const p of peds) if (Math.hypot(p.x - player.x, p.z - player.z) < 12) p.scare(player.x, player.z, 1.2); }
   if (code === 'KeyC') camIdx = (camIdx + 1) % CAM_CAR.length;
   if (code === 'KeyM') toggleMap();
+  if (code === 'KeyG') surrender();
   if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
 });

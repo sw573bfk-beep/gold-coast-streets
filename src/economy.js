@@ -60,6 +60,13 @@ function testDrive(sh) {
   closeShop(); toast(`Test drive: the ${CAR_LABEL[t]} is out the front — 2 minutes`); WAYPOINT = { name: 'Test drive', x: P.x, z: P.z };
 }
 
+// a new paint colour on a car (respray): rebuild its model in the new colour, keeping everything else
+function repaintCar(c, color) {
+  const old = c.model; c.model = makeCarModel(c.type, color); scene.add(c.model.root);
+  if (c.driver) setDriverLook(c.model, c.look || null); scene.remove(old.root); disposeCarModel(old); c.sync(0);
+  const g = c.owned && ECON.garage.find((q) => q.type === c.type); if (g) { g.color = color; saveGame(); }
+}
+
 // ---------------------------------------------------------------- the bank: a savings account (game money only)
 function openBank(sh) {
   const m = player.money, b = ECON.bank;

@@ -13,6 +13,7 @@ const ITEMS = {
   toastie: { name: 'Ham & cheese toastie', price: 11, heal: 30 }, bananabread: { name: 'Banana bread', price: 6, heal: 15 }, croissant: { name: 'Croissant', price: 5, heal: 14 },
   brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
   sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
+  respray: { name: 'Respray your car (loses 1–2 star wanted levels)', price: 150, respray: true },
   room: { name: 'Book a room for the night (becomes your home)', price: 80, room: true },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
   pizza: { name: 'Pizza slice', price: 8, heal: 25 }, kebab: { name: 'Kebab', price: 13, heal: 40 }, sushi: { name: 'Sushi roll', price: 10, heal: 25 },
@@ -89,7 +90,7 @@ function menuFor(shop) {
     case 'hotel': return ['room', 'rest', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
-    case 'fuel': return ['repair', 'energy', 'soda', 'fries', 'medkit'];
+    case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit'];
     default: return /souvenir|gift|koala|paradise/.test(n) ? ['globe', 'koala', 'magnet', 'sunnies'] : ['soda', 'energy', 'globe', 'magnet'];
   }
 }
@@ -331,6 +332,13 @@ function buy(id) {
   const it = ITEMS[id];
   if (!purchaseGuard(id)) return; // a rapid second click on the same item can't charge twice
   if (player.money < it.price) { toast(`Not enough money for ${it.name}`); return; }
+  if (it.respray) { // a new colour: the police are looking for a different car
+    const c = player.car || cars.filter((q) => (q.owned || q.kind === 'abandoned') && !q.dead && Math.hypot(q.x - player.x, q.z - player.z) < 25)[0];
+    if (!c) { toast('Bring a car up to the pumps first'); return; }
+    if (player.stars > 2) { toast('Too hot right now — lose some of the heat first'); return; }
+    player.money -= it.price; repaintCar(c, pick(CAR_COLORS)); const had = player.stars; player.stars = 0;
+    toast(had ? 'Fresh paint — the cops are looking for a different car' : 'Fresh paint job'); return;
+  }
   if (it.room) { if (openShopRef && bookRoom(openShopRef)) closeShop(); return; }
   if (it.outfit) { player.money -= it.price; closeShop(); openWardrobe({ name: 'Change rooms' }); return; }
   if (it.game) { player.money -= it.price; closeShop(); startMiniGame(it.game); return; }
