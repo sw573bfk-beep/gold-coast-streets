@@ -8,3 +8,6 @@ data/region_fetch.log
 data/terrain_fetch.log
 data/barrier_fetch.log
 data/extension_fetch.log
+data/imagery_fetch.log
+dist/packs/
+data/build_tiles_v9.log

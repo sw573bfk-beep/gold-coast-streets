@@ -144,7 +144,7 @@ window.runRegression = async () => {
     let best = null;
     for (const T of TILES.values()) if (T.hgt) for (let j = 1; j < 99; j += 2) for (let i = 1; i < 99; i += 2) {
       const k = j * 101 + i, sx = (T.hgt[k + 1] - T.hgt[k - 1]) / 20, sz = (T.hgt[k + 101] - T.hgt[k - 101]) / 20, sl = Math.hypot(sx, sz);
-      if (sl > 0.08 && sl < 0.25 && (!best || sl > best.sl)) best = { sl, x: T.x0 + i * 10, z: T.z0 + j * 10, sx, sz };
+      if (sl > 0.08 && sl < 0.25 && (!best || sl > best.sl) && isLand(T.x0 + i * 10, T.z0 + j * 10) && !resolveCircle(T.x0 + i * 10, T.z0 + j * 10, 6)) best = { sl, x: T.x0 + i * 10, z: T.z0 + j * 10, sx, sz }; // clear of walls
     }
     expect(best, 'no slope found');
     const c = new Car('sedan', null, best.x, best.z, Math.atan2(-best.sx, -best.sz)); cars.push(c); c.setDriver('test'); c.input = { t: 0, b: 0, s: 0, hb: 0 };
@@ -329,6 +329,23 @@ window.runRegression = async () => {
     const E = EDGES[ne.e], P0 = edgePoint(E, 1, 5, {}); const p = new Plane('cessna', P0.x, P0.z, Math.atan2(P0.tx, P0.tz));
     boardPlane(p); player.stars = 0; for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.v > p.sp.vr ? 1 : 0; p.input.r = 0; p.input.brake = 0; p.step(1 / 60); if (p.dead) break; }
     const ok = !p.dead && !p.ground && p.alt > 50, msg = `alt ${p.alt | 0} m at ${Math.round(p.v * 3.6)} km/h`; leavePlane(true); p.remove(); expect(ok, msg); return msg;
+  });
+  // ---------------------------------------------------------------- V9: Coolangatta, the airport and the hinterland
+  const toLL = (x, z) => [-27.9995 - z / 110574, 153.4235 + x / (Math.cos(-27.9995 * Math.PI / 180) * 111320)];
+  await test('terrain: the airport sits near sea level and the hinterland ranges are high', async () => {
+    quiet(); const R = REGION.airport.runways[0], ax = (R[0] + R[2]) / 2, az = (R[1] + R[3]) / 2; await goToTile(...toLL(ax, az));
+    const ga = groundAt(ax, az); expect(ga < 8, `airport ground ${ga.toFixed(1)} m`);
+    await goToTile(-28.15, 153.28); const T = tileAt(player.x, player.z), hi = Math.max(...T.hgt); expect(hi > 150, `hinterland only ${hi.toFixed(0)} m`);
+    return `airport ${ga.toFixed(1)} m, hinterland ${hi.toFixed(0)} m`;
+  });
+  await test('airport: parked planes wait by the runway, a Cessna takes off from it and an airliner departs', async () => {
+    quiet(); const R = AIRPORT.rw; await goToTile(...toLL((R.x1 + R.x2) / 2, (R.z1 + R.z2) / 2));
+    updatePlanes(0.016); const parked = PLANES.filter((p) => !p.ai && !p.dead); expect(parked.length >= 3, `${parked.length} parked planes`);
+    const p = new Plane('cessna', R.x1 + R.ex * 30, R.z1 + R.ez * 30, R.h); boardPlane(p); player.stars = 0;
+    for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.v > p.sp.vr ? 1 : 0; p.input.r = 0; p.input.brake = 0; p.step(1 / 60); if (p.dead) break; }
+    const ok = !p.dead && !p.ground && p.alt > 50, msg = `alt ${p.alt | 0} m`; leavePlane(true); p.remove(); expect(ok, 'Cessna from the runway: ' + msg + (p.dead ? ' (crashed)' : ''));
+    AIRPORT.nextAI = 0; updatePlanes(0.016); expect(PLANES.some((q) => q.ai), 'no airliner');
+    return `${parked.length} parked, Cessna ${msg}, airliner rolling`;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

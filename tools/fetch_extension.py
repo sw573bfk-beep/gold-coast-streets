@@ -20,17 +20,18 @@ OSM_Q = """[out:json][timeout:240][bbox:{s},{w},{n},{e}];
  way["landuse"];way["leisure"];way["natural"];way["water"];way["waterway"="riverbank"];way["amenity"="parking"];way["man_made"];way["aeroway"];
  relation["natural"="water"];relation["water"];relation["landuse"];relation["leisure"];
  nwr["amenity"];nwr["shop"];nwr["tourism"];nwr["office"]["name"];nwr["aeroway"];
- node["natural"="tree"];way["railway"];node["place"];node["highway"="traffic_signals"];);
+ node["natural"="tree"];way["railway"];node["place"];node["highway"="traffic_signals"];
+ way["barrier"];node["barrier"~"^(gate|lift_gate|swing_gate|sliding_gate|kissing_gate|entrance|bollard)$"];);
 out geom qt;"""
 BAR_Q = """[out:json][timeout:180][bbox:{s},{w},{n},{e}];
 (way["barrier"];node["barrier"~"^(gate|lift_gate|swing_gate|sliding_gate|kissing_gate|entrance|bollard)$"];);
 out geom qt;"""
-EPS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter']
+EPS = ['https://overpass-api.de/api/interpreter', 'https://overpass.kumi.systems/api/interpreter', 'https://maps.mail.ru/osm/tools/overpass/api/interpreter', 'https://overpass.private.coffee/api/interpreter']
 
 
 def overpass(q, path):
-    for attempt in range(10):
-        subprocess.run(['curl', '-s', '-m', '300', '-A', UA, '-X', 'POST', EPS[attempt % 2], '--data-urlencode', 'data=' + q, '-o', path + '.part'])
+    for attempt in range(40):  # the public servers are often overloaded: keep trying, politely
+        subprocess.run(['curl', '-s', '-m', '300', '-A', UA, '-X', 'POST', EPS[attempt % len(EPS)], '--data-urlencode', 'data=' + q, '-o', path + '.part'])
         try:
             d = json.load(open(path + '.part')); os.replace(path + '.part', path); return len(d['elements'])
         except Exception:
@@ -46,12 +47,16 @@ for r in range(rows):
         inside_old = s >= OLD[0] and w >= OLD[1] and n <= OLD[2] and e <= OLD[3]
         if not inside_old: blocks.append((r, c, s, w, n, e))
 print('blocks outside the original map:', len(blocks), flush=True)
-for kind, q in (('osmx', OSM_Q), ('barx', BAR_Q)):
+for kind, q in ((('osmx', OSM_Q), ('barx', BAR_Q)) if not os.environ.get('ONLY_IMAGERY') else ()):  # ONLY_IMAGERY=1: heights and photos only (a separate server)
     for r, c, s, w, n, e in blocks:
         p = os.path.join(OUT, '%s_%d_%d.json' % (kind, r, c))
         if os.path.exists(p): continue
+        bp = os.path.join(OUT, 'barx_%d_%d.json' % (r, c))
+        if kind == 'barx' and os.path.exists(bp): continue
         got = overpass(q.format(s=s, w=w, n=n, e=e), p)
         print(kind, r, c, got if got is not None else 'FAILED', flush=True)
+        if kind == 'osmx' and got is not None and not os.path.exists(bp): # the combined query already holds this block's fences
+            d = json.load(open(p)); json.dump({'elements': [e for e in d['elements'] if 'barrier' in e.get('tags', {})]}, open(bp, 'w'))
         time.sleep(4)
 
 # ground heights and photos over the whole extended map, in chunks the services accept

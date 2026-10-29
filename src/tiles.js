@@ -1,6 +1,6 @@
 // ============================================================================
 // Gold Coast Streets — the streamed world around Surfers Paradise.
-// 1 km tiles (Southport to Burleigh Heads, inland to Robina, Carrara and Benowa)
+// 1 km tiles (Southport to Coolangatta and the airport, about 30 km inland)
 // load around the player and unload behind them. Each tile brings its own ground,
 // roads, buildings (OpenStreetMap + Microsoft footprints), trees, street lights,
 // street shops, petrol stations, collision walls and road network.
@@ -90,6 +90,29 @@ function updateTiles(dt) {
   }
   if (best) loadTile(best[0], best[1]);
 }
+// the Claude-hosted page holds too few files for one per tile, so it reads 3×3 packs (window.TILE_PACK)
+const PACKS = new Map();
+async function fetchTile(i, j) {
+  const P = window.TILE_PACK;
+  if (!P) {
+    const res = await fetch(`tiles/t_${i}_${j}.json`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+  const pk = Math.floor(i / P) + '_' + Math.floor(j / P), key = i + '_' + j;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!PACKS.has(pk)) {
+      PACKS.set(pk, fetch(`packs/p_${pk}.json`).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }));
+      if (PACKS.size > 6) PACKS.delete(PACKS.keys().next().value);
+    }
+    let pack;
+    try { pack = await PACKS.get(pk); } catch (e) { PACKS.delete(pk); throw e; }
+    const t = pack[key];
+    if (t) { delete pack[key]; return t; } // the game changes tile data as it builds, so each copy is used once
+    PACKS.delete(pk); // already used (the tile was unloaded and is back): read the pack afresh
+  }
+  throw new Error('not in pack ' + pk);
+}
 const tileYield = () => new Promise((r) => setTimeout(r, 0));
 async function loadTile(i, j) {
   tileBusy = true;
@@ -97,9 +120,7 @@ async function loadTile(i, j) {
   const T = { i, j, k, x0: i * S, z0: j * S, meshes: [], disposables: [], edges: [], shops: [], spots: [], mask: null, mini: null, roads: [], names: [] };
   TILES.set(k, T);
   try {
-    const res = await fetch(`tiles/t_${i}_${j}.json`);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const data = await fetchTile(i, j);
     if (!TILES.has(k)) return; // unloaded while fetching
     T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) T.hgt = decodeHeights(data.hgt);
     tileGround(T, data); await tileYield(); if (!TILES.has(k)) return;

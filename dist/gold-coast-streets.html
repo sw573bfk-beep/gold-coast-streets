@@ -1,3 +1,4 @@
+<script>window.TILE_PACK=3;</script>
 <meta charset="utf-8">
 <title>Gold Coast Streets</title>
 <meta name="claude:viewport-fit-sides" content="cover">
@@ -215,7 +216,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 <div id="menu">
   <div class="card">
     <h1>Gold Coast Streets</h1>
-    <h2>Southport to Burleigh</h2>
+    <h2>Southport to Coolangatta</h2>
     <div class="keys">
       <div><b>W A S D</b> move / drive</div>
       <div><b>Mouse</b> look around</div>
@@ -4034,7 +4035,7 @@ window.gcsDev = { toggle: () => devToggle(), mallCheck: () => devMallCheck(), sh
 
 // ============================================================================
 // Gold Coast Streets — the streamed world around Surfers Paradise.
-// 1 km tiles (Southport to Burleigh Heads, inland to Robina, Carrara and Benowa)
+// 1 km tiles (Southport to Coolangatta and the airport, about 30 km inland)
 // load around the player and unload behind them. Each tile brings its own ground,
 // roads, buildings (OpenStreetMap + Microsoft footprints), trees, street lights,
 // street shops, petrol stations, collision walls and road network.
@@ -4124,6 +4125,29 @@ function updateTiles(dt) {
   }
   if (best) loadTile(best[0], best[1]);
 }
+// the Claude-hosted page holds too few files for one per tile, so it reads 3×3 packs (window.TILE_PACK)
+const PACKS = new Map();
+async function fetchTile(i, j) {
+  const P = window.TILE_PACK;
+  if (!P) {
+    const res = await fetch(`tiles/t_${i}_${j}.json`);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    return res.json();
+  }
+  const pk = Math.floor(i / P) + '_' + Math.floor(j / P), key = i + '_' + j;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    if (!PACKS.has(pk)) {
+      PACKS.set(pk, fetch(`packs/p_${pk}.json`).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }));
+      if (PACKS.size > 6) PACKS.delete(PACKS.keys().next().value);
+    }
+    let pack;
+    try { pack = await PACKS.get(pk); } catch (e) { PACKS.delete(pk); throw e; }
+    const t = pack[key];
+    if (t) { delete pack[key]; return t; } // the game changes tile data as it builds, so each copy is used once
+    PACKS.delete(pk); // already used (the tile was unloaded and is back): read the pack afresh
+  }
+  throw new Error('not in pack ' + pk);
+}
 const tileYield = () => new Promise((r) => setTimeout(r, 0));
 async function loadTile(i, j) {
   tileBusy = true;
@@ -4131,9 +4155,7 @@ async function loadTile(i, j) {
   const T = { i, j, k, x0: i * S, z0: j * S, meshes: [], disposables: [], edges: [], shops: [], spots: [], mask: null, mini: null, roads: [], names: [] };
   TILES.set(k, T);
   try {
-    const res = await fetch(`tiles/t_${i}_${j}.json`);
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    const data = await res.json();
+    const data = await fetchTile(i, j);
     if (!TILES.has(k)) return; // unloaded while fetching
     T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) T.hgt = decodeHeights(data.hgt);
     tileGround(T, data); await tileYield(); if (!TILES.has(k)) return;
@@ -7429,8 +7451,12 @@ function initSetup() {
   const lg = document.createElement('optgroup'); lg.label = 'Landmarks'; sel.appendChild(lg);
   const qi = Object.keys(MAP.details.bnames || {}).find((k) => /^Q1/.test(MAP.details.bnames[k]));
   if (qi) { const f = MAP.buildings[qi].slice(3); let x = 0, z = 0; for (let q = 0; q < f.length; q += 2) { x += f[q]; z += f[q + 1]; } add(lg, 'Q1 Tower', x / (f.length / 2), z / (f.length / 2)); }
-  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School']) {
+  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School', 'Currumbin Wildlife Sanctuary', 'Kirra Beach']) {
     const e = REGION.search.find((q) => q[0] === nm) || REGION.search.find((q) => q[0].startsWith(nm)); if (e) add(lg, e[0], e[2], e[3]);
+  }
+  if (AIRPORT && AIRPORT.rw) { // on the apron beside the parked planes
+    const R = AIRPORT.rw, x = R.x1 + R.ex * 100 + R.nx * 55, z = R.z1 + R.ez * 100 + R.nz * 55;
+    SPAWN_PLACES.push(['Gold Coast Airport — by the planes', x, z, R.h + Math.PI / 2]); const o = document.createElement('option'); o.value = String(SPAWN_PLACES.length - 1); o.textContent = 'Gold Coast Airport — by the planes'; lg.appendChild(o);
   }
   const bg = document.createElement('optgroup'); bg.label = 'Beaches'; sel.appendChild(bg);
   for (const e of REGION.search.filter((q) => q[1] === 3).sort((a, b) => a[3] - b[3])) add(bg, e[0], e[2], e[3]);

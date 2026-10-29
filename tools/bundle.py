@@ -9,6 +9,7 @@ import os
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 src = lambda *p: open(os.path.join(ROOT, *p), encoding='utf-8').read()
 
+PACK = 3  # tiles per pack side for the Claude-hosted page (it allows 511 files)
 page = src('src', 'index.html')
 map_js = '<script>window.MAP=' + src('data', 'map.json') + ';</script>'
 game_js = '<script>\n' + '\n'.join(src('src', f) for f in ('world.js', 'models.js', 'details.js', 'shops.js', 'economy.js', 'gps.js', 'phone.js', 'casino.js', 'planes.js', 'weapons.js', 'arcade.js', 'devtools.js', 'tiles.js', 'houses.js', 'towers.js', 'game.js')) + '\n</script>'
@@ -16,7 +17,7 @@ body = page.replace('<!--MAP-->', map_js).replace('<!--GAME-->', game_js)
 
 os.makedirs(os.path.join(ROOT, 'dist'), exist_ok=True)
 with open(os.path.join(ROOT, 'dist', 'gold-coast-streets.html'), 'w', encoding='utf-8') as f:
-    f.write(body)
+    f.write('<script>window.TILE_PACK=%d;</script>\n' % PACK + body)  # the Claude-hosted page reads tile packs
 with open(os.path.join(ROOT, 'dist', 'index.html'), 'w', encoding='utf-8') as f:
     f.write('<!doctype html>\n<html lang="en"><head><meta charset="utf-8">'
             '<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">'
@@ -38,4 +39,16 @@ if os.path.isdir(tiles):
         if not os.path.exists(os.path.join(tiles, name)): os.remove(os.path.join(site, 'tiles', name))
     for name in os.listdir(tiles):
         shutil.copy(os.path.join(tiles, name), os.path.join(site, 'tiles', name))
+# tile packs for the Claude-hosted page: dist/packs/p_<i//3>_<j//3>.json = {"i_j": tile, ...}
+import collections
+packs = os.path.join(ROOT, 'dist', 'packs')
+if os.path.isdir(tiles):
+    shutil.rmtree(packs, ignore_errors=True); os.makedirs(packs)
+    groups = collections.defaultdict(list)
+    for name in os.listdir(tiles):
+        if name.startswith('t_'):
+            i, j = map(int, name[2:-5].split('_')); groups[(i // PACK, j // PACK)].append((i, j, name))
+    for (a, b), items in groups.items():
+        with open(os.path.join(packs, 'p_%d_%d.json' % (a, b)), 'w', encoding='utf-8') as f:
+            f.write('{' + ','.join('"%d_%d":%s' % (i, j, src('dist', 'tiles', name)) for i, j, name in items) + '}')
 print('bundled', os.path.getsize(os.path.join(ROOT, 'dist', 'index.html')), 'bytes')

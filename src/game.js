@@ -1805,8 +1805,12 @@ function initSetup() {
   const lg = document.createElement('optgroup'); lg.label = 'Landmarks'; sel.appendChild(lg);
   const qi = Object.keys(MAP.details.bnames || {}).find((k) => /^Q1/.test(MAP.details.bnames[k]));
   if (qi) { const f = MAP.buildings[qi].slice(3); let x = 0, z = 0; for (let q = 0; q < f.length; q += 2) { x += f[q]; z += f[q + 1]; } add(lg, 'Q1 Tower', x / (f.length / 2), z / (f.length / 2)); }
-  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School']) {
+  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School', 'Currumbin Wildlife Sanctuary', 'Kirra Beach']) {
     const e = REGION.search.find((q) => q[0] === nm) || REGION.search.find((q) => q[0].startsWith(nm)); if (e) add(lg, e[0], e[2], e[3]);
+  }
+  if (AIRPORT && AIRPORT.rw) { // on the apron beside the parked planes
+    const R = AIRPORT.rw, x = R.x1 + R.ex * 100 + R.nx * 55, z = R.z1 + R.ez * 100 + R.nz * 55;
+    SPAWN_PLACES.push(['Gold Coast Airport — by the planes', x, z, R.h + Math.PI / 2]); const o = document.createElement('option'); o.value = String(SPAWN_PLACES.length - 1); o.textContent = 'Gold Coast Airport — by the planes'; lg.appendChild(o);
   }
   const bg = document.createElement('optgroup'); bg.label = 'Beaches'; sel.appendChild(bg);
   for (const e of REGION.search.filter((q) => q[1] === 3).sort((a, b) => a[3] - b[3])) add(bg, e[0], e[2], e[3]);

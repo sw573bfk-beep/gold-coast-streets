@@ -23,7 +23,7 @@ class Raster:
             if not os.path.exists(p): continue
             raw = open(p, 'rb').read()
             n = c['w'] * c['h'] * self.bands
-            if kind == 'dem':
+            if meta.get('bytes', 4 if kind == 'dem' else 1) == 4:  # float heights (dem, demx); photos are bytes
                 data = array.array('f'); data.frombytes(raw[:n * 4])
             else:
                 data = raw[:n]
