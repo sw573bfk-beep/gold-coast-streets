@@ -49,7 +49,23 @@ const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 4200);
-scene.fog = new THREE.Fog(0xbfe3f2, 300, 1350); // the streamed world loads about 1.3 km around you
+scene.fog = new THREE.Fog(0xbfe3f2, 480, 1350); // the streamed world loads about 1.3 km around you
+// the painted ground is soft up close: add fine grain (grass, bitumen) and larger patches, in world space so tiles match
+function addGroundDetail(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGroundXZ = (modelMatrix * vec4(position, 1.0)).xz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec2 vGroundXZ;
+float gHash(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
+float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+{ vec2 w = vGroundXZ; float n = gNoise(w * 2.1) * 0.45 + gNoise(w * 0.27) * 0.35 + gNoise(w * 0.035) * 0.2;
+  diffuseColor.rgb *= 0.84 + 0.32 * n; }`);
+  };
+  return mat;
+}
 
 const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8a8068, 0.7);
 scene.add(hemi);
@@ -181,7 +197,7 @@ function buildGround() {
   const tex = new THREE.CanvasTexture(c);
   tex.encoding = THREE.sRGBEncoding;
   tex.anisotropy = MAX_ANISO;
-  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0 });
+  const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0 }));
   const g = new THREE.PlaneGeometry(GW, GH);
   g.rotateX(-Math.PI / 2);
   groundMesh = new THREE.Mesh(g, mat);

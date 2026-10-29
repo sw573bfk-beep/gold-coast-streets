@@ -94,6 +94,14 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #dev { left: calc(18px + env(safe-area-inset-left, 0px)); top: calc(14px + env(safe-area-inset-top, 0px)); font: 600 14px/1.35 var(--hud); background: rgba(8,14,18,.82); padding: 8px 10px; border-left: 4px solid var(--surf); max-width: 360px; text-shadow: none; }
 #dev b { color: var(--surf); letter-spacing: .1em; }
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
+#menu { overflow-y: auto; align-items: safe center; }
+#setup { display: grid; gap: 8px; margin: -8px 0 20px; }
+.pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pick > span { min-width: 74px; font: 700 17px var(--hud); color: var(--gold); letter-spacing: .04em; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatches button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(0,0,0,.6); padding: 0; cursor: pointer; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+.swatches button[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--gold); }
+#pick-spawn { font: 600 17px var(--hud); padding: 7px 10px; border-radius: 8px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; max-width: 100%; }
 #bigmap canvas { position: fixed; inset: 0; cursor: grab; touch-action: none; }
 #mapsearch { position: fixed; top: 16px; left: 16px; width: min(380px, calc(100vw - 96px)); z-index: 2; }
 #mapq { width: 100%; box-sizing: border-box; font: 600 18px var(--hud); padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; outline: none; }
@@ -199,6 +207,13 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>N</b> sound on / off</div>
       <div><b>Esc</b> pause</div>
     </div>
+    <div id="setup">
+      <div class="pick"><span>Skin tone</span><div class="swatches" id="pick-skin"></div></div>
+      <div class="pick"><span>Hair</span><div class="swatches" id="pick-hair"></div></div>
+      <div class="pick"><span>Top</span><div class="swatches" id="pick-shirt"></div></div>
+      <div class="pick"><span>Shorts</span><div class="swatches" id="pick-shorts"></div></div>
+      <div class="pick"><span>Start at</span><select id="pick-spawn" aria-label="Where to start"><option value="">Cavill Mall, Surfers Paradise</option></select></div>
+    </div>
     <button id="play" disabled>Loading…</button>
     <div id="load">Building Surfers Paradise…</div>
     <div class="credit">Streets, shops and coastline © OpenStreetMap contributors (ODbL). Building outlines: Microsoft Global ML Building Footprints (ODbL). Ground heights (LiDAR, CC BY 3.0) and aerial photos for roof colours (CC BY 4.0) © State of Queensland.</div>
@@ -258,7 +273,23 @@ const MAX_ANISO = renderer.capabilities.getMaxAnisotropy();
 
 const scene = new THREE.Scene();
 const camera = new THREE.PerspectiveCamera(62, window.innerWidth / window.innerHeight, 0.3, 4200);
-scene.fog = new THREE.Fog(0xbfe3f2, 300, 1350); // the streamed world loads about 1.3 km around you
+scene.fog = new THREE.Fog(0xbfe3f2, 480, 1350); // the streamed world loads about 1.3 km around you
+// the painted ground is soft up close: add fine grain (grass, bitumen) and larger patches, in world space so tiles match
+function addGroundDetail(mat) {
+  mat.onBeforeCompile = (sh) => {
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nvarying vec2 vGroundXZ;')
+      .replace('#include <begin_vertex>', '#include <begin_vertex>\nvGroundXZ = (modelMatrix * vec4(position, 1.0)).xz;');
+    sh.fragmentShader = sh.fragmentShader.replace('#include <common>', `#include <common>
+varying vec2 vGroundXZ;
+float gHash(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
+float gNoise(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
+  return mix(mix(gHash(i), gHash(i + vec2(1.0, 0.0)), f.x), mix(gHash(i + vec2(0.0, 1.0)), gHash(i + vec2(1.0, 1.0)), f.x), f.y); }`)
+      .replace('#include <map_fragment>', `#include <map_fragment>
+{ vec2 w = vGroundXZ; float n = gNoise(w * 2.1) * 0.45 + gNoise(w * 0.27) * 0.35 + gNoise(w * 0.035) * 0.2;
+  diffuseColor.rgb *= 0.84 + 0.32 * n; }`);
+  };
+  return mat;
+}
 
 const hemi = new THREE.HemisphereLight(0xcfe8ff, 0x8a8068, 0.7);
 scene.add(hemi);
@@ -390,7 +421,7 @@ function buildGround() {
   const tex = new THREE.CanvasTexture(c);
   tex.encoding = THREE.sRGBEncoding;
   tex.anisotropy = MAX_ANISO;
-  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0 });
+  const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0 }));
   const g = new THREE.PlaneGeometry(GW, GH);
   g.rotateX(-Math.PI / 2);
   groundMesh = new THREE.Mesh(g, mat);
@@ -3340,7 +3371,7 @@ function tileGround(T, data) {
   const pal = houses > data.buildings.length * 0.5 && houses > 40 ? Object.assign({}, GROUND_PAL, { base: '#86965f' }) : GROUND_PAL;
   drawTileLayers(x, T, data, pal, false);
   const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = MAX_ANISO;
-  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 });
+  const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }));
   const seg = T.hgt ? HGT_N - 1 : 1, g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);
   if (T.hgt) { const P = g.attributes.position; for (let k = 0; k < P.count; k++) P.setY(k, T.hgt[k]); g.computeVertexNormals(); } // rows run north to south, like the grid
   const m = new THREE.Mesh(g, mat); m.position.set(T.x0 + S / 2, 0, T.z0 + S / 2); m.receiveShadow = true;
@@ -3369,14 +3400,25 @@ const TILE_ROAD_MATS = (() => {
   return { service: mk('#d6d6d6', -1), minor: mk('#ffffff', -2), major: mk('#f2f2f2', -3), solid: line(null), dashed: line(dash),
     concrete: new THREE.MeshStandardMaterial({ color: col('#bdb8ad'), roughness: 0.9, side: THREE.DoubleSide, envMapIntensity: 0.3 }) };
 })();
+// add points along a polyline so a road laid over hills follows the 10 m ground grid instead of cutting through it
+function densify(p, step) {
+  if (!p.length) return p;
+  const out = [p[0], p[1]];
+  for (let q = 2; q < p.length; q += 2) {
+    const ax = p[q - 2], az = p[q - 1], bx = p[q], bz = p[q + 1], n = Math.ceil(Math.hypot(bx - ax, bz - az) / step);
+    for (let k = 1; k <= n; k++) out.push(ax + (bx - ax) * k / n, az + (bz - az) * k / n);
+  }
+  return out;
+}
 function tileRoads(T, data) {
   const sets = [[(t) => t === RT.service, 0.03, TILE_ROAD_MATS.service], [(t) => DRIVE.has(t) && !MAJOR.has(t), 0.045, TILE_ROAD_MATS.minor], [(t) => MAJOR.has(t), 0.06, TILE_ROAD_MATS.major]];
-  const addMesh = (B, mat) => { if (!B.pos.length) return; const g = toGeometry(B); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); };
+  const hilly = !!T.hgt, D = (p) => (hilly ? densify(p, 8) : p);
+  const addMesh = (B, mat) => { if (!B.pos.length) return; if (hilly) drape(B); const g = toGeometry(B); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); };
   for (const [f, y, mat] of sets) {
     const B = newBuf();
     for (const r of data.roads) {
       if (!f(r[0])) continue;
-      const p = r.slice(4), hw = r[1] / 2, us = r[1] / 6, n = p.length;
+      const p = D(r.slice(4)), hw = r[1] / 2, us = r[1] / 6, n = p.length;
       ribbonInto(B, p, 0, hw, y, 6, us);
       discInto(B, p[0], p[1], hw, y, us); discInto(B, p[n - 2], p[n - 1], hw, y, us);
     }
@@ -3384,7 +3426,7 @@ function tileRoads(T, data) {
   }
   const solid = newBuf(), dashed = newBuf();
   for (const e of data.edges) {
-    const type = e[5], w = e[6], oneway = e[2], lanes = Math.max(1, e[3] || 1), p = e.slice(7), lw = 0.07;
+    const type = e[5], w = e[6], oneway = e[2], lanes = Math.max(1, e[3] || 1), p = D(e.slice(7)), lw = 0.07;
     if (type === RT.residential || type === RT.living_street || type === RT.unclassified || w < 6) continue;
     if (!oneway) {
       if (type === RT.tertiary) ribbonInto(dashed, p, 0, lw, 0.075, 12, 1);
@@ -3448,6 +3490,8 @@ function tileBuildings(T, data, fronts) {
         if (t1 - t0 < 0.01 || y1 - y0 < 0.01) return;
         const s0 = W.pos.length; wallInto(W, ax + ex * t0, az + ez * t0, ax + ex * t1, az + ez * t1, base + y0, base + y1, nx, nz, wall);
         if (cls !== 'plain') for (let v = s0; v < W.pos.length; v += 3) W.uv.push((acc + Math.hypot(W.pos[v] - ax, W.pos[v + 2] - az)) / 32, (W.pos[v + 1] - base) / cv);
+        // ground contact: walls darken towards their foot (a cheap ambient-occlusion look)
+        if (y0 <= 0.5) for (let v = s0; v < W.pos.length; v += 3) if (W.pos[v + 1] < base + y0 + 0.01) { W.col[v] *= 0.72; W.col[v + 1] *= 0.72; W.col[v + 2] *= 0.75; }
       };
       let from = 0;
       for (const [t0, t1, lintel] of fr) { piece(from, t0, foot, top); piece(t0, t1, Math.min(top, lintel || 3.6 + gMax - gMin), top); from = t1; }
@@ -5826,7 +5870,7 @@ function lerpAngle(a, b, t) { return a + angDiff(a, b) * t; }
 // ---------------------------------------------------------------- day / night
 let nightLevel = 0, envHour = -99;
 const lightDir = new THREE.Vector3(0, 1, 0);
-const C_DAY_TOP = col('#2f7fd0'), C_DAY_HOR = col('#bfe2f0'), C_SET_HOR = col('#f7a35c'), C_SET_TOP = col('#3c5a9a'), C_NIGHT_TOP = col('#03050c'), C_NIGHT_HOR = col('#141c30');
+const C_DAY_TOP = col('#2a78cc'), C_DAY_HOR = col('#acd6ec'), C_SET_HOR = col('#f7a35c'), C_SET_TOP = col('#3c5a9a'), C_NIGHT_TOP = col('#03050c'), C_NIGHT_HOR = col('#141c30');
 const headlight = new THREE.SpotLight(0xfff1d0, 0, 70, 0.55, 0.5, 1.2);
 scene.add(headlight, headlight.target);
 function updateSky(dt) {
@@ -5841,10 +5885,10 @@ function updateSky(dt) {
   skyU.sunDir.value.copy(sunDir);
   skyU.sunCol.value.set(dusk > 0.3 ? '#ffb070' : '#fff2d0').multiplyScalar(smooth(-0.08, 0.05, el));
   scene.fog.color.copy(hor);
-  if (el > -0.04) { lightDir.copy(sunDir); sun.intensity = 1.85 * day; sun.color.set('#fff0d8').lerp(col('#ff9a50'), dusk * 0.8); }
+  if (el > -0.04) { lightDir.copy(sunDir); sun.intensity = 2.2 * day; sun.color.set('#fff0d8').lerp(col('#ff9a50'), dusk * 0.8); }
   else { lightDir.set(-0.4, 0.8, 0.3).normalize(); sun.intensity = 0.28; sun.color.set('#8fa8ff'); }
-  hemi.intensity = 0.16 + 0.42 * day; hemi.color.set('#cfe8ff').lerp(col('#2a3558'), nightLevel * 0.8);
-  renderer.toneMappingExposure = 1.0 + nightLevel * 0.35;
+  hemi.intensity = 0.14 + 0.36 * day; hemi.color.set('#cfe8ff').lerp(col('#2a3558'), nightLevel * 0.8);
+  renderer.toneMappingExposure = 0.92 + nightLevel * 0.43;
   for (const k of ['low', 'tower', 'glass', 'grid', 'balcony', 'shop']) buildingMats[k].emissiveIntensity = smooth(0.35, 0.9, nightLevel) * (k === 'shop' ? 1.0 : 1.3);
   for (const m of NIGHT_MATS) m.mat.emissiveIntensity = m.day + smooth(0.3, 0.85, nightLevel) * m.night;
   lampMat.emissiveIntensity = smooth(0.4, 0.9, nightLevel) * 3;
@@ -6217,10 +6261,73 @@ function setPaused(p) {
   $('play').textContent = 'Resume';
   if (!p) lockPointer();
 }
-$('play').addEventListener('click', () => {
+$('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
+  if (!started) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
 });
+
+// ---------------------------------------------------------------- the start screen: how you look, and where you start
+const PICKS = {
+  skin: ['#fbe3cf', '#f1c9a5', '#e8b98f', '#e0ac85', '#c99068', '#a8714a', '#8d5a3b', '#6e4430', '#56351f', '#3b2416'],
+  hair: ['#111111', '#2b1d14', '#4a3020', '#6b4a2b', '#a87a45', '#d9b56c', '#efdba0', '#8a3b1f', '#b0aca6', '#e9e6e1'],
+  shirt: ['#ffffff', '#1e1e1e', '#f2c542', '#35c6cf', '#ff6f4f', '#2d6cdf', '#e85a9a', '#7fd36b', '#5a3d8a', '#ff9a3c'],
+  shorts: ['#1aa3a8', '#1f3c6e', '#2b2b2b', '#5a6b3a', '#c8b48a', '#3b6fb6', '#8a2f2f', '#e2dccf'],
+};
+const SPAWN_PLACES = []; // [label, x, z, heading]
+function initSetup() {
+  for (const k of Object.keys(PICKS)) {
+    const box = $('pick-' + k); box.innerHTML = '';
+    for (const c of PICKS[k]) {
+      const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', k + ' ' + c);
+      b.setAttribute('aria-pressed', String(player.look[k] === c));
+      b.addEventListener('click', () => { player.look[k] = c; for (const o of box.children) o.setAttribute('aria-pressed', String(o === b)); rebuildPlayer(); saveGame(); });
+      box.appendChild(b);
+    }
+  }
+  // the north and south ends of every suburb, plus the big landmarks, each snapped onto a real street
+  if (!REGION || SPAWN_PLACES.length) return;
+  const sel = $('pick-spawn');
+  const near = (x, z) => {
+    let best = null, bd = 1e9;
+    for (const r of REGION.roads) {
+      if (r[0] < 1 || r[0] > 4) continue; // ordinary streets: primary down to residential (no motorway or highway)
+      for (let i = 1; i < r.length - 1; i += 2) { const d = Math.hypot(r[i] - x, r[i + 1] - z); if (d < bd) { bd = d; best = [r[i], r[i + 1], r[i + 2] !== undefined ? Math.atan2(r[i + 2] - r[i], r[i + 3] - r[i + 1]) : 0]; } }
+    }
+    return best;
+  };
+  const add = (group, label, x, z) => { const p = near(x, z); if (!p) return; SPAWN_PLACES.push([label, p[0], p[1], p[2]]); const o = document.createElement('option'); o.value = String(SPAWN_PLACES.length - 1); o.textContent = label; group.appendChild(o); };
+  const lg = document.createElement('optgroup'); lg.label = 'Landmarks'; sel.appendChild(lg);
+  const qi = Object.keys(MAP.details.bnames || {}).find((k) => /^Q1/.test(MAP.details.bnames[k]));
+  if (qi) { const f = MAP.buildings[qi].slice(3); let x = 0, z = 0; for (let q = 0; q < f.length; q += 2) { x += f[q]; z += f[q + 1]; } add(lg, 'Q1 Tower', x / (f.length / 2), z / (f.length / 2)); }
+  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School']) {
+    const e = REGION.search.find((q) => q[0] === nm) || REGION.search.find((q) => q[0].startsWith(nm)); if (e) add(lg, e[0], e[2], e[3]);
+  }
+  const bg = document.createElement('optgroup'); bg.label = 'Beaches'; sel.appendChild(bg);
+  for (const e of REGION.search.filter((q) => q[1] === 3).sort((a, b) => a[3] - b[3])) add(bg, e[0], e[2], e[3]);
+  const subs = REGION.suburbs.filter((q) => q[3] === 'suburb' || q[3] === 'town').sort((a, b) => a[1] - b[1]);
+  for (const [sx, sz, nm] of subs) {
+    const g = document.createElement('optgroup'); g.label = nm; sel.appendChild(g);
+    add(g, nm + ' — north', sx, sz - 700); add(g, nm + ' — centre', sx, sz); add(g, nm + ' — south', sx, sz + 700);
+  }
+  try { const last = localStorage.getItem('gcs-spawn'); if (last && SPAWN_PLACES[+last]) sel.value = last; } catch (e) { /* storage blocked */ }
+}
+// move to the chosen start and wait for the streets there to stream in
+async function goToSpawn(v) {
+  try { localStorage.setItem('gcs-spawn', v); } catch (e) { /* storage blocked */ }
+  const P = SPAWN_PLACES[+v]; if (v === '' || !P) return;
+  $('play').disabled = true; $('play').textContent = 'Heading to ' + P[0].split(' — ')[0] + '…';
+  player.x = P[1]; player.z = P[2]; player.h = P[3]; camYaw = player.h;
+  for (let k = 0; k < 400; k++) { updateTiles(0.5); await new Promise((r) => setTimeout(r, 25)); if (k > 10 && !tileBusy && TILES.has(Math.floor(player.x / REGION.tile) + ',' + Math.floor(player.z / REGION.tile)) && TILES.size >= 4) break; }
+  // step off the road onto the footpath
+  const fx = Math.sin(player.h), fz = Math.cos(player.h);
+  for (const side of [1, -1]) { const x = player.x + fz * 6 * side, z = player.z - fx * 6 * side; if (isLand(x, z) && !resolveCircle(x, z, 0.5)) { player.x = x; player.z = z; break; } }
+  playerSpot = { x: player.x, z: player.z };
+  for (const c of cars.slice()) if (c !== player.car && c.kind !== 'abandoned' && Math.hypot(c.x - player.x, c.z - player.z) > 400) c.remove();
+  for (let i = 0; i < 20; i++) spawnTraffic(30, 330, 'traffic');
+  for (let i = 0; i < 24; i++) spawnPed(4, 140);
+  updateCamera(0.016); toast(P[0]);
+}
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
@@ -6325,6 +6432,7 @@ async function boot() {
     updateCamera(0.016);
     say('');
     ready = true;
+    initSetup();
     $('play').disabled = false; $('play').textContent = 'Play';
   } catch (err) {
     console.error(err);

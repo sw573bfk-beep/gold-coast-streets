@@ -94,6 +94,14 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #dev { left: calc(18px + env(safe-area-inset-left, 0px)); top: calc(14px + env(safe-area-inset-top, 0px)); font: 600 14px/1.35 var(--hud); background: rgba(8,14,18,.82); padding: 8px 10px; border-left: 4px solid var(--surf); max-width: 360px; text-shadow: none; }
 #dev b { color: var(--surf); letter-spacing: .1em; }
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
+#menu { overflow-y: auto; align-items: safe center; }
+#setup { display: grid; gap: 8px; margin: -8px 0 20px; }
+.pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
+.pick > span { min-width: 74px; font: 700 17px var(--hud); color: var(--gold); letter-spacing: .04em; }
+.swatches { display: flex; gap: 6px; flex-wrap: wrap; }
+.swatches button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(0,0,0,.6); padding: 0; cursor: pointer; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
+.swatches button[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--gold); }
+#pick-spawn { font: 600 17px var(--hud); padding: 7px 10px; border-radius: 8px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; max-width: 100%; }
 #bigmap canvas { position: fixed; inset: 0; cursor: grab; touch-action: none; }
 #mapsearch { position: fixed; top: 16px; left: 16px; width: min(380px, calc(100vw - 96px)); z-index: 2; }
 #mapq { width: 100%; box-sizing: border-box; font: 600 18px var(--hud); padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; outline: none; }
@@ -198,6 +206,13 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>T</b> fast-forward time</div>
       <div><b>N</b> sound on / off</div>
       <div><b>Esc</b> pause</div>
+    </div>
+    <div id="setup">
+      <div class="pick"><span>Skin tone</span><div class="swatches" id="pick-skin"></div></div>
+      <div class="pick"><span>Hair</span><div class="swatches" id="pick-hair"></div></div>
+      <div class="pick"><span>Top</span><div class="swatches" id="pick-shirt"></div></div>
+      <div class="pick"><span>Shorts</span><div class="swatches" id="pick-shorts"></div></div>
+      <div class="pick"><span>Start at</span><select id="pick-spawn" aria-label="Where to start"><option value="">Cavill Mall, Surfers Paradise</option></select></div>
     </div>
     <button id="play" disabled>Loading…</button>
     <div id="load">Building Surfers Paradise…</div>

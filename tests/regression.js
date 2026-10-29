@@ -200,6 +200,12 @@ window.runRegression = async () => {
     const s2 = searchPlaces('robina state high'); expect(s2.length, 'no Robina State High'); goToPlace(s2[0]);
     expect(WAYPOINT && WAYPOINT.name === s2[0][0], 'no waypoint'); WAYPOINT = null; return `${schools} schools; ${REGION.search.length} places`;
   });
+  await test('start screen: skin tone picker and start places by suburb', () => {
+    const sw = document.querySelectorAll('#pick-skin button'); expect(sw.length >= 8, 'no skin swatches');
+    const before = player.look.skin; sw[sw.length - 1].click(); expect(player.look.skin !== before || sw.length === 1, 'skin unchanged'); sw[3].click();
+    const n = SPAWN_PLACES.length, north = SPAWN_PLACES.filter((p) => / — north$/.test(p[0])).length;
+    expect(n > 40 && north >= 15, `${n} places, ${north} north`); return `${sw.length} skin tones, ${n} start places`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

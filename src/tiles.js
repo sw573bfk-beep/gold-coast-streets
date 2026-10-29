@@ -194,7 +194,7 @@ function tileGround(T, data) {
   const pal = houses > data.buildings.length * 0.5 && houses > 40 ? Object.assign({}, GROUND_PAL, { base: '#86965f' }) : GROUND_PAL;
   drawTileLayers(x, T, data, pal, false);
   const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = MAX_ANISO;
-  const mat = new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 });
+  const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }));
   const seg = T.hgt ? HGT_N - 1 : 1, g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);
   if (T.hgt) { const P = g.attributes.position; for (let k = 0; k < P.count; k++) P.setY(k, T.hgt[k]); g.computeVertexNormals(); } // rows run north to south, like the grid
   const m = new THREE.Mesh(g, mat); m.position.set(T.x0 + S / 2, 0, T.z0 + S / 2); m.receiveShadow = true;
@@ -223,14 +223,25 @@ const TILE_ROAD_MATS = (() => {
   return { service: mk('#d6d6d6', -1), minor: mk('#ffffff', -2), major: mk('#f2f2f2', -3), solid: line(null), dashed: line(dash),
     concrete: new THREE.MeshStandardMaterial({ color: col('#bdb8ad'), roughness: 0.9, side: THREE.DoubleSide, envMapIntensity: 0.3 }) };
 })();
+// add points along a polyline so a road laid over hills follows the 10 m ground grid instead of cutting through it
+function densify(p, step) {
+  if (!p.length) return p;
+  const out = [p[0], p[1]];
+  for (let q = 2; q < p.length; q += 2) {
+    const ax = p[q - 2], az = p[q - 1], bx = p[q], bz = p[q + 1], n = Math.ceil(Math.hypot(bx - ax, bz - az) / step);
+    for (let k = 1; k <= n; k++) out.push(ax + (bx - ax) * k / n, az + (bz - az) * k / n);
+  }
+  return out;
+}
 function tileRoads(T, data) {
   const sets = [[(t) => t === RT.service, 0.03, TILE_ROAD_MATS.service], [(t) => DRIVE.has(t) && !MAJOR.has(t), 0.045, TILE_ROAD_MATS.minor], [(t) => MAJOR.has(t), 0.06, TILE_ROAD_MATS.major]];
-  const addMesh = (B, mat) => { if (!B.pos.length) return; const g = toGeometry(B); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); };
+  const hilly = !!T.hgt, D = (p) => (hilly ? densify(p, 8) : p);
+  const addMesh = (B, mat) => { if (!B.pos.length) return; if (hilly) drape(B); const g = toGeometry(B); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); };
   for (const [f, y, mat] of sets) {
     const B = newBuf();
     for (const r of data.roads) {
       if (!f(r[0])) continue;
-      const p = r.slice(4), hw = r[1] / 2, us = r[1] / 6, n = p.length;
+      const p = D(r.slice(4)), hw = r[1] / 2, us = r[1] / 6, n = p.length;
       ribbonInto(B, p, 0, hw, y, 6, us);
       discInto(B, p[0], p[1], hw, y, us); discInto(B, p[n - 2], p[n - 1], hw, y, us);
     }
@@ -238,7 +249,7 @@ function tileRoads(T, data) {
   }
   const solid = newBuf(), dashed = newBuf();
   for (const e of data.edges) {
-    const type = e[5], w = e[6], oneway = e[2], lanes = Math.max(1, e[3] || 1), p = e.slice(7), lw = 0.07;
+    const type = e[5], w = e[6], oneway = e[2], lanes = Math.max(1, e[3] || 1), p = D(e.slice(7)), lw = 0.07;
     if (type === RT.residential || type === RT.living_street || type === RT.unclassified || w < 6) continue;
     if (!oneway) {
       if (type === RT.tertiary) ribbonInto(dashed, p, 0, lw, 0.075, 12, 1);
@@ -302,6 +313,8 @@ function tileBuildings(T, data, fronts) {
         if (t1 - t0 < 0.01 || y1 - y0 < 0.01) return;
         const s0 = W.pos.length; wallInto(W, ax + ex * t0, az + ez * t0, ax + ex * t1, az + ez * t1, base + y0, base + y1, nx, nz, wall);
         if (cls !== 'plain') for (let v = s0; v < W.pos.length; v += 3) W.uv.push((acc + Math.hypot(W.pos[v] - ax, W.pos[v + 2] - az)) / 32, (W.pos[v + 1] - base) / cv);
+        // ground contact: walls darken towards their foot (a cheap ambient-occlusion look)
+        if (y0 <= 0.5) for (let v = s0; v < W.pos.length; v += 3) if (W.pos[v + 1] < base + y0 + 0.01) { W.col[v] *= 0.72; W.col[v + 1] *= 0.72; W.col[v + 2] *= 0.75; }
       };
       let from = 0;
       for (const [t0, t1, lintel] of fr) { piece(from, t0, foot, top); piece(t0, t1, Math.min(top, lintel || 3.6 + gMax - gMin), top); from = t1; }

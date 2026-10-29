@@ -1285,7 +1285,7 @@ function lerpAngle(a, b, t) { return a + angDiff(a, b) * t; }
 // ---------------------------------------------------------------- day / night
 let nightLevel = 0, envHour = -99;
 const lightDir = new THREE.Vector3(0, 1, 0);
-const C_DAY_TOP = col('#2f7fd0'), C_DAY_HOR = col('#bfe2f0'), C_SET_HOR = col('#f7a35c'), C_SET_TOP = col('#3c5a9a'), C_NIGHT_TOP = col('#03050c'), C_NIGHT_HOR = col('#141c30');
+const C_DAY_TOP = col('#2a78cc'), C_DAY_HOR = col('#acd6ec'), C_SET_HOR = col('#f7a35c'), C_SET_TOP = col('#3c5a9a'), C_NIGHT_TOP = col('#03050c'), C_NIGHT_HOR = col('#141c30');
 const headlight = new THREE.SpotLight(0xfff1d0, 0, 70, 0.55, 0.5, 1.2);
 scene.add(headlight, headlight.target);
 function updateSky(dt) {
@@ -1300,10 +1300,10 @@ function updateSky(dt) {
   skyU.sunDir.value.copy(sunDir);
   skyU.sunCol.value.set(dusk > 0.3 ? '#ffb070' : '#fff2d0').multiplyScalar(smooth(-0.08, 0.05, el));
   scene.fog.color.copy(hor);
-  if (el > -0.04) { lightDir.copy(sunDir); sun.intensity = 1.85 * day; sun.color.set('#fff0d8').lerp(col('#ff9a50'), dusk * 0.8); }
+  if (el > -0.04) { lightDir.copy(sunDir); sun.intensity = 2.2 * day; sun.color.set('#fff0d8').lerp(col('#ff9a50'), dusk * 0.8); }
   else { lightDir.set(-0.4, 0.8, 0.3).normalize(); sun.intensity = 0.28; sun.color.set('#8fa8ff'); }
-  hemi.intensity = 0.16 + 0.42 * day; hemi.color.set('#cfe8ff').lerp(col('#2a3558'), nightLevel * 0.8);
-  renderer.toneMappingExposure = 1.0 + nightLevel * 0.35;
+  hemi.intensity = 0.14 + 0.36 * day; hemi.color.set('#cfe8ff').lerp(col('#2a3558'), nightLevel * 0.8);
+  renderer.toneMappingExposure = 0.92 + nightLevel * 0.43;
   for (const k of ['low', 'tower', 'glass', 'grid', 'balcony', 'shop']) buildingMats[k].emissiveIntensity = smooth(0.35, 0.9, nightLevel) * (k === 'shop' ? 1.0 : 1.3);
   for (const m of NIGHT_MATS) m.mat.emissiveIntensity = m.day + smooth(0.3, 0.85, nightLevel) * m.night;
   lampMat.emissiveIntensity = smooth(0.4, 0.9, nightLevel) * 3;
@@ -1676,10 +1676,73 @@ function setPaused(p) {
   $('play').textContent = 'Resume';
   if (!p) lockPointer();
 }
-$('play').addEventListener('click', () => {
+$('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
+  if (!started) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
 });
+
+// ---------------------------------------------------------------- the start screen: how you look, and where you start
+const PICKS = {
+  skin: ['#fbe3cf', '#f1c9a5', '#e8b98f', '#e0ac85', '#c99068', '#a8714a', '#8d5a3b', '#6e4430', '#56351f', '#3b2416'],
+  hair: ['#111111', '#2b1d14', '#4a3020', '#6b4a2b', '#a87a45', '#d9b56c', '#efdba0', '#8a3b1f', '#b0aca6', '#e9e6e1'],
+  shirt: ['#ffffff', '#1e1e1e', '#f2c542', '#35c6cf', '#ff6f4f', '#2d6cdf', '#e85a9a', '#7fd36b', '#5a3d8a', '#ff9a3c'],
+  shorts: ['#1aa3a8', '#1f3c6e', '#2b2b2b', '#5a6b3a', '#c8b48a', '#3b6fb6', '#8a2f2f', '#e2dccf'],
+};
+const SPAWN_PLACES = []; // [label, x, z, heading]
+function initSetup() {
+  for (const k of Object.keys(PICKS)) {
+    const box = $('pick-' + k); box.innerHTML = '';
+    for (const c of PICKS[k]) {
+      const b = document.createElement('button'); b.type = 'button'; b.style.background = c; b.setAttribute('aria-label', k + ' ' + c);
+      b.setAttribute('aria-pressed', String(player.look[k] === c));
+      b.addEventListener('click', () => { player.look[k] = c; for (const o of box.children) o.setAttribute('aria-pressed', String(o === b)); rebuildPlayer(); saveGame(); });
+      box.appendChild(b);
+    }
+  }
+  // the north and south ends of every suburb, plus the big landmarks, each snapped onto a real street
+  if (!REGION || SPAWN_PLACES.length) return;
+  const sel = $('pick-spawn');
+  const near = (x, z) => {
+    let best = null, bd = 1e9;
+    for (const r of REGION.roads) {
+      if (r[0] < 1 || r[0] > 4) continue; // ordinary streets: primary down to residential (no motorway or highway)
+      for (let i = 1; i < r.length - 1; i += 2) { const d = Math.hypot(r[i] - x, r[i + 1] - z); if (d < bd) { bd = d; best = [r[i], r[i + 1], r[i + 2] !== undefined ? Math.atan2(r[i + 2] - r[i], r[i + 3] - r[i + 1]) : 0]; } }
+    }
+    return best;
+  };
+  const add = (group, label, x, z) => { const p = near(x, z); if (!p) return; SPAWN_PLACES.push([label, p[0], p[1], p[2]]); const o = document.createElement('option'); o.value = String(SPAWN_PLACES.length - 1); o.textContent = label; group.appendChild(o); };
+  const lg = document.createElement('optgroup'); lg.label = 'Landmarks'; sel.appendChild(lg);
+  const qi = Object.keys(MAP.details.bnames || {}).find((k) => /^Q1/.test(MAP.details.bnames[k]));
+  if (qi) { const f = MAP.buildings[qi].slice(3); let x = 0, z = 0; for (let q = 0; q < f.length; q += 2) { x += f[q]; z += f[q + 1]; } add(lg, 'Q1 Tower', x / (f.length / 2), z / (f.length / 2)); }
+  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School']) {
+    const e = REGION.search.find((q) => q[0] === nm) || REGION.search.find((q) => q[0].startsWith(nm)); if (e) add(lg, e[0], e[2], e[3]);
+  }
+  const bg = document.createElement('optgroup'); bg.label = 'Beaches'; sel.appendChild(bg);
+  for (const e of REGION.search.filter((q) => q[1] === 3).sort((a, b) => a[3] - b[3])) add(bg, e[0], e[2], e[3]);
+  const subs = REGION.suburbs.filter((q) => q[3] === 'suburb' || q[3] === 'town').sort((a, b) => a[1] - b[1]);
+  for (const [sx, sz, nm] of subs) {
+    const g = document.createElement('optgroup'); g.label = nm; sel.appendChild(g);
+    add(g, nm + ' — north', sx, sz - 700); add(g, nm + ' — centre', sx, sz); add(g, nm + ' — south', sx, sz + 700);
+  }
+  try { const last = localStorage.getItem('gcs-spawn'); if (last && SPAWN_PLACES[+last]) sel.value = last; } catch (e) { /* storage blocked */ }
+}
+// move to the chosen start and wait for the streets there to stream in
+async function goToSpawn(v) {
+  try { localStorage.setItem('gcs-spawn', v); } catch (e) { /* storage blocked */ }
+  const P = SPAWN_PLACES[+v]; if (v === '' || !P) return;
+  $('play').disabled = true; $('play').textContent = 'Heading to ' + P[0].split(' — ')[0] + '…';
+  player.x = P[1]; player.z = P[2]; player.h = P[3]; camYaw = player.h;
+  for (let k = 0; k < 400; k++) { updateTiles(0.5); await new Promise((r) => setTimeout(r, 25)); if (k > 10 && !tileBusy && TILES.has(Math.floor(player.x / REGION.tile) + ',' + Math.floor(player.z / REGION.tile)) && TILES.size >= 4) break; }
+  // step off the road onto the footpath
+  const fx = Math.sin(player.h), fz = Math.cos(player.h);
+  for (const side of [1, -1]) { const x = player.x + fz * 6 * side, z = player.z - fx * 6 * side; if (isLand(x, z) && !resolveCircle(x, z, 0.5)) { player.x = x; player.z = z; break; } }
+  playerSpot = { x: player.x, z: player.z };
+  for (const c of cars.slice()) if (c !== player.car && c.kind !== 'abandoned' && Math.hypot(c.x - player.x, c.z - player.z) > 400) c.remove();
+  for (let i = 0; i < 20; i++) spawnTraffic(30, 330, 'traffic');
+  for (let i = 0; i < 24; i++) spawnPed(4, 140);
+  updateCamera(0.016); toast(P[0]);
+}
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);
   camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
@@ -1784,6 +1847,7 @@ async function boot() {
     updateCamera(0.016);
     say('');
     ready = true;
+    initSetup();
     $('play').disabled = false; $('play').textContent = 'Play';
   } catch (err) {
     console.error(err);
