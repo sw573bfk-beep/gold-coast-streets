@@ -436,7 +436,10 @@ for e in els:
         ring = flat(ring_clean(geom(e))) if e['type'] == 'way' else None
         tt['fuel'].append([round(p[0], 1), round(p[1], 1), name, t.get('brand') or name, sid, ring])
     else:
-        tt['pois'].append([round(p[0], 1), round(p[1], 1), CATS[c], name, sid])
+        # the level (inside shopping centres) and the OSM shop type (to tell anchor stores from small shops)
+        try: lv = int(float(str(t.get('level', '')).split(';')[0]))
+        except ValueError: lv = None
+        tt['pois'].append([round(p[0], 1), round(p[1], 1), CATS[c], name, sid, lv, t.get('shop') or t.get('amenity') or ''])
     if t.get('shop') == 'mall' or t.get('tourism') in ('theme_park', 'attraction'):
         landmarks.append([round(p[0]), round(p[1]), name])
 for e in els:  # big named buildings and centres as map landmarks

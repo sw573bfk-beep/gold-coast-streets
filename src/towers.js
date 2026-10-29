@@ -59,9 +59,12 @@ const T_COLS = { marble: col('#e9e5dc'), carpet: col('#7b5d63'), carpet2: col('#
 function enterTower(E) {
   // Q1's height includes its spire: 77 floors with the roof deck at about 245 m
   const B = E.B, gy = groundAt(E.px, E.pz), h = /^Q1\b/.test(B.name) ? 245 : B.b[0];
-  const floors = B.kind === 'mall' ? 0 : /^Q1\b/.test(B.name) ? 77 : Math.max(1, Math.floor((h - 4.5) / 3.1));
+  let mallLevels = null;
+  if (B.kind === 'mall') { const lv = new Set(); for (const p of B.pois || []) if (inRing(p[0], p[1], B.f) && p[5] !== null && p[5] !== undefined) lv.add(p[5]); mallLevels = [...lv].sort((a, b) => a - b); if (!mallLevels.length) mallLevels = [0]; }
+  const floors = B.kind === 'mall' ? mallLevels.length - 1 : /^Q1\b/.test(B.name) ? 77 : Math.max(1, Math.floor((h - 4.5) / 3.1));
   TOWER = { b: B.b, f: B.f, name: B.name || ({ hotel: 'Hotel', apartments: 'Apartments', offices: 'Office tower', mall: 'Shopping centre' })[B.kind], kind: B.kind, floors, level: 0,
-    base: gy, top: gy + h, exit: { x: E.px + E.nx * 1.2, z: E.pz + E.nz * 1.2, ix: E.px - E.nx * 1.5, iz: E.pz - E.nz * 1.5, nx: E.nx, nz: E.nz, ex: E.ex, ez: E.ez, px: E.px, pz: E.pz }, pois: B.pois, people: [] };
+    mallLevels, base: gy, top: gy + h, exit: { x: E.px + E.nx * 1.2, z: E.pz + E.nz * 1.2, ix: E.px - E.nx * 1.5, iz: E.pz - E.nz * 1.5, nx: E.nx, nz: E.nz, ex: E.ex, ez: E.ez, px: E.px, pz: E.pz }, pois: B.pois, people: [] };
+  if (B.kind === 'mall') { TOWER.levelH = clamp((h - 0.3) / (floors + 1), 3.4, 5.5); TOWER.top = Math.max(TOWER.top, gy + (floors + 1) * TOWER.levelH); }
   buildTowerLevel(0);
   player.x = TOWER.exit.ix; player.z = TOWER.exit.iz; player.h = Math.atan2(-E.nx, -E.nz); camYaw = player.h;
   toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : `${TOWER.name} — lifts are in the middle (E)`);
@@ -80,11 +83,15 @@ function disposeTowerLevel() {
   const gi = GRIDS.indexOf(TOWER.grid); if (gi >= 0) GRIDS.splice(gi, 1);
   TOWER.mesh = null; TOWER.people = []; TOWER.shops = []; TOWER.loot = [];
 }
-function levelY(k) { return k === 0 ? TOWER.base : k > TOWER.floors ? TOWER.top : TOWER.base + 4.5 + (k - 1) * 3.1; }
+function levelY(k) {
+  if (TOWER.kind === 'mall') return TOWER.base + k * TOWER.levelH; // levels shared out over the building's height (the roof is the car park)
+  return k === 0 ? TOWER.base : k > TOWER.floors ? TOWER.top : TOWER.base + 4.5 + (k - 1) * 3.1;
+}
 
 function buildTowerLevel(k) {
   disposeTowerLevel();
-  const f = TOWER.f, n = f.length / 2, y = levelY(k), roof = k > TOWER.floors, ceil = roof ? y + 40 : k === 0 ? Math.min(TOWER.top - 0.1, y + (TOWER.kind === 'mall' ? 7 : 4.4)) : y + 2.9;
+  const mall = TOWER.kind === 'mall', f = TOWER.f, n = f.length / 2, y = levelY(k), roof = k > TOWER.floors;
+  const ceil = roof ? y + 40 : mall ? y + TOWER.levelH - 0.25 : k === 0 ? Math.min(TOWER.top - 0.1, y + 4.4) : y + 2.9;
   const r = mulberry32((TOWER.b[3] * 1000 + TOWER.b[4]) | 0 + k * 7), Bf = newBuf(), segs = [], lifts = [], loot = [];
   TOWER.level = k; TOWER.y = y; TOWER.ceil = ceil;
   const X = TOWER.exit;
@@ -96,7 +103,7 @@ function buildTowerLevel(k) {
   let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
   for (let q = 0; q < n; q++) { const u = (f[2 * q] - cx) * ux + (f[2 * q + 1] - cz) * uz, v = (f[2 * q] - cx) * vx + (f[2 * q + 1] - cz) * vz; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
   const W = (u, v) => [cx + u * ux + v * vx, cz + u * uz + v * vz];
-  const floorCol = k === 0 ? (TOWER.kind === 'mall' ? T_COLS.tile : T_COLS.marble) : roof ? col('#c8c4ba') : TOWER.kind === 'offices' ? T_COLS.carpet2 : T_COLS.carpet;
+  const floorCol = mall && !roof ? T_COLS.tile : k === 0 ? T_COLS.marble : roof ? col('#c8c4ba') : TOWER.kind === 'offices' ? T_COLS.carpet2 : T_COLS.carpet;
   // floor and ceiling
   const contour = []; for (let q = 0; q < n; q++) contour.push(new THREE.Vector2(f[2 * q], f[2 * q + 1]));
   let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { /* odd outline */ }
@@ -163,8 +170,8 @@ function buildTowerLevel(k) {
     }
     const lb = box(0, -(v1 - v0) * 0.22, 3.4, 3, 3, col('#8e9499'));
     if (lb) { const [lx, lz] = W(0, -(v1 - v0) * 0.22 + 2.4); lifts.push({ x: lx, z: lz, h: Math.atan2(vx, vz) }); }
-  } else if (k === 0 && TOWER.kind === 'mall') {
-    buildMallConcourse({ box, wall, u0, u1, v0, v1, W, y, ceil, segs, r });
+  } else if (mall) {
+    buildMallConcourse({ box, wall, u0, u1, v0, v1, W, y, ceil, segs, r, k, cx, cz, ux, uz, vx, vz, lifts });
   } else if (k === 0) {
     liftCore();
     const [ex, ez] = [X.ix, X.iz], ru = (ex - cx) * ux + (ez - cz) * uz, rv = (ex - cx) * vx + (ez - cz) * vz;
@@ -202,6 +209,85 @@ function buildTowerLevel(k) {
 }
 // a shopping centre: a concourse down the middle, shop units either side named after the shops really inside
 function buildMallConcourse(M) {
+  const lv = TOWER.mallLevels ? TOWER.mallLevels[M.k] : null, one = !TOWER.mallLevels || TOWER.mallLevels.length < 2;
+  const here = (TOWER.pois || []).filter((p) => inRing(p[0], p[1], TOWER.f) && (one || (p[5] === null || p[5] === undefined ? TOWER.mallLevels[0] : p[5]) === lv));
+  if (here.length >= 12) return buildMallFromShops(M, here);
+  if (M.k > 0) return;
+  buildMallCorridor(M);
+}
+const ANCHOR_RE = /myer|david jones|kmart|big w|target|coles|woolworths|aldi|event|hoyts|harris farm|jb hi-fi|rebel|harvey norman|bunnings|officeworks|h&m|uniqlo|cotton on mega|best & less|spotlight/i;
+function buildMallFromShops(M, here) {
+  // walkways join the real shop positions (a spanning tree, squared off like a real centre); shopfronts line both
+  // sides, and each real shop takes the shopfront nearest where it really is
+  const { box, wall, W, y, ceil, cx, cz, ux, uz, vx, vz, lifts } = M;
+  const UV = (x, z) => [(x - cx) * ux + (z - cz) * uz, (x - cx) * vx + (z - cz) * vz];
+  const X = TOWER.exit, pts = here.slice(0, 140).map((p) => UV(p[0], p[1]));
+  pts.unshift(UV(X.ix, X.iz));
+  const inTree = [0], segsC = [], HW = 4.5, DEPTH = 10, UNIT = 8;
+  const dist = pts.map(() => Infinity), from = pts.map(() => 0); dist[0] = -1;
+  for (let i = 1; i < pts.length; i++) dist[i] = Math.hypot(pts[i][0] - pts[0][0], pts[i][1] - pts[0][1]);
+  for (let n = 1; n < pts.length; n++) { // Prim's spanning tree
+    let bi = -1; for (let i = 0; i < pts.length; i++) if (dist[i] >= 0 && (bi < 0 || dist[i] < dist[bi])) bi = i;
+    if (bi < 0) break; const a = pts[from[bi]], c = pts[bi]; dist[bi] = -1; inTree.push(bi);
+    if (Math.abs(c[0] - a[0]) > 1) segsC.push([a[0], a[1], c[0], a[1]]); // along u, then along v
+    if (Math.abs(c[1] - a[1]) > 1) segsC.push([c[0], a[1], c[0], c[1]]);
+    for (let i = 0; i < pts.length; i++) if (dist[i] >= 0) { const d = Math.hypot(pts[i][0] - c[0], pts[i][1] - c[1]); if (d < dist[i]) { dist[i] = d; from[i] = bi; } }
+  }
+  const inWalk = (u, v, pad) => segsC.some(([a0, b0, a1, b1]) => u > Math.min(a0, a1) - HW - pad && u < Math.max(a0, a1) + HW + pad && v > Math.min(b0, b1) - HW - pad && v < Math.max(b0, b1) + HW + pad);
+  const taken = new Set(), cell = (u, v) => Math.round(u / 4) + ',' + Math.round(v / 4);
+  const units = [];
+  for (const [a0, b0, a1, b1] of segsC) {
+    const alongU = Math.abs(a1 - a0) > Math.abs(b1 - b0), L = Math.hypot(a1 - a0, b1 - b0);
+    for (let t = UNIT / 2; t < L; t += UNIT) {
+      const su = a0 + (a1 - a0) * t / L, sv = b0 + (b1 - b0) * t / L;
+      for (const side of [-1, 1]) {
+        const du = alongU ? 0 : side, dv = alongU ? side : 0, u = su + du * (HW + DEPTH / 2), v = sv + dv * (HW + DEPTH / 2);
+        if (units.length > 380 || inWalk(u, v, -1) || taken.has(cell(u, v))) continue;
+        const corners = [[-1, -1], [1, -1], [1, 1], [-1, 1]].map(([p, q]) => W(u + p * (alongU ? UNIT : DEPTH) / 2, v + q * (alongU ? DEPTH : UNIT) / 2));
+        if (!corners.every(([x, z]) => inRing(x, z, TOWER.f))) continue;
+        for (let q = -1; q <= 1; q++) for (let r2 = -1; r2 <= 1; r2++) taken.add(cell(u + q * 3, v + r2 * 3));
+        units.push({ u, v, dir: [-du, -dv], poi: null });
+      }
+    }
+  }
+  for (const p of here.slice(0, 140)) { // real shops into their nearest shopfront
+    const [pu, pv] = UV(p[0], p[1]); let best = null, bd = 40;
+    for (const U of units) { if (U.poi) continue; const d = Math.hypot(U.u - pu, U.v - pv); if (d < bd) { bd = d; best = U; } }
+    if (best) best.poi = p;
+  }
+  const shops = [], hs = UNIT / 2, hd = DEPTH / 2;
+  for (const U of units) {
+    const [du, dv] = U.dir, eu = -dv, ev = du; // front faces the walkway
+    const fu = U.u + du * hd, fv = U.v + dv * hd, bu = U.u - du * hd, bvv = U.v - dv * hd;
+    wall([bu - eu * hs, bvv - ev * hs], [bu + eu * hs, bvv + ev * hs], [], y, ceil);
+    for (const s2 of [-1, 1]) wall([U.u + eu * hs * s2 - du * hd, U.v + ev * hs * s2 - dv * hd], [U.u + eu * hs * s2 + du * hd, U.v + ev * hs * s2 + dv * hd], [], y, ceil);
+    const [nx, nz] = [du * ux + dv * vx, du * uz + dv * vz], [fx, fz] = W(fu, fv);
+    if (!U.poi) { box(fu - du * 0.15, fv - dv * 0.15, Math.abs(eu) * UNIT + Math.abs(du) * 0.2, 3.2, Math.abs(ev) * UNIT + Math.abs(dv) * 0.2, col('#a8adb2'), true); continue; } // a closed roller door
+    const p = U.poi, counter = box(U.u - du * 2.5, U.v - dv * 2.5, Math.abs(eu) * 3 + Math.abs(du) * 0.7, 1.0, Math.abs(ev) * 3 + Math.abs(dv) * 0.7, T_COLS.wood);
+    if (!counter) continue;
+    const [sx, sz] = W(U.u - du * 1.3, U.v - dv * 1.3), [kx, kz] = W(U.u - du * 3.4, U.v - dv * 3.4);
+    const sh = { id: 'mall-' + p[4], name: p[3], cat: p[2], kind: shopKind(p[2], p[3]), x: fx, z: fz, cx: sx, cz: sz, dx: fx, dz: fz, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9, mall: true };
+    SHOPS.push(sh); shops.push(sh);
+    const P = makePerson(); P.root.position.set(kx, y, kz); P.root.rotation.y = Math.atan2(sx - kx, sz - kz); scene.add(P.root); TOWER.people.push(P);
+    addSignAt(p[3], fx + nx * 0.06, fz + nz * 0.06, nx, nz, y + 3.7, Math.min(UNIT - 0.6, 0.28 * p[3].length + 1.8));
+  }
+  TOWER.shops = shops;
+  if (TOWER.floors > 0 && segsC.length) { // escalators on the walkway nearest the middle
+    let best = segsC[0], bd = Infinity;
+    for (const S2 of segsC) { const mu = (S2[0] + S2[2]) / 2, mv = (S2[1] + S2[3]) / 2, d = Math.hypot(mu, mv); if (d < bd && Math.hypot(S2[2] - S2[0], S2[3] - S2[1]) > 12) { bd = d; best = S2; } }
+    const mu = (best[0] + best[2]) / 2, mv = (best[1] + best[3]) / 2, alongU = Math.abs(best[2] - best[0]) > Math.abs(best[3] - best[1]);
+    box(mu, mv, alongU ? 9 : 1.6, 1.1, alongU ? 1.6 : 9, col('#8e979e'), true);
+    const [lx, lz] = W(mu + (alongU ? 0 : 2.2), mv + (alongU ? 2.2 : 0)); lifts.push({ x: lx, z: lz, h: Math.atan2(alongU ? vx : ux, alongU ? vz : uz) });
+  }
+}
+function addSignAt(name, x, z, nx, nz, yy, w) {
+  if (!TOWER.signCanvas) { const c = document.createElement('canvas'); c.width = 1024; c.height = 2048; TOWER.signCanvas = c; TOWER.signN = 0; TOWER.signBuf = newBuf(); }
+  const n = TOWER.signN++; if (n >= 128) return;
+  const ctx = TOWER.signCanvas.getContext('2d'), sx = (n % 4) * 256, sy = Math.floor(n / 4) * 64;
+  drawSign(ctx, sx, sy, 256, 64, name, styleFor(name, 3));
+  quadInto(TOWER.signBuf, x, yy, z, nx, nz, w, w / 4, { u0: sx / 1024, u1: (sx + 256) / 1024, v0: 1 - (sy + 64) / 2048, v1: 1 - sy / 2048 });
+}
+function buildMallCorridor(M) {
   const { box, wall, u0, u1, v0, v1, W, y, segs } = M;
   const names = [];
   for (const p of TOWER.pois || []) if (inRing(p[0], p[1], TOWER.f)) names.push(p);
@@ -266,7 +352,10 @@ function openLift() {
   const body = $('shop-body'); body.innerHTML = '';
   const grid = document.createElement('div'); grid.style.cssText = 'display:flex;flex-wrap:wrap;gap:6px;max-height:46vh;overflow:auto';
   const add = (label, k) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.style.minWidth = '52px'; b.disabled = k === TOWER.level; b.addEventListener('click', () => { closeShop(); rideLift(k); }); grid.appendChild(b); };
-  add('G', 0); for (let k = 1; k <= TOWER.floors; k++) add(String(k), k); add('Roof', TOWER.floors + 1);
+  if (TOWER.kind === 'mall') { // shopping centres: escalators between the real levels, and the rooftop car park
+    $('shop-title').textContent = TOWER.name + ' — escalators';
+    TOWER.mallLevels.forEach((lv, k) => add('Level ' + (TOWER.mallLevels[0] === 0 ? lv + 1 : lv), k)); add('Rooftop', TOWER.floors + 1);
+  } else { add('G', 0); for (let k = 1; k <= TOWER.floors; k++) add(String(k), k); add('Roof', TOWER.floors + 1); }
   body.appendChild(grid);
 }
 function rideLift(k) {
