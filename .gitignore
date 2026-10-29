@@ -5,3 +5,4 @@ dist/tests/
 data/region/
 dist/tiles/
 data/region_fetch.log
+data/terrain_fetch.log

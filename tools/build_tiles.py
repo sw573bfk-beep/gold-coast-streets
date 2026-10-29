@@ -6,7 +6,7 @@ Inputs: data/region/osm_*.json (OpenStreetMap via Overpass), data/region/ms_buil
 Outputs: dist/tiles/t_<i>_<j>.json (one per non-empty tile), dist/tiles/region.json (overview for maps and the index).
 Run: python3 tools/build_tiles.py
 """
-import glob, json, math, os, random, re
+import array, base64, glob, json, math, os, random, re, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TILE = 1000.0
@@ -225,6 +225,8 @@ def name_idx(t, n):
     return t['names'].index(n)
 graph_ways = []
 road_segs = []  # for tree placement: (ax, az, bx, bz, w)
+drive_segs = []  # drivable roads only: front doors face these
+BRIDGES = []  # (pts, width): decks keep a level line between their ends instead of dipping to the ground below
 for e in els:
     t = e.get('tags', {}); hw = t.get('highway')
     if e['type'] != 'way' or not hw: continue
@@ -243,6 +245,8 @@ for e in els:
     bridge = 1 if t.get('bridge') == 'yes' else 0
     for i in range(len(pts) - 1):
         road_segs.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], width))
+        if hw in DRIVABLE or is_link: drive_segs.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], width))
+    if bridge and hw in DRIVABLE | {'service', 'motorway'}: BRIDGES.append((pts, width))
     # cut into tiles, leaving the Surfers core alone
     xs = [p[0] for p in pts]; zs = [p[1] for p in pts]
     for ti in range(tkey(min(xs), 0)[0], tkey(max(xs), 0)[0] + 1):
@@ -459,9 +463,211 @@ def in_ocean(x, z):
     for r, a0, b0, a1, b1 in ocean_bbox:
         if a0 <= x <= a1 and b0 <= z <= b1 and pip((x, z), r): c = not c
     return c
+# ---------------------------------------------------------------- ground height, roof colours, pools and trees (Queensland Government open data)
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from aerial import Raster
+HAVE_DEM = os.path.exists(os.path.join(ROOT, 'data', 'region', 'dem.json'))
+HAVE_AIR = os.path.exists(os.path.join(ROOT, 'data', 'region', 'air.json'))
+DEM = Raster('dem') if HAVE_DEM else None
+AIR = Raster('air') if HAVE_AIR else None
+def unproj(x, z): return LAT0 - z / KZ, LON0 + x / KX
+GROUND_BASE = 3.0   # metres above sea level that game height 0 stands for (the flat Surfers core sits around 4-6 m)
+HSTEP, HN = 10.0, 101  # height grid: one sample every 10 m, 101 x 101 per tile (shared edges)
+def core_fade(x, z):
+    dx = max(CORE[0] - x, 0, x - CORE[2]); dz = max(CORE[1] - z, 0, z - CORE[3]); d = math.hypot(dx, dz)
+    t = min(1.0, d / 250.0); return t * t * (3 - 2 * t)
+# bridge decks: a straight line between the ground at each end, so roads stay level over water and other roads
+BG = 50.0
+bgrid = {}
+for pts, w in BRIDGES:
+    if not DEM: break
+    ha = DEM.value(*unproj(*pts[0])) or 0; hb = DEM.value(*unproj(*pts[-1])) or 0
+    L = [0.0]
+    for i in range(len(pts) - 1): L.append(L[-1] + math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]))
+    tot = L[-1] or 1
+    for i in range(len(pts) - 1):
+        seg = (pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w / 2 + 3, ha + (hb - ha) * L[i] / tot, ha + (hb - ha) * L[i + 1] / tot)
+        for gx in range(int(min(seg[0], seg[2]) // BG) - 1, int(max(seg[0], seg[2]) // BG) + 2):
+            for gz in range(int(min(seg[1], seg[3]) // BG) - 1, int(max(seg[1], seg[3]) // BG) + 2):
+                bgrid.setdefault((gx, gz), []).append(seg)
+def ground_raw(x, z):
+    """Game height (metres) at a point: LiDAR bare earth, bridges levelled, faded to 0 at the Surfers core."""
+    h = None
+    for ax, az, bx, bz, r, h0, h1 in bgrid.get((int(x // BG), int(z // BG)), ()):
+        ex, ez = bx - ax, bz - az; L2 = ex * ex + ez * ez or 1
+        t = max(0, min(1, ((x - ax) * ex + (z - az) * ez) / L2))
+        if math.hypot(x - ax - ex * t, z - az - ez * t) < r: h = h0 + (h1 - h0) * t; break
+    if h is None: h = DEM.value(*unproj(x, z))
+    if h is None: return 0.0
+    return max(0.0, h - GROUND_BASE) * core_fade(x, z)
+def tile_heights(ti, tj):
+    """101 x 101 heights for a tile, smoothed 3 x 3 over a one-sample apron so neighbouring tiles agree at the seam."""
+    x0, z0 = ti * TILE, tj * TILE
+    raw = [[ground_raw(x0 + (i - 1) * HSTEP, z0 + (j - 1) * HSTEP) for i in range(HN + 2)] for j in range(HN + 2)]
+    out = []
+    for j in range(1, HN + 1):
+        for i in range(1, HN + 1):
+            out.append(sum(raw[j + dj][i + di] for dj in (-1, 0, 1) for di in (-1, 0, 1)) / 9)
+    return out
+
+# roof colours: the median photo colour inside each footprint (leaves and shadow-black left out)
+def roof_colour(f):
+    xs = f[0::2]; zs = f[1::2]; n = len(xs); poly = list(zip(xs, zs))
+    cx, cz = sum(xs) / n, sum(zs) / n
+    a = abs(area(poly)); step = max(1.5, math.sqrt(a / 60))
+    got = []
+    x = min(xs) + step / 2
+    while x < max(xs):
+        z = min(zs) + step / 2
+        while z < max(zs):
+            if pip((x, z), poly):
+                qx, qz = cx + (x - cx) * 0.8, cz + (z - cz) * 0.8
+                c = AIR.rgb(*unproj(qx, qz))
+                if c: got.append(c)
+            z += step
+        x += step
+    if not got:
+        c = AIR.rgb(*unproj(cx, cz)); got = [c] if c else []
+    if not got: return None
+    keep = [c for c in got if not (c[1] > c[0] + 8 and c[1] > c[2] + 4) and sum(c) > 60] or got
+    med = lambda k: sorted(c[k] for c in keep)[len(keep) // 2]
+    return (med(0), med(1), med(2))
+WALLS_WARM = [(0xd8, 0xc3, 0xa5), (0xe8, 0xdc, 0xc6), (0xc9, 0x8a, 0x63), (0xb7, 0x70, 0x4f), (0xef, 0xe7, 0xda), (0xd9, 0xb8, 0x8f)]
+WALLS_COOL = [(0xf4, 0xf1, 0xea), (0xe6, 0xe6, 0xe2), (0xd9, 0xd3, 0xc7), (0xc8, 0xc8, 0xc4), (0xf0, 0xec, 0xe0), (0x9a, 0x9a, 0x96)]
+def wall_for(roof, rnd):
+    """Walls can't be seen from above, so pick a believable match for the real roof."""
+    r, g, b = roof; luma = 0.3 * r + 0.59 * g + 0.11 * b
+    if r > g + 22 and r > b + 30: pal = WALLS_WARM
+    elif luma < 95: pal = WALLS_COOL[:4]
+    else: pal = WALLS_COOL if rnd.random() < 0.6 else WALLS_WARM[:2]
+    return pal[int(rnd.random() * len(pal))]
+def hexi(c): return (int(c[0]) << 16) | (int(c[1]) << 8) | int(c[2])
+
+# front and back doors: the front faces the nearest drivable road, the back is the wall most opposite it
+DG = 40.0
+dgrid = {}
+for sg in drive_segs:
+    for gx in range(int(min(sg[0], sg[2]) // DG), int(max(sg[0], sg[2]) // DG) + 1):
+        for gz in range(int(min(sg[1], sg[3]) // DG), int(max(sg[1], sg[3]) // DG) + 1):
+            dgrid.setdefault((gx, gz), []).append(sg)
+def nearest_drive(x, z):
+    best, bp = 1e9, None
+    for gx in range(int(x // DG) - 2, int(x // DG) + 3):
+        for gz in range(int(z // DG) - 2, int(z // DG) + 3):
+            for ax, az, bx, bz, w in dgrid.get((gx, gz), ()):
+                ex, ez = bx - ax, bz - az; L2 = ex * ex + ez * ez or 1
+                t = max(0, min(1, ((x - ax) * ex + (z - az) * ez) / L2)); px, pz = ax + ex * t, az + ez * t
+                d = math.hypot(x - px, z - pz)
+                if d < best: best, bp = d, (px, pz)
+    return bp
+def house_doors(f):
+    xs = f[0::2]; zs = f[1::2]; n = len(xs); poly = list(zip(xs, zs))
+    cx, cz = sum(xs) / n, sum(zs) / n
+    rp = nearest_drive(cx, cz)
+    if not rp: return [-1, -1]
+    dx, dz = rp[0] - cx, rp[1] - cz; dl = math.hypot(dx, dz) or 1; dx /= dl; dz /= dl
+    best, front, worst, back = -2, -1, 2, -1
+    for q in range(n):
+        ax, az = poly[q]; bx, bz = poly[(q + 1) % n]; L = math.hypot(bx - ax, bz - az)
+        if L < 2.4: continue
+        nx, nz = (bz - az) / L, -(bx - ax) / L
+        if pip(((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3), poly): nx, nz = -nx, -nz
+        d = nx * dx + nz * dz
+        if d > best: best, front = d, q
+        if d < worst: worst, back = d, q
+    return [front, back if back != front else -1]
+
+def convex_hull(pts):
+    pts = sorted(set(pts))
+    if len(pts) < 3: return pts
+    def half(seq):
+        h = []
+        for p in seq:
+            while len(h) >= 2 and (h[-1][0] - h[-2][0]) * (p[1] - h[-2][1]) - (h[-1][1] - h[-2][1]) * (p[0] - h[-2][0]) <= 0: h.pop()
+            h.append(p)
+        return h
+    lo, hi = half(pts), half(reversed(pts))
+    return lo[:-1] + hi[:-1]
+def in_water_area(x, z, tt):
+    if in_ocean(x, z): return True
+    for ring in tt['areas'].get('water', []):
+        if pip((x, z), list(zip(ring[0::2], ring[1::2]))): return True
+    return False
+def scan_photo(ti, tj, tt):
+    """Pools (turquoise blobs) and tree crowns (dark green blobs) from the photo, at its 2 m pixels."""
+    x0, z0, P = ti * TILE, tj * TILE, 2.0
+    N = int(TILE / P)
+    occ = bytearray(N * N)  # building pixels
+    for b in tt['buildings']:
+        f = b[3:]; xs = f[0::2]; zs = f[1::2]; poly = list(zip(xs, zs))
+        for py in range(max(0, int((min(zs) - z0) / P)), min(N, int((max(zs) - z0) / P) + 1)):
+            for px in range(max(0, int((min(xs) - x0) / P)), min(N, int((max(xs) - x0) / P) + 1)):
+                if pip((x0 + (px + 0.5) * P, z0 + (py + 0.5) * P), poly): occ[py * N + px] = 1
+    cls = bytearray(N * N)  # 1 pool, 2 canopy
+    for py in range(N):
+        lat = LAT0 - (z0 + (py + 0.5) * P) / KZ
+        for px in range(N):
+            if occ[py * N + px]: continue
+            c = AIR.rgb(lat, LON0 + (x0 + (px + 0.5) * P) / KX)
+            if not c: continue
+            r, g, b = c
+            if b > 140 and g > 120 and r < 135 and b - r > 55 and g - r > 30: cls[py * N + px] = 1
+            elif g > r + 6 and g >= b and r + g + b < 260: cls[py * N + px] = 2
+    seen = bytearray(N * N); pools, crowns = [], []
+    for start in range(N * N):
+        k = cls[start]
+        if not k or seen[start]: continue
+        stack, comp = [start], []; seen[start] = 1
+        while stack:
+            v = stack.pop(); comp.append(v); vy, vx = divmod(v, N)
+            for w in (v - 1 if vx else -1, v + 1 if vx < N - 1 else -1, v - N, v + N):
+                if 0 <= w < N * N and not seen[w] and cls[w] == k: seen[w] = 1; stack.append(w)
+        if k == 1:
+            if 3 <= len(comp) <= 150:
+                pts = [(x0 + (v % N + 0.5) * P, z0 + (v // N + 0.5) * P) for v in comp]
+                mx = sum(p[0] for p in pts) / len(pts); mz = sum(p[1] for p in pts) / len(pts)
+                if in_core(mx, mz) or in_water_area(mx, mz, tt): continue
+                corners = [(px_ + ox, pz_ + oz) for px_, pz_ in pts for ox in (-1, 1) for oz in (-1, 1)]
+                pools.append(flat(convex_hull([(round(a, 1), round(b, 1)) for a, b in corners])))
+        elif len(comp) >= 4:
+            if len(comp) <= 30:
+                pts = [(x0 + (v % N + 0.5) * P, z0 + (v // N + 0.5) * P) for v in comp]
+                crowns.append((sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts), min(5.5, math.sqrt(len(comp) * 4 / math.pi))))
+            else:  # a stand of trees: one every ~8 m across the canopy
+                for v in comp:
+                    vy, vx = divmod(v, N)
+                    if vx % 4 == (vy // 4) % 2 * 2 and vy % 4 == 0:
+                        crowns.append((x0 + (vx + 0.5) * P, z0 + (vy + 0.5) * P, 3.6))
+    return pools, crowns
+
+n_pool = n_tree = n_col = 0
+for (ti, tj), tt in tiles.items():
+    tt['bdoor'] = [house_doors(b[3:]) if b[2] == 0 else 0 for b in tt['buildings']]
+if HAVE_DEM or HAVE_AIR:
+    for (ti, tj), tt in tiles.items():
+        if HAVE_DEM:
+            hs = tile_heights(ti, tj)
+            if max(hs) > 0.3:
+                tt['hgt'] = base64.b64encode(array.array('h', [int(round(v * 10)) for v in hs]).tobytes()).decode()
+        if HAVE_AIR and AIR.complete():
+            rnd = random.Random(ti * 7919 + tj)
+            tt['bcol'] = []
+            for b in tt['buildings']:
+                rc = roof_colour(b[3:])
+                if rc: n_col += 1
+                tt['bcol'].append([hexi(rc), hexi(wall_for(rc, rnd))] if rc else 0)
+            pools, crowns = scan_photo(ti, tj, tt)
+            if pools: tt['areas'].setdefault('pool', []).extend(pools); n_pool += len(pools)
+            mapped = [(t[0], t[1]) for t in tt['trees']]
+            for x, z, r in crowns[:3000]:
+                if in_core(x, z) or near_road(x, z) or any(abs(x - a) < 4 and abs(z - b) < 4 for a, b in mapped[:400]): continue
+                tt['trees'].append([round(x, 1), round(z, 1), 0, round(r, 1)]); n_tree += 1
+            tt['aerial'] = 1
+    print('heights from LiDAR' if HAVE_DEM else '', '| roof colours', n_col, 'pools', n_pool, 'photo trees', n_tree)
+
 for (ti, tj), tt in tiles.items():
     houses = [b for b in tt['buildings'] if b[2] == 0]
-    if not houses: continue
+    if not houses or tt.get('aerial'): continue  # photo trees already placed
     tg = {}
     for b in tt['buildings']:
         f = b[3:]; xs = f[0::2]; zs = f[1::2]

@@ -224,9 +224,9 @@ function buildShops() {
   // back-room gun dealers: a crate, a tarp and someone you probably shouldn't trust
   const crate = new THREE.MeshStandardMaterial({ color: col('#6b4a2c'), roughness: 0.9 });
   for (const [x, z, name] of D.dealers) {
-    const c = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.8, 0.9), crate); c.position.set(x, 0.4, z); c.castShadow = true; scene.add(c);
+    const c = new THREE.Mesh(new THREE.BoxGeometry(1.4, 0.8, 0.9), crate); c.position.set(x, groundAt(x, z) + 0.4, z); c.castShadow = true; scene.add(c);
     const P = makePerson({ shirt: '#1d1d1d', shorts: '#2b2b2b', hair: '#1a1a1a', skin: pick(SKIN), cap: '#7a1f1f' });
-    P.root.position.set(x + 1.1, 0, z); P.root.rotation.y = -Math.PI / 2; scene.add(P.root);
+    P.root.position.set(x + 1.1, groundAt(x + 1.1, z), z); P.root.rotation.y = -Math.PI / 2; scene.add(P.root);
     addBox(x, z, 0.75, 1);
     DEALERS.push({ x: x + 1.6, z, name, m: P });
   }
@@ -242,7 +242,7 @@ function updateShops(dt) {
       const d = Math.abs(sh.kx - player.x) + Math.abs(sh.kz - player.z);
       if (d < 55 && !sh.keeper) {
         const P = makePerson(sh.kind === 'bank' ? { shirt: '#f2f2f2', shorts: '#1f2a3a' } : undefined);
-        P.root.position.set(sh.kx, 0, sh.kz); P.root.rotation.y = Math.atan2(-sh.ix, -sh.iz); scene.add(P.root);
+        P.root.position.set(sh.kx, groundAt(sh.kx, sh.kz), sh.kz); P.root.rotation.y = Math.atan2(-sh.ix, -sh.iz); scene.add(P.root);
         sh.keeper = { m: P, t: rand() * 10 };
       } else if (d > 80 && sh.keeper) { disposePerson(sh.keeper.m); sh.keeper = null; }
     }

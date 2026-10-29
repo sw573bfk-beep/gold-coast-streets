@@ -156,6 +156,7 @@ class Car {
     this.x += this.vx * dt; this.z += this.vz * dt;
     this.spin += (this.vf / this.spec.wr) * dt;
     this.collideWorld();
+    this.stepGround(dt);
     if (this.sink === 0 && !isLand(this.x, this.z)) { this.sink = 0.001; if (this === player.car) toast('Splash! Swim back to shore'); sfxNoise(1.2, 900, 0.5); }
     if (this.sink > 0) {
       this.sink += dt; this.y = -Math.min(2.4, this.sink * 0.9); this.vx *= Math.exp(-2 * dt); this.vz *= Math.exp(-2 * dt);
@@ -172,6 +173,31 @@ class Car {
     }
     if (this.dead) { this.deadT += dt; if (this.burn >= 0 && rand() < dt * 6) emit(this.x, 1.2, this.z, rr(-0.2, 0.2), 2, rr(-0.2, 0.2), 3, 1, 4, '#222', 0.5); }
     if (this.hitCool > 0) this.hitCool -= dt;
+  }
+  // hills: gravity pulls along the slope; the car follows the ground unless a crest is sharp enough to throw it into the air
+  stepGround(dt) {
+    const gy = groundAt(this.x, this.z);
+    if (this.alt === undefined) { this.alt = gy; this.vy = 0; this.prevG = gy; this.air = 0; }
+    const rise = (gy - this.prevG) / Math.max(dt, 1e-3); this.prevG = gy;
+    if (!this.air) {
+      if (rise < this.vy - 9.81 * dt - 2.5 && this.speed > 10) this.air = 1e-3; // over the crest faster than gravity can follow
+      else {
+        this.alt = gy; this.vy = clamp(rise, -25, 25);
+        const [sx, sz] = groundSlope(this.x, this.z);
+        this.vx -= 9.81 * sx * dt; this.vz -= 9.81 * sz * dt;
+      }
+    }
+    if (this.air) {
+      this.air += dt; this.vy -= 9.81 * dt; this.alt += this.vy * dt;
+      if (this.alt <= gy) {
+        const hit = rise - this.vy;
+        if (hit > 6) { // a hard landing
+          this.health -= Math.min(30, (hit - 6) * 4);
+          if (this === player.car) { shake = Math.min(1.5, shake + hit * 0.06); sfxNoise(0.25, 260, 0.5); }
+        }
+        this.alt = gy; this.vy = rise; this.air = 0;
+      }
+    }
   }
   // AI and empty cars: simple, stable handling
   stepSimple(dt) {
@@ -325,7 +351,12 @@ class Car {
   }
   sync(dt = 0) {
     const M = this.model;
-    M.root.position.set(this.x, this.y, this.z); M.root.rotation.y = this.h;
+    // body follows the slope: nose up on climbs, leaning on side slopes; in the air it tips with the arc
+    const alt = this.alt === undefined ? groundAt(this.x, this.z) : this.alt, [sx, sz] = groundSlope(this.x, this.z);
+    const fx = Math.sin(this.h), fz = Math.cos(this.h);
+    const tp = this.air ? clamp(-Math.atan2(this.vy, Math.max(4, Math.abs(this.vf))), -0.5, 0.5) : -Math.atan(sx * fx + sz * fz), tr = this.air ? this.tr || 0 : Math.atan(sx * fz - sz * fx);
+    const k = dt ? Math.min(1, dt * 10) : 1; this.tp = lerp(this.tp || 0, tp, k); this.tr = lerp(this.tr || 0, tr, k);
+    M.root.position.set(this.x, alt + this.y, this.z); M.root.rotation.set(this.tp, this.h, this.tr, 'YXZ');
     M.bodyG.rotation.set(this.pitch, 0, this.roll);
     for (const w of M.wheels) { w.m.rotation.x = this.spin; if (w.front) w.pivot.rotation.y = this.steer; }
     M.doors.forEach((d, i) => { d.open += clamp(this.doorTarget[i] - d.open, -dt * 4, dt * 4); d.hinge.rotation.y = -d.side * d.open * 1.1; });
@@ -538,7 +569,7 @@ class Ped {
     this.vx = 0; this.vy = 0; this.vz = 0; this.flee = 0; this.downT = 0; this.downDur = 4; this.hard = false; this.faceDown = false;
     this.fx = 0; this.fz = 0; this.spin = 0; this.t = 0; this.hp = 2; this.cool = 0; this.punchT = 0;
     this.brave = rand() < 0.25; this.cop = false; this.car = null;
-    this.m.root.position.set(x, 0, z);
+    this.m.root.position.set(x, groundAt(x, z), z);
   }
   knock(vx, vy, vz, hard, dur) {
     this.vx = vx; this.vy = vy; this.vz = vz; this.downT = 0; this.spin = rr(-5, 5);
@@ -577,7 +608,7 @@ class Ped {
       if (resolveCircle(this.x, this.z, 0.3)) { this.x = hitRes.x; this.z = hitRes.z; this.vx *= -0.3; this.vz *= -0.3; }
       R.rotation.x = lerp(R.rotation.x, this.faceDown ? Math.PI / 2 : -Math.PI / 2, Math.min(1, dt * 7));
       R.rotation.y += this.spin * dt * (this.y > 0 ? 1 : 0);
-      R.position.set(this.x, this.y + 0.13, this.z);
+      R.position.set(this.x, groundAt(this.x, this.z) + this.y + 0.13, this.z);
       animatePerson(P, 0, 0);
       if (!this.hard && this.downT > this.downDur) { this.state = 'getup'; this.t = 0; this.h = R.rotation.y; }
       if (this.hard && this.downT > 16) this.gone = true;
@@ -586,7 +617,7 @@ class Ped {
     if (this.state === 'getup') {
       this.t += dt; const k = Math.min(1, this.t / 0.75);
       R.rotation.x = lerp(this.faceDown ? Math.PI / 2 : -Math.PI / 2, 0, k * k);
-      R.position.set(this.x, 0.13 * (1 - k), this.z);
+      R.position.set(this.x, groundAt(this.x, this.z) + 0.13 * (1 - k), this.z);
       animatePerson(P, 0, 0); P.legL.rotation.x = P.legR.rotation.x = -1.2 * (1 - k); P.armL.rotation.x = P.armR.rotation.x = -0.8 * (1 - k);
       if (k >= 1) { R.rotation.x = 0; if (this.cop) this.state = 'chase'; else if (this.brave && player.mode === 'foot') this.state = 'fight'; else this.scare(player.x, player.z, rr(4, 7)); }
       return;
@@ -595,7 +626,7 @@ class Ped {
       this.t -= dt; this.x += this.vx * dt; this.z += this.vz * dt; this.vx *= 0.9; this.vz *= 0.9;
       R.rotation.x = -0.3 * Math.sin(Math.max(0, this.t) / 0.45 * Math.PI);
       if (this.t <= 0) { R.rotation.x = 0; this.state = this.cop ? 'chase' : this.brave ? 'fight' : 'flee'; if (this.state === 'flee') this.scare(player.x, player.z, rr(4, 7)); }
-      R.position.set(this.x, 0, this.z); R.rotation.y = this.h;
+      R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.y = this.h;
       return;
     }
     if (this.cop) { this.updateCop(dt); return; }
@@ -645,7 +676,7 @@ class Ped {
     }
     this.move(mx, mz, sp, dt);
     if (this.punchT > 0) P.armR.rotation.x = -1.5 * Math.sin((1 - this.punchT / 0.35) * Math.PI);
-    R.position.set(this.x, 0, this.z); R.rotation.set(0, this.h, 0);
+    R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.set(0, this.h, 0);
   }
   updateCop(dt) {
     const R = this.m.root, P = this.m;
@@ -656,7 +687,7 @@ class Ped {
       this.x += this.fx * 7 * dt; this.z += this.fz * 7 * dt;
       if (resolveCircle(this.x, this.z, 0.32)) { this.x = hitRes.x; this.z = hitRes.z; }
       const k = 1 - Math.max(0, this.t) / 0.45;
-      R.rotation.set(Math.min(1.45, k * 2.2), this.h, 0); R.position.set(this.x, 0.15 + Math.sin(k * Math.PI) * 0.5, this.z);
+      R.rotation.set(Math.min(1.45, k * 2.2), this.h, 0); R.position.set(this.x, groundAt(this.x, this.z) + 0.15 + Math.sin(k * Math.PI) * 0.5, this.z);
       P.armL.rotation.x = P.armR.rotation.x = -2.8; P.legL.rotation.x = P.legR.rotation.x = 0.3;
       if (this.t <= 0) {
         if (player.state === 'foot' && player.deadT === 0 && Math.hypot(player.x - this.x, player.z - this.z) < 1.9) startTackle(this);
@@ -689,7 +720,7 @@ class Ped {
       else { mx = dx / d; mz = dz / d; sp = 6.6; }
     }
     this.move(mx, mz, sp, dt);
-    R.position.set(this.x, 0, this.z); R.rotation.set(0, this.h, 0);
+    R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.set(0, this.h, 0);
   }
   remove() { disposePerson(this.m); const i = peds.indexOf(this); if (i >= 0) peds.splice(i, 1); }
 }
@@ -819,7 +850,7 @@ function placePickup(pk) {
   for (let t = 0; t < 50; t++) {
     const E = EDGES[pick(LIVE_EDGES)]; if (!E) continue; edgePoint(E, 1, rr(0, E.len), tmpA);
     const side = rand() < 0.5 ? 1 : -1, off = (E.width / 2 + 1.6) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
-    if (isLand(x, z) && !resolveCircle(x, z, 0.6)) { pk.x = x; pk.z = z; pk.value = Math.round(rr(5, 30)) * 10; pk.m.position.set(x, 1, z); return; }
+    if (isLand(x, z) && !resolveCircle(x, z, 0.6)) { pk.x = x; pk.z = z; pk.value = Math.round(rr(5, 30)) * 10; pk.m.position.set(x, groundAt(x, z) + 1, z); return; }
   }
 }
 function buildPickups() {
@@ -827,7 +858,7 @@ function buildPickups() {
 }
 function updatePickups(dt) {
   for (const pk of pickups) {
-    pk.m.rotation.y += dt * 2.5; pk.m.position.y = 1 + Math.sin(elapsed * 2 + pk.x) * 0.15;
+    pk.m.rotation.y += dt * 2.5; pk.m.position.y = groundAt(pk.x, pk.z) + 1 + Math.sin(elapsed * 2 + pk.x) * 0.15;
     const r = player.mode === 'car' ? 2.6 : 1.3;
     if (player.deadT === 0 && Math.abs(pk.x - player.x) < r && Math.abs(pk.z - player.z) < r) {
       player.money += pk.value; toast(`+$${pk.value}`); sfxTone([988, 1319], 0.18, 0.08, 'triangle');
@@ -924,12 +955,12 @@ function startTackle(cop) {
 function updateTackled(dt) {
   const q = player.seq, P = player.model, cop = q.cop;
   player.t += dt; q.time -= dt; q.p = Math.max(0, q.p - 0.2 * dt);
-  P.root.rotation.set(Math.min(Math.PI / 2, player.t * 7), player.h, 0); P.root.position.set(player.x, 0.13, player.z);
+  P.root.rotation.set(Math.min(Math.PI / 2, player.t * 7), player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + 0.13, player.z);
   animatePerson(P, 0, 0); P.armL.rotation.x = P.armR.rotation.x = -0.6 + Math.sin(elapsed * 18) * 0.25;
   if (cop && cop.m) { // cop kneels on your back
     const rx = Math.cos(player.h), rz = -Math.sin(player.h);
     cop.x = player.x + rx * 0.55; cop.z = player.z + rz * 0.55; cop.h = player.h - Math.PI / 2;
-    const R = cop.m.root; R.position.set(cop.x, -0.42, cop.z); R.rotation.set(0.35, cop.h, 0);
+    const R = cop.m.root; R.position.set(cop.x, groundAt(cop.x, cop.z) - 0.42, cop.z); R.rotation.set(0.35, cop.h, 0);
     cop.m.legL.rotation.x = -1.5; cop.m.legR.rotation.x = 0.2; cop.m.armL.rotation.x = cop.m.armR.rotation.x = -1.0;
   }
   $('struggle-bar').style.width = Math.round(q.p * 100) + '%';
@@ -946,7 +977,7 @@ function updateTackled(dt) {
 function struggleTap() { if (player.state === 'tackled') { player.seq.p += 0.12; shake = Math.min(1, shake + 0.05); } }
 function updateCuffed(dt) {
   const P = player.model, q = player.seq; player.t += dt;
-  P.root.rotation.set(Math.PI / 2, player.h, 0); P.root.position.set(player.x, 0.13, player.z);
+  P.root.rotation.set(Math.PI / 2, player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + 0.13, player.z);
   animatePerson(P, 0, 0); P.armL.rotation.set(0.9, 0, -0.5); P.armR.rotation.set(0.9, 0, 0.5);
   if (q.cop && q.cop.m) { q.cop.m.armL.rotation.x = q.cop.m.armR.rotation.x = -0.4 - Math.sin(player.t * 6) * 0.3; }
   if (player.t > 2.6) endLife('busted');
@@ -1062,7 +1093,7 @@ function updateEnter(dt) {
     player.x = c.x; player.z = c.z;
     if (q.t > 0.3) { player.state = 'car'; player.seq = null; sfxNoise(0.12, 900, 0.25); }
   }
-  if (P.root.visible) { P.root.position.set(player.x, player.y, player.z); P.root.rotation.set(0, player.h, 0); }
+  if (P.root.visible) { P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z); P.root.rotation.set(0, player.h, 0); }
 }
 function startExit(dragger) {
   const c = player.car; if (!c) return;
@@ -1088,7 +1119,7 @@ function updateExit(dt) {
     player.state = 'foot'; player.car = null; player.seq = null; player.y = 0;
     if (q.dragger && q.dragger.m && player.deadT === 0) startTackle(q.dragger);
   }
-  P.root.position.set(player.x, player.y, player.z); P.root.rotation.set(0, player.h, 0);
+  P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z); P.root.rotation.set(0, player.h, 0);
 }
 function bailOut() {
   const c = player.car; if (!c) return;
@@ -1109,6 +1140,7 @@ function useKey() {
   if (player.deadT > 0) return;
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state !== 'foot') return;
+  if (houseUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const c = nearestEnterableCar(); if (c) startEnter(c);
@@ -1139,7 +1171,7 @@ function updatePlayer(dt) {
       player.x += player.kx * dt; player.z += player.kz * dt; player.kx *= Math.exp(-3 * dt); player.kz *= Math.exp(-3 * dt);
       player.vy -= 18 * dt; player.y = Math.max(0, player.y + player.vy * dt);
       if (resolveCircle(player.x, player.z, 0.34)) { player.x = hitRes.x; player.z = hitRes.z; }
-      P.root.rotation.set(-Math.min(Math.PI / 2, player.t * 6), player.h, 0); P.root.position.set(player.x, player.y + 0.13, player.z);
+      P.root.rotation.set(-Math.min(Math.PI / 2, player.t * 6), player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + player.y + 0.13, player.z);
       animatePerson(P, 0, 0);
       if (player.t > 1.3 && player.y <= 0) { player.state = 'getup'; player.t = 0; }
       return;
@@ -1147,13 +1179,14 @@ function updatePlayer(dt) {
     case 'getup': {
       player.t += dt; const k = Math.min(1, player.t / 0.6);
       const from = player.seq && player.seq.cop ? Math.PI / 2 : -Math.PI / 2;
-      P.root.rotation.set(lerp(from, 0, k * k), player.h, 0); P.root.position.set(player.x, 0.13 * (1 - k), player.z);
+      P.root.rotation.set(lerp(from, 0, k * k), player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + 0.13 * (1 - k), player.z);
       animatePerson(P, 0, 0); P.legL.rotation.x = P.legR.rotation.x = -1.2 * (1 - k);
       if (k >= 1) { player.state = 'foot'; player.seq = null; P.root.rotation.set(0, player.h, 0); }
       return;
     }
   }
   // on foot
+  if (player.vault) return updateVault(dt);
   const kF = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
   const kR = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   squeal = 0;
@@ -1168,11 +1201,12 @@ function updatePlayer(dt) {
   player.x += mx * sp * dt + player.kx * dt; player.z += mz * sp * dt + player.kz * dt;
   player.kx *= Math.exp(-6 * dt); player.kz *= Math.exp(-6 * dt);
   player.speed = ml > 0 ? sp : 0; player.vx = mx * sp; player.vz = mz * sp;
-  if (keys.Space && player.y <= 0 && !swim) { player.vy = 5.2; keys.Space = false; }
+  if (keys.Space && player.y <= 0 && !swim) { if (!tryVault()) player.vy = 5.2; keys.Space = false; }
   player.vy -= 16 * dt; player.y += player.vy * dt;
   const floor = swim ? -1.05 : 0;
   if (player.y < floor) { player.y = swim ? lerp(player.y, floor, Math.min(1, dt * 6)) : floor; player.vy = 0; }
   if (resolveCircle(player.x, player.z, 0.34)) { player.x = hitRes.x; player.z = hitRes.z; }
+  [player.x, player.z] = pushDoors(player.x, player.z, 0.34);
   for (const c of cars) {
     if (Math.abs(c.x - player.x) > 4 || Math.abs(c.z - player.z) > 4) continue;
     const cfx = Math.sin(c.h), cfz = Math.cos(c.h);
@@ -1203,7 +1237,7 @@ function updatePlayer(dt) {
   }
   if (player.punchT > 0) { const k = Math.sin((1 - player.punchT / 0.32) * Math.PI); (player.punchArm ? P.armL : P.armR).rotation.x = -1.55 * k; P.body.rotation.y = (player.punchArm ? 0.3 : -0.3) * k; } else P.body.rotation.y = 0;
   if (player.y > 0.05 && !swim) { P.legL.rotation.x = 0.5; P.legR.rotation.x = -0.3; }
-  P.root.position.set(player.x, player.y, player.z);
+  P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z);
   P.root.rotation.set(swim ? -1.2 : sprint && ml > 0 ? 0.16 : 0, player.h, 0);
 }
 
@@ -1212,7 +1246,7 @@ function updateCamera(dt) {
   let tx, ty, tz, dist;
   if (player.state === 'car' && player.car) {
     const c = player.car;
-    tx = c.x; ty = 1.6 + c.y; tz = c.z; dist = CAM_CAR[camIdx];
+    tx = c.x; ty = 1.6 + c.y + (c.alt || 0); tz = c.z; dist = CAM_CAR[camIdx];
     if (elapsed - mouse.last > 1.4 && c.speed > 1.5) {
       camYaw += angDiff(camYaw, c.vf >= -0.5 ? lerpAngle(c.h, Math.atan2(c.vx, c.vz), 0.55) : c.h) * Math.min(1, dt * 2.4);
       camPitch = lerp(camPitch, 0.2, Math.min(1, dt * 1.5));
@@ -1220,20 +1254,23 @@ function updateCamera(dt) {
     camera.fov = lerp(camera.fov, 60 + Math.min(18, c.speed * 0.38), Math.min(1, dt * 3));
   } else {
     const low = player.state === 'tackled' || player.state === 'cuffed' || player.state === 'down';
-    tx = player.x; ty = player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
-    const inShop = shopAt(player.x, player.z);
+    tx = player.x; ty = standAt(player.x, player.z) + player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
+    const inShop = shopAt(player.x, player.z), inHouse = houseAt(player.x, player.z);
     if (inShop) dist = 3.0;
+    if (inHouse) { dist = 2.6; camPitch = Math.min(camPitch, 0.35); tx += -Math.cos(camYaw) * 0.55; tz += Math.sin(camYaw) * 0.55; ty -= 0.25; } // over the shoulder
     if (aiming) { tx += -Math.cos(camYaw) * 0.6; tz += Math.sin(camYaw) * 0.6; ty += 0.05; dist = 2.2; }
     camera.fov = lerp(camera.fov, aiming ? 46 : 60, Math.min(1, dt * 8));
   }
   camera.updateProjectionMatrix();
   const cp = Math.cos(camPitch), fx = Math.sin(camYaw) * cp, fy = -Math.sin(camPitch), fz = Math.cos(camYaw) * cp;
   const cx = tx - fx * dist, cz = tz - fz * dist;
-  const t = rayWalls(tx, tz, cx, cz, 3);
+  const inside = player.state !== 'car' && houseAt(player.x, player.z);
+  const t = rayWalls(tx, tz, cx, cz, inside ? 1 : 3);
   const allowed = t < 1 ? Math.max(1.2, dist * t - 0.5) : dist;
   camDist = allowed < camDist ? allowed : lerp(camDist, allowed, Math.min(1, dt * 2.5));
   let px = tx - fx * camDist, py = ty - fy * camDist, pz = tz - fz * camDist;
-  py = Math.max(py, isLand(px, pz) ? 0.4 : -0.2);
+  py = Math.max(py, isLand(px, pz) ? groundAt(px, pz) + 0.4 : -0.2);
+  if (inside && inside.inside) py = Math.min(py, inside.inside.top - 0.25); // under the ceiling
   if (shake > 0) { px += rr(-1, 1) * shake * 0.25; py += rr(-1, 1) * shake * 0.25; pz += rr(-1, 1) * shake * 0.25; shake = Math.max(0, shake - dt * 2); }
   camera.position.set(px, py, pz);
   camera.lookAt(tx, ty + 0.2, tz);
@@ -1568,7 +1605,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt);
+  updateTiles(dt); updateHouses(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
