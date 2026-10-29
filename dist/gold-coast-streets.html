@@ -96,6 +96,22 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
 #menu { overflow-y: auto; align-items: safe center; }
 #jobhud { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,14,18,.85); color: #fff; font: 600 18px var(--hud); padding: 6px 14px; border-radius: 8px; border: 2px solid var(--gold); pointer-events: none; }
+#phone { position: fixed; right: 18px; bottom: 18px; width: min(340px, calc(100vw - 36px)); max-height: 78vh; overflow: auto; z-index: 9; background: #0d1418; border: 3px solid #2a3740; border-radius: 26px; padding: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+.phone-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font: 700 20px var(--hud); color: var(--gold); }
+.phone-top button { background: none; border: 0; color: #fff; font-size: 20px; cursor: pointer; }
+.papp { display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; border: 0; background: #1b262d; color: #fff; cursor: pointer; }
+.papp:disabled { opacity: .45; cursor: default; } .papp b { display: block; font: 700 17px var(--hud); } .papp span { font: 500 14px var(--hud); color: #a9b6bb; }
+.clip { background: linear-gradient(160deg, #2b1a4a, #11324a); border-radius: 16px; padding: 22px 16px; margin-bottom: 10px; text-align: center; color: #fff; }
+.clip-e { font-size: 54px; animation: bob 1.2s ease-in-out infinite; } .clip-t { font: 700 20px var(--hud); margin: 10px 0 6px; } .clip-c { font: 500 16px var(--hud); color: #d8d0ff; } .clip-u { font: 600 13px var(--hud); color: #9fb0b5; margin-top: 12px; }
+@keyframes bob { 50% { transform: translateY(-8px) rotate(-4deg); } }
+#casino { position: fixed; inset: 0; z-index: 9; display: grid; place-items: center; background: rgba(4,10,8,.78); }
+.cas-card { width: min(720px, calc(100vw - 32px)); background: radial-gradient(120% 120% at 50% 0%, #1d6b40, #0b2e1b); border: 4px solid #c9a24a; border-radius: 22px; padding: 18px; color: #fff; font: 600 18px var(--hud); }
+#cas-tabs { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 10px; } #cas-tabs button, #cas-actions button { font: 700 16px var(--hud); padding: 8px 14px; border-radius: 10px; border: 2px solid #c9a24a; background: #0b2e1b; color: #f6d27a; cursor: pointer; }
+#cas-tabs button.on { background: #c9a24a; color: #0b2e1b; } #cas-actions { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 12px; } #cas-actions button:disabled { opacity: .4; }
+#cas-close { margin-left: auto; } #cas-msg { min-height: 26px; color: #ffe08a; margin-top: 8px; } .cas-note { font: 500 13px var(--hud); color: #a9c7b4; margin: 12px 0 0; }
+#cas-table p { margin: 6px 0; } #cas-table .log { font-size: 14px; color: #bcd9c6; }
+.pc { display: inline-block; min-width: 38px; padding: 6px 4px; margin: 0 3px; background: #fff; color: #111; border-radius: 6px; text-align: center; font: 700 18px var(--hud); } .pc.red { color: #c62828; } .pc.back { background: #8b1d2c; color: #f6d27a; }
+.reels { display: flex; gap: 10px; justify-content: center; margin: 10px 0; } .reels span { font-size: 54px; background: #0b2e1b; border: 3px solid #c9a24a; border-radius: 12px; padding: 6px 14px; } .pay { font: 500 13px var(--hud); color: #bcd9c6; text-align: center; }
 #setup { display: grid; gap: 8px; margin: -8px 0 20px; }
 .pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pick > span { min-width: 74px; font: 700 17px var(--hud); color: var(--gold); letter-spacing: .04em; }
@@ -182,6 +198,14 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <button id="wardrobe-done" type="button">Done</button>
 </div>
 <div id="jobhud" hidden></div>
+<div id="phone" hidden><div class="phone-top"><b id="phone-title">Phone</b><button id="phone-close" type="button" aria-label="Close phone">✕</button></div><div id="phone-body"></div></div>
+<div id="casino" hidden>
+  <div class="cas-card">
+    <div id="cas-tabs"><button type="button" data-g="blackjack">Blackjack</button><button type="button" data-g="poker">Poker</button><button type="button" data-g="slots">Slots</button><button id="cas-close" type="button">Leave</button></div>
+    <div id="cas-wallet"></div><div id="cas-table"></div><div id="cas-msg"></div><div id="cas-actions"></div>
+    <p class="cas-note">Game money only — nothing here costs real money.</p>
+  </div>
+</div>
 <div id="bigmap" hidden>
   <canvas id="bigc"></canvas>
   <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
@@ -208,6 +232,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>T</b> fast-forward time</div>
       <div><b>N</b> sound on / off</div>
       <div><b>G</b> hands up (pay a fine)</div>
+      <div><b>X</b> cancel destination</div>
+      <div><b>P</b> phone</div>
       <div><b>Esc</b> pause</div>
     </div>
     <div id="setup">
@@ -810,10 +836,11 @@ function projectOnEdge(E, dir, x, z) {
   }
   return dir > 0 ? bs : E.len - bs;
 }
+const ANY_EDGE = () => true; // nearestEdge filter that includes GPS-only links
 function nearestEdge(x, z, filter) {
   let best = 1e18, be = -1, bs = 0;
   for (let i = 0; i < EDGES.length; i++) {
-    const E = EDGES[i]; if (!E || (filter && !filter(E))) continue;
+    const E = EDGES[i]; if (!E || (E.gps && filter !== ANY_EDGE) || (filter && !filter(E))) continue; // GPS-only links are for routing, not traffic
     const p = E.p;
     for (let k = 0; k < p.length / 2 - 1; k++) {
       const ax = p[2 * k], az = p[2 * k + 1], ex = p[2 * k + 2] - ax, ez = p[2 * k + 3] - az, L2 = ex * ex + ez * ez || 1;
@@ -1278,6 +1305,8 @@ const CAR_TYPES = {
 };
 CAR_TYPES.taxi = Object.assign({}, CAR_TYPES.sedan, { taxi: true });
 CAR_TYPES.police = Object.assign({}, CAR_TYPES.muscle, { police: true, accel: 11, max: 62, grip: 7.8, mu: 1.04 });
+// every car about 30% quicker on the road (top speed) with a punchier launch
+for (const t of Object.values(CAR_TYPES)) { t.max *= 1.3; t.accel *= 1.25; }
 const CAR_COLORS = ['#f2f2f0', '#f2f2f0', '#c9ccd0', '#8d9399', '#2b2e33', '#1d3b6b', '#9c1f1f', '#e8e3d3', '#2f5d50', '#c96a1c', '#5a2f6b', '#d9b84a', '#3a7bbf', '#141414'];
 
 const glassMat = new THREE.MeshStandardMaterial({ color: col('#2b3d4a'), metalness: 0.6, roughness: 0.05, envMapIntensity: 1.0, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
@@ -2301,6 +2330,8 @@ const ITEMS = {
   toastie: { name: 'Ham & cheese toastie', price: 11, heal: 30 }, bananabread: { name: 'Banana bread', price: 6, heal: 15 }, croissant: { name: 'Croissant', price: 5, heal: 14 },
   brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
   sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
+  entry: { name: 'Club entry — dance till late (+energy, time flies)', price: 20, club: true },
+  sixpack: { name: 'Six-pack (for later)', price: 22, keep: true }, ice: { name: 'Bag of ice', price: 4, heal: 3 },
   respray: { name: 'Respray your car (loses 1–2 star wanted levels)', price: 150, respray: true },
   room: { name: 'Book a room for the night (becomes your home)', price: 80, room: true },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
@@ -2331,6 +2362,12 @@ function shopKind(cat, name, type) {
   if (type === 'car' || /car sales|motors\b|dealership|toyota|mazda|hyundai|\bkia\b|nissan|mitsubishi|subaru|volkswagen|isuzu|lexus|mercedes|bmw|audi\b/.test(n) && cat !== 0 && cat !== 1) return 'cars';
   if (/\bgym\b|fitness|anytime|f45|crossfit|jetts|goodlife|snap fitness|plus fitness/.test(n)) return 'gym';
   if (type === 'supermarket') return 'convenience';
+  if (type === 'casino' || /casino|the star\b|jupiters/.test(n)) return 'casino';
+  if (type === 'stripclub' || /strip club|gentlemen|showgirls|bada bing|men's club/.test(n)) return 'stripclub';
+  if (type === 'erotic' || /adult|erotic|club x|sexyland|love shop|adult world/.test(n)) return 'adult';
+  if (type === 'e-cigarette' || type === 'tobacco' || /vape|vapour|tobacco|smoke shop|smokemart/.test(n)) return 'vape';
+  if (type === 'alcohol' || /\bbws\b|dan murphy|liquorland|bottle-o|bottle shop|thirsty camel|first choice liquor|cellarbrations/.test(n)) return 'bottle';
+  if (type === 'nightclub' || /nightclub|night club/.test(n)) return 'club';
   if (cat === 8) return 'bank';
   if (cat === 9) return 'fuel';
   if (/ripley/.test(n) && !/cargo/.test(n)) return 'ripley';
@@ -2376,6 +2413,8 @@ function menuFor(shop) {
     case 'arcade': return ['crocWhack', 'waveRider', 'stacker', 'prize', 'soda'];
     case 'escape': return ['escapeRoom', 'soda'];
     case 'hotel': return ['room', 'rest', 'soda'];
+    case 'club': return ['entry', 'mocktail', 'energy', 'soda'];
+    case 'bottle': return ['sixpack', 'ice', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
     case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit'];
@@ -2588,6 +2627,9 @@ function serviceSpot() {
 let openShopRef = null;
 function openShop(sh) {
   if (sh.kind === 'cars') return openDealer(sh);
+  if (sh.kind === 'casino') return openCasino('blackjack');
+  if (sh.kind === 'vape' || sh.kind === 'adult') { toast(`"ID please." — ${sh.name} is 18+ only, so they won't serve you`); return; }
+  if (sh.kind === 'stripclub') { toast(`The bouncer at ${sh.name} shakes his head: "Members only, mate."`); return; }
   if (sh.kind === 'bank') return openBank(sh);
   if (sh.kind === 'gym') return openGym(sh);
   const list = sh.dealer ? ['pistol', 'smg', 'shotgun', 'ammoP', 'ammoS', 'ammoG'] : menuFor(sh);
@@ -2620,6 +2662,7 @@ function buy(id) {
   const it = ITEMS[id];
   if (!purchaseGuard(id)) return; // a rapid second click on the same item can't charge twice
   if (player.money < it.price) { toast(`Not enough money for ${it.name}`); return; }
+  if (it.club) { player.money -= it.price; player.effects.energy = Math.max(player.effects.energy, 60); gameHour = (gameHour + 3) % 24; toast('You danced for hours — full of energy'); sfxTone([392, 523, 659, 784], 0.4, 0.06, 'triangle'); return; }
   if (it.respray) { // a new colour: the police are looking for a different car
     const c = player.car || cars.filter((q) => (q.owned || q.kind === 'abandoned') && !q.dead && Math.hypot(q.x - player.x, q.z - player.z) < 25)[0];
     if (!c) { toast('Bring a car up to the pumps first'); return; }
@@ -2905,6 +2948,532 @@ function economyLoad(s) {
   if (typeof s.gymDay === 'number') ECON.gymDay = s.gymDay;
 }
 
+// Gold Coast Streets — GPS: a yellow line along the roads to your waypoint (on the road, the minimap and the big map).
+// The route covers the road network that has loaded around you; beyond it the line runs straight to the destination
+// and fills in as you drive. X cancels the destination.
+const GPS = { t: 0, mesh: null, path: null };
+function clearGPS() {
+  if (GPS.mesh) { scene.remove(GPS.mesh); GPS.mesh.geometry.dispose(); GPS.mesh = null; }
+  GPS.path = null;
+}
+function cancelDestination() { if (!WAYPOINT) return; WAYPOINT = null; clearGPS(); toast('Destination cancelled'); }
+function routeTo(tx, tz) {
+  const ne = nearestEdge(player.x, player.z, ANY_EDGE);
+  if (ne.e < 0 || !EDGES[ne.e]) return [[player.x, player.z], [tx, tz]];
+  const E0 = EDGES[ne.e], N = GN.length / 2, d = new Float64Array(N).fill(1e9), prevE = new Int32Array(N).fill(-1), prevN = new Int32Array(N).fill(-1), done = new Uint8Array(N);
+  d[E0.a] = ne.s; d[E0.b] = E0.len - ne.s;
+  const heap = [[d[E0.a], E0.a], [d[E0.b], E0.b]];
+  const hpush = (it) => { heap.push(it); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
+  const hpop = () => { const top = heap[0], last = heap.pop(); if (heap.length) { heap[0] = last; let k = 0; for (;;) { const l = 2 * k + 1, r = l + 1; let m = k; if (l < heap.length && heap[l][0] < heap[m][0]) m = l; if (r < heap.length && heap[r][0] < heap[m][0]) m = r; if (m === k) break; [heap[m], heap[k]] = [heap[k], heap[m]]; k = m; } } return top; };
+  let goal = -1, gd = Infinity;
+  while (heap.length) {
+    const [du, u] = hpop(); if (done[u] || du > d[u]) continue; done[u] = 1;
+    const ex = Math.hypot(GN[2 * u] - tx, GN[2 * u + 1] - tz); if (ex < gd) { gd = ex; goal = u; }
+    for (const o of (PADJ.get(u) || []).concat(GPS_ADJ.get(u) || [])) { const O = EDGES[o.e]; if (!O) continue; const v = o.dir > 0 ? O.b : O.a, nd = du + O.len; if (nd < d[v]) { d[v] = nd; prevE[v] = o.e; prevN[v] = u; hpush([nd, v]); } }
+  }
+  if (goal < 0) return [[player.x, player.z], [tx, tz]];
+  const chain = []; for (let v = goal; prevN[v] >= 0; v = prevN[v]) chain.push([prevE[v], prevN[v], v]);
+  chain.reverse();
+  const pts = [[player.x, player.z]];
+  const startNode = chain.length ? chain[0][1] : goal; // walk along the first road to the junction we start from
+  const toB = startNode === E0.b, sp = E0.p;
+  if (toB) { for (let q = 0; q < sp.length; q += 2) if (E0.cum[q / 2] > ne.s) pts.push([sp[q], sp[q + 1]]); }
+  else { for (let q = sp.length - 2; q >= 0; q -= 2) if (E0.cum[q / 2] < ne.s) pts.push([sp[q], sp[q + 1]]); }
+  for (const [ei, from] of chain) { const E = EDGES[ei], p = E.p, fwd = E.a === from; if (fwd) for (let q = 2; q < p.length; q += 2) pts.push([p[q], p[q + 1]]); else for (let q = p.length - 4; q >= 0; q -= 2) pts.push([p[q], p[q + 1]]); }
+  pts.push([tx, tz]);
+  return pts;
+}
+function drawGPS(path) {
+  if (GPS.mesh) { scene.remove(GPS.mesh); GPS.mesh.geometry.dispose(); GPS.mesh = null; }
+  const B = newBuf(), hw = 1.1;
+  for (let i = 0; i < path.length - 1; i++) {
+    const [ax, az] = path[i], [bx, bz] = path[i + 1], L = Math.hypot(bx - ax, bz - az); if (L < 0.2) continue;
+    const steps = Math.max(1, Math.ceil(L / 6)), nx = -(bz - az) / L * hw, nz = (bx - ax) / L * hw;
+    for (let k = 0; k < steps; k++) {
+      const x0 = ax + (bx - ax) * k / steps, z0 = az + (bz - az) * k / steps, x1 = ax + (bx - ax) * (k + 1) / steps, z1 = az + (bz - az) * (k + 1) / steps;
+      const y0 = standAt(x0, z0) + 0.22, y1 = standAt(x1, z1) + 0.22;
+      triInto(B, [x0 + nx, y0, z0 + nz], [x1 + nx, y1, z1 + nz], [x1 - nx, y1, z1 - nz], 1); triInto(B, [x0 + nx, y0, z0 + nz], [x1 - nx, y1, z1 - nz], [x0 - nx, y0, z0 - nz], 1);
+    }
+  }
+  if (!B.pos.length) return;
+  GPS.mesh = new THREE.Mesh(toGeometry(B), GPS_MAT); GPS.mesh.renderOrder = 3; GPS.mesh.frustumCulled = false; scene.add(GPS.mesh);
+}
+const GPS_MAT = new THREE.MeshBasicMaterial({ color: col('#ffd21f'), transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+function updateGPS(dt) {
+  if (!WAYPOINT) { if (GPS.mesh || GPS.path) clearGPS(); return; }
+  GPS.t -= dt; if (GPS.t > 0) return; GPS.t = 1.2;
+  GPS.path = routeTo(WAYPOINT.x, WAYPOINT.z); drawGPS(GPS.path);
+}
+// the route on a 2D map: f maps world (x, z) to canvas coordinates
+function strokeGPS(ctx, f, width) {
+  if (!GPS.path || !WAYPOINT) return;
+  ctx.strokeStyle = '#ffd21f'; ctx.lineWidth = width; ctx.lineJoin = ctx.lineCap = 'round'; ctx.beginPath();
+  GPS.path.forEach(([x, z], i) => { const [px, pz] = f(x, z); if (i) ctx.lineTo(px, pz); else ctx.moveTo(px, pz); }); ctx.stroke();
+}
+
+// Gold Coast Streets — the phone (P): call a taxi, a mechanic, food or one of your cars; missions for cash
+// (a bank heist with a hired crew, street races, a landmark tour); and TikTak, a feed of made-up local clips.
+
+const PHONE = { open: false, app: 'home', clip: 0 };
+function phoneEl() { return $('phone'); }
+function openPhone() {
+  if (uiOpen && !PHONE.open) return;
+  PHONE.open = true; uiOpen = true; if (document.pointerLockElement) document.exitPointerLock();
+  phoneEl().hidden = false; phoneApp('home');
+}
+function closePhone() { PHONE.open = false; phoneEl().hidden = true; uiOpen = false; lockPointer(); }
+function phoneApp(app) {
+  PHONE.app = app; const body = $('phone-body'); body.innerHTML = '';
+  const btn = (label, sub, fn, ok = true) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.disabled = !ok; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = label; b.lastChild.textContent = sub || ''; b.addEventListener('click', fn); body.appendChild(b); return b; };
+  const back = () => btn('← Back', '', () => phoneApp('home'));
+  $('phone-title').textContent = { home: 'Phone', missions: 'Missions', heist: 'Bank job', cars: 'My cars', clips: 'TikTak' }[app] || 'Phone';
+  if (app === 'home') {
+    btn('🚕 Taxi', WAYPOINT ? `to ${WAYPOINT.name} · $${taxiFare()}` : 'set a destination on the map first (M)', taxi, !!WAYPOINT && player.state === 'foot');
+    btn('🔧 Mechanic', 'fixes your car where it is · $80', mechanic);
+    btn('🍔 Food delivery', 'a burger and chips to wherever you are · $18', foodDelivery);
+    btn('🚗 My cars', `${ECON.garage.length} owned`, () => phoneApp('cars'));
+    btn('💰 Missions', HEIST.stage ? 'bank job in progress' : 'cash jobs: heist, races, tours', () => phoneApp('missions'));
+    btn('📱 TikTak', 'funny clips from around the Coast', () => phoneApp('clips'));
+    if (WAYPOINT) btn('✕ Cancel destination', WAYPOINT.name, () => { cancelDestination(); phoneApp('home'); });
+  } else if (app === 'cars') {
+    back(); if (!ECON.garage.length) btn('No cars yet', 'buy one at a car dealership', () => {}, false);
+    ECON.garage.forEach((g, i) => btn(`Bring my ${CAR_LABEL[g.type]}`, 'delivered to the nearest road', () => { closePhone(); callCar(i); toast(`Your ${CAR_LABEL[g.type]} is on the nearest road`); }));
+  } else if (app === 'missions') {
+    back();
+    btn('🏦 Bank job', HEIST.stage ? 'continue planning' : 'plan a heist, hire a crew, split the take', () => phoneApp('heist'));
+    btn('🏁 Street race', MISSION ? 'already on a mission' : 'reach the finish line before the clock runs out (car needed)', startRace, !MISSION);
+    btn('📸 Landmark tour', MISSION ? 'already on a mission' : 'visit 3 sights for a tourist tour company', startTour, !MISSION);
+    if (MISSION) btn('Give up the current mission', MISSION.title, () => { endMission(false, 'Mission abandoned.'); phoneApp('missions'); });
+  } else if (app === 'heist') { back(); heistPlanner(btn); }
+  else if (app === 'clips') { back(); showClip(); }
+}
+
+// ---------------------------------------------------------------- calls
+function taxiFare() { return WAYPOINT ? Math.round(5 + Math.hypot(WAYPOINT.x - player.x, WAYPOINT.z - player.z) / 1000 * 2.6) : 0; }
+async function taxi() {
+  const fare = taxiFare(); if (!pay(fare, 'the taxi')) return;
+  closePhone(); toast(`Taxi to ${WAYPOINT.name}…`);
+  const tx = WAYPOINT.x, tz = WAYPOINT.z; player.x = tx; player.z = tz;
+  for (let k = 0; k < 200; k++) { updateTiles(0.5); await new Promise((r) => setTimeout(r, 20)); if (k > 8 && !tileBusy) break; }
+  const s = sidewalkNear(tx, tz); player.x = s.x; player.z = s.z; player.h = s.h; camYaw = s.h; saveGame();
+  toast(`You've arrived · fare $${fare}`);
+}
+function mechanic() {
+  const c = player.car || cars.filter((q) => (q.owned || q.kind === 'abandoned') && !q.dead && Math.hypot(q.x - player.x, q.z - player.z) < 30)[0];
+  if (!c) { toast('No car of yours nearby for the mechanic to fix'); return; }
+  if (!pay(80, 'the mechanic')) return; c.health = 100; c.burn = -1; closePhone(); toast('The mechanic patched it up — good as new'); sfxTone([523, 784], 0.2, 0.06, 'triangle');
+}
+function foodDelivery() {
+  if (!pay(18, 'food delivery')) return; closePhone(); toast('Order placed — it’ll be here in 20 seconds');
+  setTimeout(() => { player.health = Math.min(100, player.health + 45); toast('Food delivered! +45 health'); sfxTone([660, 880], 0.15, 0.05); }, 20000);
+}
+
+// ---------------------------------------------------------------- missions: one at a time
+let MISSION = null; // { kind, title, t, targets, reward }
+function endMission(won, msg) {
+  if (!MISSION) return; const M = MISSION; MISSION = null; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true;
+  if (won) { player.money += M.reward; saveGame(); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); toast(`${msg} +$${M.reward}`); } else toast(msg);
+}
+function pickPlaces(kinds, minD, maxD) { return (REGION && REGION.search ? REGION.search : []).filter((e) => kinds.includes(e[1]) && Math.hypot(e[2] - player.x, e[3] - player.z) > minD && Math.hypot(e[2] - player.x, e[3] - player.z) < maxD); }
+function startRace() {
+  if (player.state !== 'car') { toast('Get in a car first — then start the race'); return; }
+  const c = pickPlaces([0, 10, 3, 5], 1400, 3200); if (!c.length) { toast('No finish line nearby'); return; }
+  const e = pick(c), d = Math.hypot(e[2] - player.x, e[3] - player.z), t = Math.round(d / 21 + 20);
+  MISSION = { kind: 'race', title: 'Street race', t, targets: [e], reward: Math.round(d / 5 / 10) * 10 };
+  WAYPOINT = { name: 'Finish: ' + e[0], x: e[2], z: e[3] }; GPS.t = 0; closePhone();
+  toast(`Race to ${e[0]} — ${(d / 1000).toFixed(1)} km in ${t}s. GO!`); sfxTone([440, 440, 880], 0.5, 0.08);
+}
+function startTour() {
+  const c = pickPlaces([10, 3, 2], 300, 3000); if (c.length < 3) { toast('Not enough sights nearby — try somewhere else'); return; }
+  const picks = []; while (picks.length < 3) { const e = pick(c); if (!picks.includes(e)) picks.push(e); }
+  MISSION = { kind: 'tour', title: 'Landmark tour', t: 600, targets: picks, reward: 600 };
+  WAYPOINT = { name: 'Tour stop: ' + picks[0][0], x: picks[0][2], z: picks[0][3] }; GPS.t = 0; closePhone();
+  toast(`Landmark tour: ${picks.map((p) => p[0]).join(', ')} — 10 minutes`);
+}
+function updateMissions(dt) {
+  if (MISSION) {
+    const M = MISSION; M.t -= dt; const T = M.targets[0];
+    $('jobhud').hidden = false; $('jobhud').textContent = `${M.title} · ${T[0]} · ${Math.round(Math.hypot(T[2] - player.x, T[3] - player.z))} m · ${Math.max(0, Math.ceil(M.t))}s`;
+    if (M.t <= 0) return endMission(false, M.kind === 'race' ? 'Too slow — race lost.' : 'Out of time — the tour group went home.');
+    if (Math.hypot(T[2] - player.x, T[3] - player.z) < (M.kind === 'race' ? 25 : 35)) {
+      M.targets.shift();
+      if (!M.targets.length) return endMission(true, M.kind === 'race' ? 'You won the race!' : 'Tour complete!');
+      toast(`Stop done — next: ${M.targets[0][0]}`); WAYPOINT = { name: 'Tour stop: ' + M.targets[0][0], x: M.targets[0][2], z: M.targets[0][3] }; GPS.t = 0;
+    }
+  }
+  updateHeist(dt);
+}
+
+// ---------------------------------------------------------------- the bank job: plan, hire a crew, rob, escape, split
+const CREW = {
+  driver: { name: 'Getaway driver', cost: 600, cut: 0.15, perk: 'a fast car waiting outside the bank' },
+  hacker: { name: 'Hacker', cost: 900, cut: 0.15, perk: 'cracks the vault twice as fast' },
+  muscle: { name: 'Muscle', cost: 700, cut: 0.15, perk: 'holds off the cops: your wanted level stops at 3 stars' },
+};
+const HEIST = { stage: 0, bank: null, crew: {}, take: 0, safe: null }; // stage 1 planning, 2 go rob, 3 escape
+function heistPlanner(btn) {
+  if (!HEIST.stage) {
+    const banks = SHOPS.filter((s) => s.kind === 'bank').sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z));
+    if (!banks.length) { btn('No bank nearby', 'find a bank first (they show green on the map)', () => {}, false); return; }
+    btn(`Case ${banks[0].name}`, `${Math.round(Math.hypot(banks[0].x - player.x, banks[0].z - player.z))} m away · the nearest bank`, () => { HEIST.stage = 1; HEIST.bank = banks[0]; HEIST.crew = {}; phoneApp('heist'); });
+    return;
+  }
+  if (HEIST.stage === 1) {
+    for (const [k, c] of Object.entries(CREW)) btn(HEIST.crew[k] ? `✓ ${c.name} hired` : `Hire a ${c.name.toLowerCase()} · $${c.cost}`, `${c.perk} · takes ${c.cut * 100}% of the cash`, () => { if (HEIST.crew[k] || !pay(c.cost, c.name.toLowerCase())) return; HEIST.crew[k] = true; phoneApp('heist'); }, !HEIST.crew[k] && player.money >= c.cost);
+    btn('Start the job', `go to ${HEIST.bank.name} and hold up the teller (aim at them)`, () => {
+      HEIST.stage = 2; WAYPOINT = { name: HEIST.bank.name, x: HEIST.bank.x, z: HEIST.bank.z }; GPS.t = 0; closePhone();
+      if (HEIST.crew.driver) { const P = curbNear(HEIST.bank.x, HEIST.bank.z); if (P) { const c = new Car('sports', '#111111', P.x, P.z, P.h); c.kind = 'abandoned'; c.getaway = true; cars.push(c); HEIST.car = c; } }
+      toast('The job is on. Get to the bank and hold up the teller.');
+    });
+    btn('Call it off', 'crew fees aren’t refunded', () => { HEIST.stage = 0; phoneApp('missions'); });
+    return;
+  }
+  btn(HEIST.stage === 2 ? `Rob ${HEIST.bank.name}` : 'Get to the safehouse and lose the cops', HEIST.stage === 3 ? `take: $${HEIST.take.toLocaleString()}` : 'aim at the teller and hold it', () => {}, false);
+}
+function heistRobDone(target, cash) { // called by the robbery code; returns the cash to pay out now (the rest comes at the safehouse)
+  if (HEIST.stage !== 2 || target !== HEIST.bank) return cash;
+  HEIST.take = Math.round(cash * 2.5); HEIST.stage = 3;
+  const ang = rand() * TAU, s = sidewalkNear(player.x + Math.cos(ang) * 1500, player.z + Math.sin(ang) * 1500);
+  HEIST.safe = { x: s.x, z: s.z }; WAYPOINT = { name: 'Safehouse', x: s.x, z: s.z }; GPS.t = 0;
+  toast(`Vault cleaned out: $${HEIST.take.toLocaleString()}! Get to the safehouse and lose the cops.`);
+  return 0;
+}
+function heistNeed(target) { return HEIST.stage === 2 && target === HEIST.bank && HEIST.crew.hacker ? 5 : 10; }
+function updateHeist() {
+  if (HEIST.stage !== 3) return;
+  if (HEIST.crew.muscle && player.stars > 3) player.stars = 3;
+  const d = Math.hypot(HEIST.safe.x - player.x, HEIST.safe.z - player.z);
+  $('jobhud').hidden = false; $('jobhud').textContent = `Bank job · safehouse ${Math.round(d)} m · ${player.stars ? 'lose the cops first' : 'clear'} · $${HEIST.take.toLocaleString()}`;
+  if (d < 25 && player.stars === 0) {
+    const cut = Object.keys(HEIST.crew).reduce((a, k) => a + CREW[k].cut, 0), mine = Math.round(HEIST.take * (1 - cut));
+    player.money += mine; HEIST.stage = 0; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true; saveGame();
+    toast(`Clean getaway! Your share: $${mine.toLocaleString()} (crew took ${Math.round(cut * 100)}%)`); sfxTone([523, 659, 784, 1046], 0.6, 0.07, 'triangle');
+  }
+}
+
+// ---------------------------------------------------------------- TikTak: original made-up clips (no real people or videos)
+const CLIPS = [
+  { e: '🐦🍟', t: 'POV: you opened your chips on the beach at Surfers', c: 'the seagulls have called in reinforcements', u: '@chipless_in_surfers' },
+  { e: '🚗⏳', t: 'Finding a park at Pacific Fair on a Saturday', c: 'day 3. we are living in the car park now', u: '@lap47' },
+  { e: '🌊😱', t: 'Me: "the water looks warm"', c: 'the water in July:', u: '@burleighbrr' },
+  { e: '🐙✨', t: 'Rating Gold Coast landmarks', c: 'giant octopus on Cavill: 11/10 no notes', u: '@coastcritic' },
+  { e: '🚋💨', t: 'Running for the G:link like', c: 'it was right there. it left. it saw me.', u: '@gtramtears' },
+  { e: '🦎☕', t: 'A water dragon stole my seat at the café', c: 'he ordered a flat white, honestly fair', u: '@broady_brunch' },
+  { e: '🏄‍♂️🙃', t: 'Day 1 of learning to surf', c: 'the board has learned more than me', u: '@kookdiaries' },
+  { e: '🌧️☀️', t: 'Gold Coast weather in 5 minutes', c: 'sunburn and drenched. at the same time.', u: '@sunshinestateofmind' },
+  { e: '🛒💸', t: 'Went to Robina Town Centre for "one thing"', c: 'came home with a lamp, a candle and regret', u: '@robina_receipts' },
+  { e: '🚓😅', t: 'When the cops lose you because you hid in a car park', c: 'tactical genius (I was scared)', u: '@getaway_gaz' },
+  { e: '🦜🍞', t: 'Rainbow lorikeets at 5:45am', c: 'the neighbourhood alarm clock nobody asked for', u: '@miami_mornings' },
+  { e: '🎰🙂', t: 'Went to the casino with $50', c: 'I now own one (1) complimentary mint', u: '@starstruck_broke' },
+];
+function showClip() {
+  const body = $('phone-body'), C = CLIPS[PHONE.clip % CLIPS.length];
+  const card = document.createElement('div'); card.className = 'clip';
+  card.innerHTML = '<div class="clip-e"></div><div class="clip-t"></div><div class="clip-c"></div><div class="clip-u"></div>';
+  card.children[0].textContent = C.e; card.children[1].textContent = C.t; card.children[2].textContent = C.c; card.children[3].textContent = `${C.u} · ❤️ ${((PHONE.clip * 7919) % 900 + 100) / 10}k`;
+  body.appendChild(card);
+  const next = document.createElement('button'); next.type = 'button'; next.className = 'papp'; next.innerHTML = '<b>Next clip ⬆</b><span></span>';
+  next.addEventListener('click', () => { PHONE.clip++; phoneApp('clips'); }); body.appendChild(next);
+}
+
+// Gold Coast Streets — the casino: blackjack against the dealer, Texas hold'em against three bots, and slots.
+// Game money only: bets come out of your in-game wallet and nothing here can be bought with real money.
+
+const CAS = { game: 'blackjack', bet: 20, bj: null, pk: null, slotSpin: false };
+const SUITS = ['♠', '♥', '♦', '♣'], RANKS = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'J', 'Q', 'K', 'A'];
+function newDeck() { const d = []; for (const s of SUITS) for (let r = 0; r < 13; r++) d.push({ r, s }); for (let i = d.length - 1; i > 0; i--) { const j = Math.floor(rand() * (i + 1)); [d[i], d[j]] = [d[j], d[i]]; } return d; }
+function cardHTML(c, hidden) { return hidden ? '<span class="pc back">?</span>' : `<span class="pc${c.s === '♥' || c.s === '♦' ? ' red' : ''}">${RANKS[c.r]}${c.s}</span>`; }
+function openCasino(game) {
+  uiOpen = true; if (document.pointerLockElement) document.exitPointerLock();
+  CAS.game = game || CAS.game; $('casino').hidden = false; renderCasino();
+}
+function closeCasino() { $('casino').hidden = true; uiOpen = false; CAS.bj = null; CAS.pk = null; saveGame(); lockPointer(); }
+function casMsg(t) { $('cas-msg').textContent = t; }
+function renderCasino() {
+  for (const b of document.querySelectorAll('#cas-tabs button')) b.classList.toggle('on', b.dataset.g === CAS.game);
+  $('cas-wallet').textContent = `Wallet $${player.money.toLocaleString()} · bet $${CAS.bet}`;
+  const t = $('cas-table'), a = $('cas-actions'); t.innerHTML = ''; a.innerHTML = '';
+  const act = (label, fn, ok = true) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.disabled = !ok; b.addEventListener('click', fn); a.appendChild(b); };
+  const betRow = () => { for (const v of [10, 20, 50, 100, 250, 500]) act('$' + v, () => { CAS.bet = v; renderCasino(); }, true); };
+  if (CAS.game === 'blackjack') {
+    const B = CAS.bj;
+    if (!B || B.done) {
+      if (B) t.innerHTML = `<p>Dealer (${handValue(B.dealer)}): ${B.dealer.map((c) => cardHTML(c)).join('')}</p><p>You (${handValue(B.you)}): ${B.you.map((c) => cardHTML(c)).join('')}</p>`;
+      betRow(); act(`Deal ($${CAS.bet})`, bjDeal, player.money >= CAS.bet);
+    } else {
+      t.innerHTML = `<p>Dealer: ${cardHTML(B.dealer[0])}${cardHTML(B.dealer[1], true)}</p><p>You (${handValue(B.you)}): ${B.you.map((c) => cardHTML(c)).join('')}</p>`;
+      act('Hit', bjHit); act('Stand', bjStand); act(`Double ($${B.bet})`, bjDouble, B.you.length === 2 && player.money >= B.bet);
+    }
+  } else if (CAS.game === 'poker') renderPoker(t, act, betRow);
+  else {
+    t.innerHTML = `<div class="reels">${(CAS.reels || ['🍒', '🔔', '7️⃣']).map((s) => `<span>${s}</span>`).join('')}</div><p class="pay">🍒🍒🍒 ×5 · 🍋🍋🍋 ×8 · 🔔🔔🔔 ×12 · ⭐⭐⭐ ×20 · 💎💎💎 ×40 · 7️⃣7️⃣7️⃣ ×80 · any two 🍒 ×2</p>`;
+    betRow(); act(CAS.slotSpin ? 'Spinning…' : `Spin ($${CAS.bet})`, slotSpin, !CAS.slotSpin && player.money >= CAS.bet);
+  }
+}
+
+// ---------------------------------------------------------------- blackjack: dealer hits to 17, blackjack pays 3:2
+function handValue(h) { let v = 0, aces = 0; for (const c of h) { if (c.r === 12) { aces++; v += 11; } else v += c.r >= 9 ? 10 : c.r + 2; } while (v > 21 && aces) { v -= 10; aces--; } return v; }
+function bjDeal() {
+  if (player.money < CAS.bet) return; player.money -= CAS.bet;
+  const d = newDeck(); CAS.bj = { d, you: [d.pop(), d.pop()], dealer: [d.pop(), d.pop()], bet: CAS.bet, done: false };
+  if (handValue(CAS.bj.you) === 21) return bjFinish(); casMsg('Hit or stand?'); renderCasino();
+}
+function bjHit() { const B = CAS.bj; B.you.push(B.d.pop()); if (handValue(B.you) > 21) return bjFinish(); renderCasino(); }
+function bjDouble() { const B = CAS.bj; player.money -= B.bet; B.bet *= 2; B.you.push(B.d.pop()); bjFinish(); }
+function bjStand() { bjFinish(); }
+function bjFinish() {
+  const B = CAS.bj, yv = handValue(B.you), natural = yv === 21 && B.you.length === 2;
+  if (yv <= 21 && !natural) while (handValue(B.dealer) < 17) B.dealer.push(B.d.pop());
+  const dv = handValue(B.dealer); let win = 0, msg;
+  if (yv > 21) msg = 'Bust! The house takes it.';
+  else if (natural && !(dv === 21 && B.dealer.length === 2)) { win = Math.round(B.bet * 2.5); msg = `Blackjack! You win $${win - B.bet}`; }
+  else if (dv > 21 || yv > dv) { win = B.bet * 2; msg = `You win $${B.bet}!`; }
+  else if (yv === dv) { win = B.bet; msg = 'Push — your bet comes back.'; }
+  else msg = `Dealer wins with ${dv}.`;
+  player.money += win; B.done = true; casMsg(msg); if (win > B.bet) sfxTone([660, 880], 0.15, 0.05); renderCasino();
+}
+
+// ---------------------------------------------------------------- slots
+function slotSpin() {
+  if (CAS.slotSpin || player.money < CAS.bet) return; player.money -= CAS.bet; CAS.slotSpin = true;
+  const SYM = ['🍒', '🍒', '🍒', '🍋', '🍋', '🍋', '🔔', '🔔', '⭐', '⭐', '💎', '7️⃣'], PAY = { '🍒': 5, '🍋': 8, '🔔': 12, '⭐': 20, '💎': 40, '7️⃣': 80 };
+  const final = [pick(SYM), pick(SYM), pick(SYM)]; let n = 0;
+  const tick = setInterval(() => {
+    n++; CAS.reels = [0, 1, 2].map((i) => (n > 8 + i * 4 ? final[i] : pick(SYM))); renderCasino(); sfxTone([300 + n * 20], 0.03, 0.02);
+    if (n > 16) {
+      clearInterval(tick); CAS.slotSpin = false;
+      let win = 0; if (final[0] === final[1] && final[1] === final[2]) win = CAS.bet * PAY[final[0]]; else if (final.filter((s) => s === '🍒').length === 2) win = CAS.bet * 2;
+      player.money += win; casMsg(win ? `Winner! +$${win}` : 'No luck this time.'); if (win) sfxTone([523, 659, 784], 0.3, 0.06, 'triangle'); renderCasino();
+    }
+  }, 70);
+}
+
+// ---------------------------------------------------------------- Texas hold'em against three bots (blinds, four betting rounds, showdown)
+const BOTS = ['Shazza', 'Davo', 'Kev'];
+function rank5(cs) { // a comparable score for the best five-card hand
+  const rs = cs.map((c) => c.r).sort((a, b) => b - a), cnt = {}; for (const r of rs) cnt[r] = (cnt[r] || 0) + 1;
+  const groups = Object.entries(cnt).map(([r, n]) => [n, +r]).sort((a, b) => b[0] - a[0] || b[1] - a[1]);
+  const flush = cs.every((c) => c.s === cs[0].s), uniq = [...new Set(rs)];
+  let straightHigh = -1; if (uniq.length === 5) { if (uniq[0] - uniq[4] === 4) straightHigh = uniq[0]; else if (uniq.join() === '12,3,2,1,0') straightHigh = 3; }
+  const kick = groups.map((g) => g[1]), score = (cat, ks) => cat * 1e10 + ks.reduce((a, k, i) => a + k * Math.pow(15, 4 - i), 0);
+  if (straightHigh >= 0 && flush) return score(8, [straightHigh]);
+  if (groups[0][0] === 4) return score(7, kick);
+  if (groups[0][0] === 3 && groups[1][0] === 2) return score(6, kick);
+  if (flush) return score(5, rs);
+  if (straightHigh >= 0) return score(4, [straightHigh]);
+  if (groups[0][0] === 3) return score(3, kick);
+  if (groups[0][0] === 2 && groups[1][0] === 2) return score(2, kick);
+  if (groups[0][0] === 2) return score(1, kick);
+  return score(0, rs);
+}
+function bestHand(cards) { let best = 0; for (let a = 0; a < cards.length; a++) for (let b = a + 1; b < cards.length; b++) { const five = cards.filter((_, i) => i !== a && i !== b); if (five.length === 5) best = Math.max(best, rank5(five)); } return cards.length === 5 ? rank5(cards) : best; }
+const HAND_NAMES = ['High card', 'Pair', 'Two pair', 'Three of a kind', 'Straight', 'Flush', 'Full house', 'Four of a kind', 'Straight flush'];
+function pkStart() {
+  if (player.money < CAS.bet * 2) return;
+  const d = newDeck(), P = { d, board: [], pot: 0, stage: 0, players: [{ name: 'You', cards: [d.pop(), d.pop()], folded: false, me: true }, ...BOTS.map((n) => ({ name: n, cards: [d.pop(), d.pop()], folded: false }))], log: [] };
+  player.money -= CAS.bet; P.pot = CAS.bet * 4; P.unit = CAS.bet; CAS.pk = P; casMsg('Ante in. Your move.'); renderCasino(); // everyone antes one bet
+}
+function botStrength(b, P) { // 0..1 rough hand strength from what the bot can see
+  const all = b.cards.concat(P.board);
+  if (all.length < 5) { const [a, c] = b.cards, pair = a.r === c.r; return Math.min(1, (a.r + c.r) / 26 * 0.6 + (pair ? 0.35 : 0) + (a.s === c.s ? 0.05 : 0)); }
+  return Math.min(1, Math.floor(bestHand(all) / 1e10) / 5 + 0.1);
+}
+function pkAct(choice) { // the player checks/calls, raises or folds; the bots answer, then the next card
+  const P = CAS.pk, me = P.players[0];
+  if (choice === 'fold') { me.folded = true; return pkShowdown(); }
+  let raise = choice === 'raise' ? P.unit : 0;
+  if (raise) { if (player.money < raise) return; player.money -= raise; P.pot += raise; P.log.push(`You raise $${raise}`); }
+  for (const b of P.players.slice(1)) {
+    if (b.folded) continue; const s = botStrength(b, P) + (rand() - 0.5) * 0.25;
+    if (raise && s < 0.35) { b.folded = true; P.log.push(`${b.name} folds`); }
+    else if (raise) { P.pot += raise; P.log.push(`${b.name} calls`); }
+    else if (s > 0.72 && rand() < 0.6) { // a bot bets: you call it or fold
+      P.pot += P.unit; P.log.push(`${b.name} bets $${P.unit}`);
+      if (player.money >= P.unit) { player.money -= P.unit; P.pot += P.unit; P.log.push('You call'); } else { me.folded = true; return pkShowdown(); }
+      raise = P.unit;
+    } else P.log.push(`${b.name} checks`);
+  }
+  if (P.players.slice(1).every((b) => b.folded)) return pkShowdown();
+  P.stage++;
+  if (P.stage === 1) P.board.push(P.d.pop(), P.d.pop(), P.d.pop()); else if (P.stage <= 3) P.board.push(P.d.pop()); else return pkShowdown();
+  casMsg(['', 'The flop.', 'The turn.', 'The river.'][P.stage]); renderCasino();
+}
+function pkShowdown() {
+  const P = CAS.pk, live = P.players.filter((p) => !p.folded);
+  while (P.board.length < 5) P.board.push(P.d.pop());
+  let best = -1, winners = [];
+  for (const p of live) { p.score = bestHand(p.cards.concat(P.board)); if (p.score > best) { best = p.score; winners = [p]; } else if (p.score === best) winners.push(p); }
+  const share = Math.floor(P.pot / winners.length), meWon = winners.some((p) => p.me);
+  if (meWon) player.money += share;
+  P.done = true; casMsg(live.length === 1 ? `${live[0].name} takes the pot ($${P.pot}) — everyone else folded.` : `${winners.map((w) => w.name).join(' & ')} win${winners.length > 1 || winners[0].me ? '' : 's'} $${share} with ${HAND_NAMES[Math.floor(best / 1e10)]}.`);
+  if (meWon) sfxTone([523, 659, 784], 0.3, 0.06, 'triangle'); renderCasino();
+}
+function renderPoker(t, act, betRow) {
+  const P = CAS.pk;
+  if (!P || P.done) {
+    if (P) t.innerHTML = `<p>Board: ${P.board.map((c) => cardHTML(c)).join('')}</p>` + P.players.map((p) => `<p>${p.name}${p.folded ? ' (folded)' : ''}: ${p.cards.map((c) => cardHTML(c)).join('')}${p.score && !p.folded ? ' — ' + HAND_NAMES[Math.floor(p.score / 1e10)] : ''}</p>`).join('');
+    betRow(); act(`Deal in (ante $${CAS.bet})`, pkStart, player.money >= CAS.bet * 2); return;
+  }
+  t.innerHTML = `<p>Pot $${P.pot} · Board: ${P.board.map((c) => cardHTML(c)).join('') || '—'}</p><p>You: ${P.players[0].cards.map((c) => cardHTML(c)).join('')}</p>` +
+    P.players.slice(1).map((b) => `<p>${b.name}${b.folded ? ' (folded)' : ''}: ${cardHTML(null, true)}${cardHTML(null, true)}</p>`).join('') + `<p class="log">${P.log.slice(-4).join(' · ')}</p>`;
+  act('Check / call', () => pkAct('check')); act(`Raise $${P.unit}`, () => pkAct('raise'), player.money >= P.unit); act('Fold', () => pkAct('fold'));
+}
+function initCasinoUI() {
+  for (const b of document.querySelectorAll('#cas-tabs button')) b.addEventListener('click', () => { CAS.game = b.dataset.g; casMsg(''); renderCasino(); });
+  $('cas-close').addEventListener('click', closeCasino);
+  $('phone-close').addEventListener('click', closePhone);
+}
+
+// Gold Coast Streets — planes you can fly. Parked at the Gold Coast Airport (Coolangatta): walk up and press E.
+// W/S throttle (S on the ground brakes), arrows or mouse for the nose, A/D to bank (steers on the ground), E to get out
+// once you've stopped. Lift needs speed: too slow and you stall. Land gently, wings level, or it's a crash.
+// Airliners also take off and land on their own.
+
+const PLANE_TYPES = {
+  cessna: { name: 'Cessna 172', len: 8.3, span: 11, fus: 1.4, gear: 1.1, maxV: 66, vr: 27, thrust: 7, color: '#f4f4f2', stripe: '#c62828', prop: true },
+  jet: { name: 'Airliner', len: 37, span: 34, fus: 4.0, gear: 2.6, maxV: 250, vr: 78, thrust: 13, color: '#ffffff', stripe: '#1d4e89', prop: false },
+};
+const PLANES = [];
+const PLANE_MATS = {};
+function planeMat(c) { return PLANE_MATS[c] || (PLANE_MATS[c] = new THREE.MeshStandardMaterial({ color: col(c), roughness: 0.45, metalness: 0.2 })); }
+function makePlaneModel(sp) {
+  const g = new THREE.Group(), body = planeMat(sp.color), stripe = planeMat(sp.stripe), dark = planeMat('#2b3036'), geos = [];
+  const box = (w, h, d, x, y, z, m) => { const geo = new THREE.BoxGeometry(w, h, d); geos.push(geo); const mesh = new THREE.Mesh(geo, m); mesh.position.set(x, y, z); mesh.castShadow = true; g.add(mesh); return mesh; };
+  const L = sp.len, F = sp.fus;
+  box(F, F, L * 0.82, 0, 0, 0, body);                                    // fuselage
+  box(F * 0.8, F * 0.8, L * 0.12, 0, 0, L * 0.46, body);                 // nose
+  box(F * 1.02, F * 0.25, L * 0.8, 0, -F * 0.05, 0, stripe);             // cheat line
+  box(F * 0.9, F * 0.3, L * 0.08, 0, F * 0.28, L * 0.36, dark);          // cockpit windows
+  box(sp.span, F * 0.12, L * 0.16, 0, sp.prop ? F * 0.5 : -F * 0.25, L * 0.02, body); // wings
+  box(sp.span * 0.36, F * 0.1, L * 0.1, 0, F * 0.2, -L * 0.42, body);    // tailplane
+  box(F * 0.12, F * 1.4, L * 0.12, 0, F * 1.0, -L * 0.42, stripe);       // fin
+  if (sp.prop) { const p = box(F * 0.12, F * 1.3, 0.1, 0, 0, L * 0.53, dark); g.userData.prop = p; }
+  else for (const s of [-1, 1]) box(F * 0.55, F * 0.55, L * 0.12, s * sp.span * 0.22, -F * 0.7, L * 0.08, dark); // engines
+  for (const [x, z] of [[-F * 0.9, -L * 0.05], [F * 0.9, -L * 0.05], [0, L * 0.35]]) box(0.25, sp.gear, 0.25, x, -F * 0.5 - sp.gear / 2, z, dark); // landing gear
+  g.userData.geos = geos; return g;
+}
+class Plane {
+  constructor(type, x, z, h, ai) {
+    this.type = type; this.sp = PLANE_TYPES[type]; this.model = makePlaneModel(this.sp); scene.add(this.model);
+    this.x = x; this.z = z; this.h = h; this.y = groundAt(x, z) + this.sp.gear + this.sp.fus / 2;
+    this.v = 0; this.pitch = 0; this.roll = 0; this.throttle = 0; this.ground = true; this.dead = false; this.ai = ai || null; this.input = { t: 0, p: 0, r: 0, brake: 0 };
+    PLANES.push(this); this.sync();
+  }
+  get alt() { return this.y - groundAt(this.x, this.z) - this.sp.gear - this.sp.fus / 2; }
+  step(dt) {
+    if (this.dead) return;
+    const sp = this.sp, inp = this.input;
+    this.throttle = clamp(this.throttle + inp.t * dt * 0.6, 0, 1);
+    const g = 9.81, drag = (sp.thrust / (sp.maxV * sp.maxV)) * this.v * this.v;
+    this.v += (sp.thrust * this.throttle - drag - g * Math.sin(this.pitch) * (this.ground ? 0 : 1)) * dt;
+    if (this.ground) {
+      if (inp.brake) this.v = Math.max(0, this.v - 6 * dt);
+      this.v = Math.max(0, this.v - 0.4 * dt);
+      this.h -= inp.r * Math.min(1, this.v / 8) * 0.6 * dt;                 // steer while taxiing
+      this.roll = lerp(this.roll, 0, Math.min(1, dt * 4));
+      const canRotate = this.v > sp.vr * 0.9;
+      this.pitch = clamp(this.pitch + (canRotate ? inp.p : Math.min(0, inp.p)) * 0.5 * dt, 0, 0.25);
+      if (!canRotate) this.pitch = lerp(this.pitch, 0, Math.min(1, dt * 2));
+      if (this.v > sp.vr && this.pitch > 0.08) { this.ground = false; toast(this.ai ? '' : 'Airborne! Arrows or mouse to climb, A/D to turn'); }
+    } else {
+      this.roll = clamp(this.roll + inp.r * 1.4 * dt, -1.1, 1.1); if (!inp.r) this.roll = lerp(this.roll, 0, Math.min(1, dt * 0.6));
+      this.pitch = clamp(this.pitch + inp.p * 0.7 * dt, -0.6, 0.6);
+      this.h -= (g * Math.tan(this.roll) / Math.max(15, this.v)) * dt;      // a banked turn
+      this.v = Math.max(0, this.v);
+    }
+    const fx = Math.sin(this.h) * Math.cos(this.pitch), fz = Math.cos(this.h) * Math.cos(this.pitch);
+    const nx = this.x + fx * this.v * dt, nz = this.z + fz * this.v * dt;
+    let vy = Math.sin(this.pitch) * this.v;
+    if (!this.ground) { const lift = Math.min(1.2, (this.v / sp.vr) ** 2) * Math.cos(this.roll); vy -= g * (1 - Math.min(1, lift)) * 2.2; } // too slow: it sinks
+    // flying into a building that's taller than you are high
+    const altHere = this.y - groundAt(nx, nz);
+    if (!this.ground && altHere < 260 && rayWalls(this.x, this.z, nx, nz, Math.max(2, altHere)) < 1) return this.crash('hit a building');
+    this.x = nx; this.z = nz; this.y += vy * dt;
+    const floor = groundAt(this.x, this.z) + sp.gear + sp.fus / 2;
+    if (!this.ground && this.y <= floor) {
+      if (!isLand(this.x, this.z)) return this.crash('ditched in the water');
+      if (vy < -7 || Math.abs(this.roll) > 0.35 || this.pitch < -0.2) return this.crash('came down too hard');
+      this.ground = true; this.y = floor; this.pitch = Math.max(0, this.pitch * 0.5); toast(this.ai ? '' : 'Touchdown! S to brake');
+    }
+    if (this.ground) this.y = floor;
+    this.x = clamp(this.x, WORLD.x0 - 3000, WORLD.x1 + 3000); this.z = clamp(this.z, WORLD.z0 - 3000, WORLD.z1 + 3000);
+    if (this.model.userData.prop) this.model.userData.prop.rotation.z += this.throttle * 60 * dt;
+    this.sync();
+  }
+  crash(why) {
+    this.dead = true; this.v = 0; shake = 1.5; sfxNoise(1.2, 120, 0.9);
+    for (let i = 0; i < 60; i++) emit(this.x + rr(-4, 4), this.y + rr(-1, 3), this.z + rr(-4, 4), rr(-3, 3), rr(1, 6), rr(-3, 3), 1.6, 1.2, 4, rand() < 0.5 ? '#ff7a1a' : '#333', 0.9);
+    if (player.plane === this) { leavePlane(true); damagePlayer(100); toast(`Crashed — you ${why}`); }
+    setTimeout(() => this.remove(), 8000);
+  }
+  sync() { this.model.position.set(this.x, this.y, this.z); this.model.rotation.set(-this.pitch, this.h, -this.roll, 'YXZ'); }
+  remove() { scene.remove(this.model); for (const g of this.model.userData.geos) g.dispose(); const i = PLANES.indexOf(this); if (i >= 0) PLANES.splice(i, 1); if (player.plane === this) leavePlane(true); }
+}
+
+// ---------------------------------------------------------------- getting in and out
+function nearestPlane(maxD) { let best = null, bd = maxD; for (const p of PLANES) { if (p.dead || p.ai || p.v > 3) continue; const d = Math.hypot(p.x - player.x, p.z - player.z) - p.sp.len * 0.3; if (d < bd) { bd = d; best = p; } } return best; }
+function boardPlane(p) {
+  player.plane = p; player.state = 'plane'; player.mode = 'car'; player.model.root.visible = false;
+  addCrime(1, 'jack'); toast(`${p.sp.name}: W throttle up, hold ↑ (or mouse) past ${Math.round(p.sp.vr * 3.6)} km/h to lift off · A/D bank · E to get out when stopped`);
+}
+function leavePlane(force) {
+  const p = player.plane; if (!p) return;
+  if (!force && (p.v > 2 || !p.ground)) { toast('Land and stop first'); return; }
+  player.plane = null; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true;
+  const s = sidewalkNear(p.x + Math.cos(p.h) * p.sp.span * 0.5, p.z - Math.sin(p.h) * p.sp.span * 0.5); player.x = s.x; player.z = s.z; player.y = 0;
+}
+function updatePlaneControls() {
+  const p = player.plane, inp = p.input;
+  inp.t = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
+  inp.brake = keys.KeyS && p.ground ? 1 : 0;
+  inp.p = (keys.ArrowUp ? 1 : 0) - (keys.ArrowDown ? 1 : 0) + clamp(PLANE_MOUSE.y, -1, 1); PLANE_MOUSE.y *= 0.85;
+  inp.r = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0);
+  player.x = p.x; player.z = p.z; player.h = p.h; player.speed = p.v;
+}
+const PLANE_MOUSE = { y: 0 };
+
+// ---------------------------------------------------------------- the airport: parked planes and scheduled airliners
+let AIRPORT = null, OVERVIEW_MESH = null;
+function setupAirport() {
+  AIRPORT = REGION && REGION.airport;
+  if (!AIRPORT || !AIRPORT.runways.length) return;
+  const [x1, z1, x2, z2] = AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
+  AIRPORT.rw = { x1, z1, x2, z2, h, ex, ez, nx, nz, len: Math.hypot(x2 - x1, z2 - z1) };
+  // parked planes beside the runway near its start: two Cessnas and an airliner
+  AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['jet', 260, 95]];
+}
+function updatePlanes(dt) {
+  if (AIRPORT && AIRPORT.rw) {
+    const R = AIRPORT.rw, near = Math.hypot((R.x1 + R.x2) / 2 - player.x, (R.z1 + R.z2) / 2 - player.z) < 2500;
+    if (near && !AIRPORT.spawned) {
+      AIRPORT.spawned = true;
+      for (const [t, along, side] of AIRPORT.parked) { const x = R.x1 + R.ex * along + R.nx * side, z = R.z1 + R.ez * along + R.nz * side; new Plane(t, x, z, R.h + Math.PI / 2); }
+      AIRPORT.nextAI = 20;
+    }
+    if (near) { // an airliner takes off every couple of minutes
+      AIRPORT.nextAI -= dt;
+      if (AIRPORT.nextAI <= 0 && !PLANES.some((p) => p.ai)) { AIRPORT.nextAI = 120; const p = new Plane('jet', R.x1 + R.ex * 40, R.z1 + R.ez * 40, R.h, { phase: 'roll' }); p.throttle = 1; }
+    }
+    if (!near && AIRPORT.spawned && !player.plane) { for (const p of PLANES.slice()) if (!p.ai || Math.hypot(p.x - player.x, p.z - player.z) > 3000) p.remove(); AIRPORT.spawned = false; }
+  }
+  for (const p of PLANES.slice()) {
+    if (p.ai) { // the scripted airliner: full power, rotate, climb out and leave
+      p.input.t = 1; p.input.r = 0; p.input.p = p.ground ? (p.v > p.sp.vr * 0.95 ? 1 : 0) : (p.pitch < 0.18 ? 0.6 : 0);
+      if (p.alt > 900 || Math.hypot(p.x - player.x, p.z - player.z) > 6000) { p.remove(); continue; }
+    }
+    p.step(dt);
+  }
+  // from up high, show the whole map's low-detail ground and push the haze back
+  const flying = player.plane && !player.plane.ground ? player.plane.alt : 0;
+  if (flying > 60 && OVERVIEW && !OVERVIEW_MESH) {
+    const tex = new THREE.CanvasTexture(OVERVIEW.canvas); tex.encoding = THREE.sRGBEncoding;
+    const w = OVERVIEW.canvas.width / OV_PPM, hgt = OVERVIEW.canvas.height / OV_PPM, geo = new THREE.PlaneGeometry(w, hgt); geo.rotateX(-Math.PI / 2);
+    OVERVIEW_MESH = new THREE.Mesh(geo, new THREE.MeshLambertMaterial({ map: tex })); OVERVIEW_MESH.position.set(OVERVIEW.x0 + w / 2, -0.3, OVERVIEW.z0 + hgt / 2); scene.add(OVERVIEW_MESH);
+  }
+  if (OVERVIEW_MESH) OVERVIEW_MESH.visible = flying > 60;
+  scene.fog.near = lerp(scene.fog.near, flying > 60 ? 2500 : 480, 0.05); scene.fog.far = lerp(scene.fog.far, flying > 60 ? 9000 : 1350, 0.05);
+}
+
 // ============================================================================
 // Gold Coast Streets — weapons: aiming, shooting, cops shooting back, hold-ups
 // Cartoon style: people get knocked down, no blood.
@@ -3091,13 +3660,14 @@ function updateRobbery(dt) {
   if (target) {
     if (robbing !== target) { robbing = target; target.robT = 0; addCrime(1, 'rob'); scareNear(target.kx, target.kz, 20); }
     robLost = 0;
-    const need = target.kind === 'bank' ? 10 : 4.5;
+    const need = target.kind === 'bank' ? heistNeed(target) : 4.5; // a hired hacker halves the vault time
     target.robT += dt;
     el.hidden = false;
     $('rob-text').textContent = target.kind === 'bank' ? `ROBBING ${target.name.toUpperCase()} — keep your aim on the teller` : `HOLD-UP AT ${target.name.toUpperCase()}`;
     $('rob-bar').style.width = Math.round(Math.min(1, target.robT / need) * 100) + '%';
     if (target.robT >= need) {
-      const cash = target.kind === 'bank' ? Math.round(rr(25, 60)) * 100 : Math.round(rr(15, 45)) * 10;
+      let cash = target.kind === 'bank' ? Math.round(rr(25, 60)) * 100 : Math.round(rr(15, 45)) * 10;
+      if (target.kind === 'bank') cash = heistRobDone(target, cash); // a planned heist pays out at the safehouse
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
       addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
       toast(`${target.kind === 'bank' ? 'Bank job done' : 'Cash register emptied'} · +$${cash} — get out of there!`); sfxTone([523, 659, 784], 0.4, 0.08, 'triangle');
@@ -3476,6 +4046,7 @@ const TILE_INDEX = new Set();      // tiles that exist on disk
 const LOAD_RADIUS = 1300, UNLOAD_RADIUS = 1800;
 let tileBusy = false, tileCheckT = 0;
 const NODE_INDEX = new Map();      // OSM node id -> index into GN (shared with the Surfers core network)
+const GPS_ADJ = new Map();         // extra routing links inside the Surfers core (GPS only)
 (MAP.graph.ids || []).forEach((id, i) => NODE_INDEX.set(String(id), i));
 
 async function loadRegion() {
@@ -3486,7 +4057,7 @@ async function loadRegion() {
   } catch (e) { console.warn('[tiles] no region data, Surfers only', e); return; }
   for (const [i, j] of REGION.tiles) TILE_INDEX.add(i + ',' + j);
   Object.assign(WORLD, { x0: REGION.bounds[0], z0: REGION.bounds[1], x1: REGION.bounds[2], z1: REGION.bounds[3] });
-  buildOverview();
+  buildOverview(); setupAirport();
   buildRegionSurf();
 }
 // a band of white water just off every stretch of open coastline (the core has its own)
@@ -3596,6 +4167,8 @@ function unloadTile(k) {
     for (const [m, list] of [[ADJ, ADJ.get(E.a)], [ADJ, ADJ.get(E.b)], [PADJ, PADJ.get(E.a)], [PADJ, PADJ.get(E.b)]]) {
       if (!list) continue; for (let q = list.length - 1; q >= 0; q--) if (list[q].e === ei) list.splice(q, 1);
     }
+    const ga = GPS_ADJ.get(E.a), gb = GPS_ADJ.get(E.b);
+    for (const list of [ga, gb]) if (list) for (let q = list.length - 1; q >= 0; q--) if (list[q].e === ei) list.splice(q, 1);
     EDGES[ei] = null;
   }
   for (let q = LIVE_EDGES.length - 1; q >= 0; q--) if (gone.has(LIVE_EDGES[q])) LIVE_EDGES.splice(q, 1);
@@ -4085,6 +4658,16 @@ function tileGraph(T, data) {
         PARK_SPOTS.push(sp); T.spots.push(sp);
       }
     }
+  }
+  // roads inside the Surfers core: routing links for the GPS only (no traffic, no parking)
+  for (const e of data.gpsedges || []) {
+    const p = e.slice(7), cum = [0];
+    for (let q = 2; q < p.length; q += 2) cum.push(cum[cum.length - 1] + Math.hypot(p[q] - p[q - 2], p[q + 1] - p[q - 1]));
+    const len = cum[cum.length - 1]; if (len < 0.5) continue;
+    const E = { a: idx(e[0]), b: idx(e[1]), oneway: !!e[2], lanes: 1, name: e[4] >= 0 ? data.names[e[4]] : null, type: e[5], width: e[6], p, cum, len, tile: T.k, gps: true };
+    const ei = EDGES.length; EDGES.push(E); T.edges.push(ei);
+    if (!GPS_ADJ.has(E.a)) GPS_ADJ.set(E.a, []); if (!GPS_ADJ.has(E.b)) GPS_ADJ.set(E.b, []);
+    GPS_ADJ.get(E.a).push({ e: ei, dir: 1 }); GPS_ADJ.get(E.b).push({ e: ei, dir: -1 });
   }
 }
 
@@ -4714,7 +5297,7 @@ function enterTower(E) {
   if (B.kind === 'mall') { TOWER.levelH = clamp((h - 0.3) / (floors + 1), 3.4, 5.5); TOWER.top = Math.max(TOWER.top, gy + (floors + 1) * TOWER.levelH); }
   buildTowerLevel(0);
   player.x = TOWER.exit.ix; player.z = TOWER.exit.iz; player.h = Math.atan2(-E.nx, -E.nz); camYaw = player.h;
-  toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : TOWER.kind === 'school' ? `${TOWER.name} — classrooms off the corridor` : `${TOWER.name} — lifts are in the middle (E)`);
+  if (TOWER.casino && TOWER.casino.length) toast(`${TOWER.name} — the casino floor is in the lobby: E at a table`); else toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : TOWER.kind === 'school' ? `${TOWER.name} — classrooms off the corridor` : `${TOWER.name} — lifts are in the middle (E)`);
 }
 function leaveTower() {
   const X = TOWER.exit; disposeTowerLevel(); TOWER = null;
@@ -4728,7 +5311,7 @@ function disposeTowerLevel() {
   for (const p of TOWER.people) disposePerson(p);
   for (const sh of TOWER.shops || []) { const k = SHOPS.indexOf(sh); if (k >= 0) SHOPS.splice(k, 1); }
   const gi = GRIDS.indexOf(TOWER.grid); if (gi >= 0) GRIDS.splice(gi, 1);
-  TOWER.mesh = null; TOWER.people = []; TOWER.shops = []; TOWER.loot = [];
+  TOWER.mesh = null; TOWER.people = []; TOWER.shops = []; TOWER.loot = []; TOWER.casino = null;
 }
 function levelY(k) {
   if (TOWER.kind === 'mall') return TOWER.base + k * TOWER.levelH; // levels shared out over the building's height (the roof is the car park)
@@ -4828,6 +5411,10 @@ function buildTowerLevel(k) {
       const P = makePerson({ shirt: '#f4f4f2', shorts: '#1f2a3a' }); const [qx, qz] = W(ru * 0.38, rv * 0.38); P.root.position.set(qx, y, qz); P.root.rotation.y = Math.atan2(X.ix - qx, X.iz - qz); scene.add(P.root); TOWER.people.push(P);
     }
     for (const s of [-1, 1]) { box(s * (u1 - u0) * 0.3, rv * 0.2, 2.2, 0.8, 0.9, col('#3b4a57')); box(s * (u1 - u0) * 0.38, rv * 0.5, 0.6, 1.6, 0.6, T_COLS.plant); }
+    if (/star|casino|jupiters/i.test(TOWER.name)) { // the casino floor: blackjack, poker and slot tables in the lobby
+      TOWER.casino = [];
+      [['blackjack', -0.22], ['poker', 0], ['slots', 0.22]].forEach(([g, f]) => { const t2 = box((u1 - u0) * f, -rv * 0.25, 2.6, 0.9, 1.6, col('#1f6b3a')); if (t2) TOWER.casino.push({ x: t2.x, z: t2.z, game: g }); });
+    }
   } else {
     const school = TOWER.kind === 'school';
     if (!school || TOWER.floors > 0) liftCore(); // schools: stairs only on blocks with an upper floor
@@ -4996,6 +5583,7 @@ function towerUse() {
   for (const L of TOWER.loot) if (!L.taken && Math.hypot(L.x - player.x, L.z - player.z) < 1.4) {
     L.taken = true; scene.remove(L.mesh); player.money += L.value; sfxTone([880, 1320], 0.12, 0.05); toast(`Took ${L.kind.name === 'cash' ? 'cash' : 'a ' + L.kind.name}: +$${L.value}`); saveGame(); return true;
   }
+  for (const C of TOWER.casino || []) if (TOWER.level === 0 && Math.hypot(C.x - player.x, C.z - player.z) < 2.4) { openCasino(C.game); return true; }
   for (const Lf of TOWER.lifts) if (Math.hypot(Lf.x - player.x, Lf.z - player.z) < 1.6) { openLift(); return true; }
   if (TOWER.level === 0 && Math.hypot(TOWER.exit.ix - player.x, TOWER.exit.iz - player.z) < 2.2) { leaveTower(); return true; }
   return false;
@@ -5490,7 +6078,7 @@ function updateCopField(dt) {
   if (copFieldT > 0 || player.stars === 0) return;
   copFieldT = 1;
   const ne = nearestEdge(player.x, player.z); if (ne.e < 0) return;
-  const E = EDGES[ne.e], N = GN.length / 2, d = new Float32Array(N).fill(1e9), done = new Uint8Array(N);
+  const E = EDGES[ne.e], N = GN.length / 2, d = new Float64Array(N).fill(1e9), done = new Uint8Array(N);
   d[E.a] = ne.s; d[E.b] = E.len - ne.s;
   const heap = [[d[E.a], E.a], [d[E.b], E.b]];
   const hpush = (it) => { heap.push(it); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
@@ -6242,11 +6830,13 @@ function nearShop() {
 }
 function useKey() {
   if (player.deadT > 0) return;
+  if (player.state === 'plane') return leavePlane(false);
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state !== 'foot') return;
   if (towerUse() || houseUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
+  const pl = nearestPlane(9); if (pl) return boardPlane(pl);
   const c = nearestEnterableCar(); if (c) startEnter(c);
 }
 function updatePlayer(dt) {
@@ -6266,6 +6856,7 @@ function updatePlayer(dt) {
       squeal = lerp(squeal, c.slip, Math.min(1, dt * 8));
       return;
     }
+    case 'plane': squeal = 0; return updatePlaneControls();
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
     case 'tackled': return updateTackled(dt);
@@ -6348,7 +6939,11 @@ function updatePlayer(dt) {
 // ---------------------------------------------------------------- camera
 function updateCamera(dt) {
   let tx, ty, tz, dist;
-  if (player.state === 'car' && player.car) {
+  if (player.state === 'plane' && player.plane) { // chase camera behind the plane
+    const p = player.plane; tx = p.x; ty = p.y + p.sp.fus; tz = p.z; dist = p.sp.len * 1.4 + 8;
+    camYaw += angDiff(camYaw, p.h) * Math.min(1, dt * 2.5); camPitch = lerp(camPitch, 0.18 + p.pitch * 0.5, Math.min(1, dt * 2));
+    camera.fov = lerp(camera.fov, 62 + Math.min(14, p.v * 0.08), Math.min(1, dt * 3));
+  } else if (player.state === 'car' && player.car) {
     const c = player.car;
     tx = c.x; ty = 1.6 + c.y + (c.alt || 0); tz = c.z; dist = CAM_CAR[camIdx];
     if (elapsed - mouse.last > 1.4 && c.speed > 1.5) {
@@ -6369,7 +6964,7 @@ function updateCamera(dt) {
   const cp = Math.cos(camPitch), fx = Math.sin(camYaw) * cp, fy = -Math.sin(camPitch), fz = Math.cos(camYaw) * cp;
   const cx = tx - fx * dist, cz = tz - fz * dist;
   const inside = player.state !== 'car' && indoorAt(player.x, player.z);
-  const t = rayWalls(tx, tz, cx, cz, inside ? 1 : 3);
+  const t = player.state === 'plane' ? 1 : rayWalls(tx, tz, cx, cz, inside ? 1 : 3); // in the air, buildings below don't block the camera
   const allowed = t < 1 ? Math.max(1.2, dist * t - 0.5) : dist;
   camDist = allowed < camDist ? allowed : lerp(camDist, allowed, Math.min(1, dt * 2.5));
   let px = tx - fx * camDist, py = ty - fy * camDist, pz = tz - fz * camDist;
@@ -6486,6 +7081,7 @@ function drawMinimap() {
   for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 7, Math.floor(elapsed * 4) % 2 ? '#ff3b3b' : '#3b7bff');
   for (const p of peds) if (p.cop) dot(p.x, p.z, 5, '#6aa8ff');
   if (player.mode === 'foot') { for (const c of cars) if (!c.dead && Math.hypot(c.x - tx, c.z - tz) < 40 && c.kind !== 'police') dot(c.x, c.z, 3, 'rgba(255,255,255,0.55)'); }
+  strokeGPS(mctx, (x, z) => [(x - tx) * MAPPPM, (z - tz) * MAPPPM], 6 / k); // the yellow route
   if (searchArea && player.stars) { // the police search area: get out of it and stay hidden
     mctx.strokeStyle = 'rgba(90,150,255,0.9)'; mctx.fillStyle = 'rgba(60,110,255,0.12)'; mctx.lineWidth = 3 / k;
     mctx.beginPath(); mctx.arc((searchArea.x - tx) * MAPPPM, (searchArea.z - tz) * MAPPPM, searchArea.r * MAPPPM, 0, TAU); mctx.fill(); mctx.stroke();
@@ -6497,7 +7093,7 @@ function drawMinimap() {
     if (L > R - 14) { sx *= (R - 14) / L; sz *= (R - 14) / L; }
     mctx.fillStyle = '#000'; mctx.beginPath(); mctx.arc(R + sx, R + sz, 10, 0, TAU); mctx.fill();
     mctx.fillStyle = '#c3a6ff'; mctx.beginPath(); mctx.arc(R + sx, R + sz, 7, 0, TAU); mctx.fill();
-    if (Math.hypot(WAYPOINT.x - player.x, WAYPOINT.z - player.z) < 25) { toast(`You've arrived: ${WAYPOINT.name}`); WAYPOINT = null; }
+    if (Math.hypot(WAYPOINT.x - player.x, WAYPOINT.z - player.z) < 25) { toast(`You've arrived: ${WAYPOINT.name}`); WAYPOINT = null; clearGPS(); }
   }
   const nx = Math.cos(theta - Math.PI / 2) * (R - 18), nz = Math.sin(theta - Math.PI / 2) * (R - 18);
   mctx.fillStyle = '#0b1216'; mctx.beginPath(); mctx.arc(R + nx, R + nz, 15, 0, TAU); mctx.fill();
@@ -6560,6 +7156,7 @@ function drawBigMap() {
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
+  strokeGPS(x, (wx, wz) => [wx, wz], 4 / S);
   if (WAYPOINT) { // a pin with the place's name
     const px = WAYPOINT.x, pz = WAYPOINT.z, u = 1 / S;
     x.fillStyle = '#c3a6ff'; x.strokeStyle = '#000'; x.lineWidth = 2.5 * u;
@@ -6611,7 +7208,7 @@ function goToPlace(e) {
   MAPV.cx = e[2]; MAPV.cz = e[3]; MAPV.zoom = e[1] === 7 ? 4 : 10;
   $('mapres').innerHTML = ''; $('mapq').blur(); drawBigMap();
   const d = Math.hypot(e[2] - player.x, e[3] - player.z);
-  toast(`Waypoint: ${e[0]} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away`);
+  GPS.t = 0; toast(`Waypoint: ${e[0]} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away · follow the yellow line · X to cancel`);
 }
 function initBigMap() {
   const c = $('bigc'); let drag = null;
@@ -6627,7 +7224,7 @@ function initBigMap() {
   $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
   $('zin').addEventListener('click', () => zoomMap(1.6)); $('zout').addEventListener('click', () => zoomMap(1 / 1.6));
   $('zme').addEventListener('click', () => { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); });
-  $('zclear').addEventListener('click', () => { WAYPOINT = null; drawBigMap(); });
+  $('zclear').addEventListener('click', () => { cancelDestination(); drawBigMap(); });
 }
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
@@ -6744,6 +7341,7 @@ window.addEventListener('wheel', (e) => { if (started && !paused && !uiOpen && p
 window.addEventListener('mousemove', (e) => {
   if (!started || paused || uiOpen) return;
   if (!mouse.locked && !mouse.dragging) return;
+  if (player.state === 'plane') { PLANE_MOUSE.y = clamp(PLANE_MOUSE.y - e.movementY * 0.02, -1, 1); camYaw -= e.movementX * 0.0012; return; } // the mouse flies the nose
   camYaw -= e.movementX * 0.0024; camPitch = clamp(camPitch + e.movementY * 0.0022, -0.35, 1.25);
   mouse.last = elapsed;
 });
@@ -6756,7 +7354,12 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[code] = true;
   if (!started) return;
-  if (uiOpen) { if (code === 'Escape' || code === 'KeyF' || code === 'Enter' || code === 'KeyB') { if (!$('shop').hidden) closeShop(); else if (!$('bag').hidden) closeBag(); else closeWardrobe(); } return; }
+  if (uiOpen) {
+    if (PHONE.open) { if (code === 'Escape' || code === 'KeyP') closePhone(); return; }
+    if (!$('casino').hidden) { if (code === 'Escape') closeCasino(); return; }
+    if (code === 'Escape' || code === 'KeyF' || code === 'Enter' || code === 'KeyB') { if (!$('shop').hidden) closeShop(); else if (!$('bag').hidden) closeBag(); else closeWardrobe(); }
+    return;
+  }
   if (code === 'Escape' && !mouse.locked) { if (bigMapOpen) toggleMap(); else setPaused(!paused); return; }
   if (paused) return;
   if (code === 'KeyF' || code === 'KeyE') useKey();
@@ -6768,6 +7371,8 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyC') camIdx = (camIdx + 1) % CAM_CAR.length;
   if (code === 'KeyM') toggleMap();
   if (code === 'KeyG') surrender();
+  if (code === 'KeyX') cancelDestination();
+  if (code === 'KeyP') openPhone();
   if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
 });
@@ -6874,7 +7479,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt);
+  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
@@ -6923,7 +7528,7 @@ async function boot() {
     buildTrees(); buildStreetLights(); buildLandmarks();
     say('Putting up 500 shop and street signs…'); await nextFrame();
     buildDetails();
-    buildShops(); initShopUI(); initMiniGameUI();
+    buildShops(); initShopUI(); initMiniGameUI(); initCasinoUI();
     say('Loading the Gold Coast around Surfers…'); await loadRegion();
     finishGrid();
     scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && m.envMapIntensity === 1) m.envMapIntensity = 0.3; });

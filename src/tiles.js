@@ -12,6 +12,7 @@ const TILE_INDEX = new Set();      // tiles that exist on disk
 const LOAD_RADIUS = 1300, UNLOAD_RADIUS = 1800;
 let tileBusy = false, tileCheckT = 0;
 const NODE_INDEX = new Map();      // OSM node id -> index into GN (shared with the Surfers core network)
+const GPS_ADJ = new Map();         // extra routing links inside the Surfers core (GPS only)
 (MAP.graph.ids || []).forEach((id, i) => NODE_INDEX.set(String(id), i));
 
 async function loadRegion() {
@@ -22,7 +23,7 @@ async function loadRegion() {
   } catch (e) { console.warn('[tiles] no region data, Surfers only', e); return; }
   for (const [i, j] of REGION.tiles) TILE_INDEX.add(i + ',' + j);
   Object.assign(WORLD, { x0: REGION.bounds[0], z0: REGION.bounds[1], x1: REGION.bounds[2], z1: REGION.bounds[3] });
-  buildOverview();
+  buildOverview(); setupAirport();
   buildRegionSurf();
 }
 // a band of white water just off every stretch of open coastline (the core has its own)
@@ -132,6 +133,8 @@ function unloadTile(k) {
     for (const [m, list] of [[ADJ, ADJ.get(E.a)], [ADJ, ADJ.get(E.b)], [PADJ, PADJ.get(E.a)], [PADJ, PADJ.get(E.b)]]) {
       if (!list) continue; for (let q = list.length - 1; q >= 0; q--) if (list[q].e === ei) list.splice(q, 1);
     }
+    const ga = GPS_ADJ.get(E.a), gb = GPS_ADJ.get(E.b);
+    for (const list of [ga, gb]) if (list) for (let q = list.length - 1; q >= 0; q--) if (list[q].e === ei) list.splice(q, 1);
     EDGES[ei] = null;
   }
   for (let q = LIVE_EDGES.length - 1; q >= 0; q--) if (gone.has(LIVE_EDGES[q])) LIVE_EDGES.splice(q, 1);
@@ -621,6 +624,16 @@ function tileGraph(T, data) {
         PARK_SPOTS.push(sp); T.spots.push(sp);
       }
     }
+  }
+  // roads inside the Surfers core: routing links for the GPS only (no traffic, no parking)
+  for (const e of data.gpsedges || []) {
+    const p = e.slice(7), cum = [0];
+    for (let q = 2; q < p.length; q += 2) cum.push(cum[cum.length - 1] + Math.hypot(p[q] - p[q - 2], p[q + 1] - p[q - 1]));
+    const len = cum[cum.length - 1]; if (len < 0.5) continue;
+    const E = { a: idx(e[0]), b: idx(e[1]), oneway: !!e[2], lanes: 1, name: e[4] >= 0 ? data.names[e[4]] : null, type: e[5], width: e[6], p, cum, len, tile: T.k, gps: true };
+    const ei = EDGES.length; EDGES.push(E); T.edges.push(ei);
+    if (!GPS_ADJ.has(E.a)) GPS_ADJ.set(E.a, []); if (!GPS_ADJ.has(E.b)) GPS_ADJ.set(E.b, []);
+    GPS_ADJ.get(E.a).push({ e: ei, dir: 1 }); GPS_ADJ.get(E.b).push({ e: ei, dir: -1 });
   }
 }
 

@@ -583,10 +583,11 @@ function projectOnEdge(E, dir, x, z) {
   }
   return dir > 0 ? bs : E.len - bs;
 }
+const ANY_EDGE = () => true; // nearestEdge filter that includes GPS-only links
 function nearestEdge(x, z, filter) {
   let best = 1e18, be = -1, bs = 0;
   for (let i = 0; i < EDGES.length; i++) {
-    const E = EDGES[i]; if (!E || (filter && !filter(E))) continue;
+    const E = EDGES[i]; if (!E || (E.gps && filter !== ANY_EDGE) || (filter && !filter(E))) continue; // GPS-only links are for routing, not traffic
     const p = E.p;
     for (let k = 0; k < p.length / 2 - 1; k++) {
       const ax = p[2 * k], az = p[2 * k + 1], ex = p[2 * k + 2] - ax, ez = p[2 * k + 3] - az, L2 = ex * ex + ez * ez || 1;

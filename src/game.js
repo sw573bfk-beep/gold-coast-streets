@@ -454,7 +454,7 @@ function updateCopField(dt) {
   if (copFieldT > 0 || player.stars === 0) return;
   copFieldT = 1;
   const ne = nearestEdge(player.x, player.z); if (ne.e < 0) return;
-  const E = EDGES[ne.e], N = GN.length / 2, d = new Float32Array(N).fill(1e9), done = new Uint8Array(N);
+  const E = EDGES[ne.e], N = GN.length / 2, d = new Float64Array(N).fill(1e9), done = new Uint8Array(N);
   d[E.a] = ne.s; d[E.b] = E.len - ne.s;
   const heap = [[d[E.a], E.a], [d[E.b], E.b]];
   const hpush = (it) => { heap.push(it); let k = heap.length - 1; while (k > 0) { const p = (k - 1) >> 1; if (heap[p][0] <= heap[k][0]) break; [heap[p], heap[k]] = [heap[k], heap[p]]; k = p; } };
@@ -1206,11 +1206,13 @@ function nearShop() {
 }
 function useKey() {
   if (player.deadT > 0) return;
+  if (player.state === 'plane') return leavePlane(false);
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state !== 'foot') return;
   if (towerUse() || houseUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
+  const pl = nearestPlane(9); if (pl) return boardPlane(pl);
   const c = nearestEnterableCar(); if (c) startEnter(c);
 }
 function updatePlayer(dt) {
@@ -1230,6 +1232,7 @@ function updatePlayer(dt) {
       squeal = lerp(squeal, c.slip, Math.min(1, dt * 8));
       return;
     }
+    case 'plane': squeal = 0; return updatePlaneControls();
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
     case 'tackled': return updateTackled(dt);
@@ -1312,7 +1315,11 @@ function updatePlayer(dt) {
 // ---------------------------------------------------------------- camera
 function updateCamera(dt) {
   let tx, ty, tz, dist;
-  if (player.state === 'car' && player.car) {
+  if (player.state === 'plane' && player.plane) { // chase camera behind the plane
+    const p = player.plane; tx = p.x; ty = p.y + p.sp.fus; tz = p.z; dist = p.sp.len * 1.4 + 8;
+    camYaw += angDiff(camYaw, p.h) * Math.min(1, dt * 2.5); camPitch = lerp(camPitch, 0.18 + p.pitch * 0.5, Math.min(1, dt * 2));
+    camera.fov = lerp(camera.fov, 62 + Math.min(14, p.v * 0.08), Math.min(1, dt * 3));
+  } else if (player.state === 'car' && player.car) {
     const c = player.car;
     tx = c.x; ty = 1.6 + c.y + (c.alt || 0); tz = c.z; dist = CAM_CAR[camIdx];
     if (elapsed - mouse.last > 1.4 && c.speed > 1.5) {
@@ -1333,7 +1340,7 @@ function updateCamera(dt) {
   const cp = Math.cos(camPitch), fx = Math.sin(camYaw) * cp, fy = -Math.sin(camPitch), fz = Math.cos(camYaw) * cp;
   const cx = tx - fx * dist, cz = tz - fz * dist;
   const inside = player.state !== 'car' && indoorAt(player.x, player.z);
-  const t = rayWalls(tx, tz, cx, cz, inside ? 1 : 3);
+  const t = player.state === 'plane' ? 1 : rayWalls(tx, tz, cx, cz, inside ? 1 : 3); // in the air, buildings below don't block the camera
   const allowed = t < 1 ? Math.max(1.2, dist * t - 0.5) : dist;
   camDist = allowed < camDist ? allowed : lerp(camDist, allowed, Math.min(1, dt * 2.5));
   let px = tx - fx * camDist, py = ty - fy * camDist, pz = tz - fz * camDist;
@@ -1450,6 +1457,7 @@ function drawMinimap() {
   for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 7, Math.floor(elapsed * 4) % 2 ? '#ff3b3b' : '#3b7bff');
   for (const p of peds) if (p.cop) dot(p.x, p.z, 5, '#6aa8ff');
   if (player.mode === 'foot') { for (const c of cars) if (!c.dead && Math.hypot(c.x - tx, c.z - tz) < 40 && c.kind !== 'police') dot(c.x, c.z, 3, 'rgba(255,255,255,0.55)'); }
+  strokeGPS(mctx, (x, z) => [(x - tx) * MAPPPM, (z - tz) * MAPPPM], 6 / k); // the yellow route
   if (searchArea && player.stars) { // the police search area: get out of it and stay hidden
     mctx.strokeStyle = 'rgba(90,150,255,0.9)'; mctx.fillStyle = 'rgba(60,110,255,0.12)'; mctx.lineWidth = 3 / k;
     mctx.beginPath(); mctx.arc((searchArea.x - tx) * MAPPPM, (searchArea.z - tz) * MAPPPM, searchArea.r * MAPPPM, 0, TAU); mctx.fill(); mctx.stroke();
@@ -1461,7 +1469,7 @@ function drawMinimap() {
     if (L > R - 14) { sx *= (R - 14) / L; sz *= (R - 14) / L; }
     mctx.fillStyle = '#000'; mctx.beginPath(); mctx.arc(R + sx, R + sz, 10, 0, TAU); mctx.fill();
     mctx.fillStyle = '#c3a6ff'; mctx.beginPath(); mctx.arc(R + sx, R + sz, 7, 0, TAU); mctx.fill();
-    if (Math.hypot(WAYPOINT.x - player.x, WAYPOINT.z - player.z) < 25) { toast(`You've arrived: ${WAYPOINT.name}`); WAYPOINT = null; }
+    if (Math.hypot(WAYPOINT.x - player.x, WAYPOINT.z - player.z) < 25) { toast(`You've arrived: ${WAYPOINT.name}`); WAYPOINT = null; clearGPS(); }
   }
   const nx = Math.cos(theta - Math.PI / 2) * (R - 18), nz = Math.sin(theta - Math.PI / 2) * (R - 18);
   mctx.fillStyle = '#0b1216'; mctx.beginPath(); mctx.arc(R + nx, R + nz, 15, 0, TAU); mctx.fill();
@@ -1524,6 +1532,7 @@ function drawBigMap() {
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
+  strokeGPS(x, (wx, wz) => [wx, wz], 4 / S);
   if (WAYPOINT) { // a pin with the place's name
     const px = WAYPOINT.x, pz = WAYPOINT.z, u = 1 / S;
     x.fillStyle = '#c3a6ff'; x.strokeStyle = '#000'; x.lineWidth = 2.5 * u;
@@ -1575,7 +1584,7 @@ function goToPlace(e) {
   MAPV.cx = e[2]; MAPV.cz = e[3]; MAPV.zoom = e[1] === 7 ? 4 : 10;
   $('mapres').innerHTML = ''; $('mapq').blur(); drawBigMap();
   const d = Math.hypot(e[2] - player.x, e[3] - player.z);
-  toast(`Waypoint: ${e[0]} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away`);
+  GPS.t = 0; toast(`Waypoint: ${e[0]} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away · follow the yellow line · X to cancel`);
 }
 function initBigMap() {
   const c = $('bigc'); let drag = null;
@@ -1591,7 +1600,7 @@ function initBigMap() {
   $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
   $('zin').addEventListener('click', () => zoomMap(1.6)); $('zout').addEventListener('click', () => zoomMap(1 / 1.6));
   $('zme').addEventListener('click', () => { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); });
-  $('zclear').addEventListener('click', () => { WAYPOINT = null; drawBigMap(); });
+  $('zclear').addEventListener('click', () => { cancelDestination(); drawBigMap(); });
 }
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
@@ -1708,6 +1717,7 @@ window.addEventListener('wheel', (e) => { if (started && !paused && !uiOpen && p
 window.addEventListener('mousemove', (e) => {
   if (!started || paused || uiOpen) return;
   if (!mouse.locked && !mouse.dragging) return;
+  if (player.state === 'plane') { PLANE_MOUSE.y = clamp(PLANE_MOUSE.y - e.movementY * 0.02, -1, 1); camYaw -= e.movementX * 0.0012; return; } // the mouse flies the nose
   camYaw -= e.movementX * 0.0024; camPitch = clamp(camPitch + e.movementY * 0.0022, -0.35, 1.25);
   mouse.last = elapsed;
 });
@@ -1720,7 +1730,12 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[code] = true;
   if (!started) return;
-  if (uiOpen) { if (code === 'Escape' || code === 'KeyF' || code === 'Enter' || code === 'KeyB') { if (!$('shop').hidden) closeShop(); else if (!$('bag').hidden) closeBag(); else closeWardrobe(); } return; }
+  if (uiOpen) {
+    if (PHONE.open) { if (code === 'Escape' || code === 'KeyP') closePhone(); return; }
+    if (!$('casino').hidden) { if (code === 'Escape') closeCasino(); return; }
+    if (code === 'Escape' || code === 'KeyF' || code === 'Enter' || code === 'KeyB') { if (!$('shop').hidden) closeShop(); else if (!$('bag').hidden) closeBag(); else closeWardrobe(); }
+    return;
+  }
   if (code === 'Escape' && !mouse.locked) { if (bigMapOpen) toggleMap(); else setPaused(!paused); return; }
   if (paused) return;
   if (code === 'KeyF' || code === 'KeyE') useKey();
@@ -1732,6 +1747,8 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyC') camIdx = (camIdx + 1) % CAM_CAR.length;
   if (code === 'KeyM') toggleMap();
   if (code === 'KeyG') surrender();
+  if (code === 'KeyX') cancelDestination();
+  if (code === 'KeyP') openPhone();
   if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
 });
@@ -1838,7 +1855,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt);
+  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
@@ -1887,7 +1904,7 @@ async function boot() {
     buildTrees(); buildStreetLights(); buildLandmarks();
     say('Putting up 500 shop and street signs…'); await nextFrame();
     buildDetails();
-    buildShops(); initShopUI(); initMiniGameUI();
+    buildShops(); initShopUI(); initMiniGameUI(); initCasinoUI();
     say('Loading the Gold Coast around Surfers…'); await loadRegion();
     finishGrid();
     scene.traverse((o) => { const m = o.material; if (m && m.isMeshStandardMaterial && m.envMapIntensity === 1) m.envMapIntensity = 0.3; });

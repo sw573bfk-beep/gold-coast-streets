@@ -13,6 +13,8 @@ const ITEMS = {
   toastie: { name: 'Ham & cheese toastie', price: 11, heal: 30 }, bananabread: { name: 'Banana bread', price: 6, heal: 15 }, croissant: { name: 'Croissant', price: 5, heal: 14 },
   brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
   sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
+  entry: { name: 'Club entry — dance till late (+energy, time flies)', price: 20, club: true },
+  sixpack: { name: 'Six-pack (for later)', price: 22, keep: true }, ice: { name: 'Bag of ice', price: 4, heal: 3 },
   respray: { name: 'Respray your car (loses 1–2 star wanted levels)', price: 150, respray: true },
   room: { name: 'Book a room for the night (becomes your home)', price: 80, room: true },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
@@ -43,6 +45,12 @@ function shopKind(cat, name, type) {
   if (type === 'car' || /car sales|motors\b|dealership|toyota|mazda|hyundai|\bkia\b|nissan|mitsubishi|subaru|volkswagen|isuzu|lexus|mercedes|bmw|audi\b/.test(n) && cat !== 0 && cat !== 1) return 'cars';
   if (/\bgym\b|fitness|anytime|f45|crossfit|jetts|goodlife|snap fitness|plus fitness/.test(n)) return 'gym';
   if (type === 'supermarket') return 'convenience';
+  if (type === 'casino' || /casino|the star\b|jupiters/.test(n)) return 'casino';
+  if (type === 'stripclub' || /strip club|gentlemen|showgirls|bada bing|men's club/.test(n)) return 'stripclub';
+  if (type === 'erotic' || /adult|erotic|club x|sexyland|love shop|adult world/.test(n)) return 'adult';
+  if (type === 'e-cigarette' || type === 'tobacco' || /vape|vapour|tobacco|smoke shop|smokemart/.test(n)) return 'vape';
+  if (type === 'alcohol' || /\bbws\b|dan murphy|liquorland|bottle-o|bottle shop|thirsty camel|first choice liquor|cellarbrations/.test(n)) return 'bottle';
+  if (type === 'nightclub' || /nightclub|night club/.test(n)) return 'club';
   if (cat === 8) return 'bank';
   if (cat === 9) return 'fuel';
   if (/ripley/.test(n) && !/cargo/.test(n)) return 'ripley';
@@ -88,6 +96,8 @@ function menuFor(shop) {
     case 'arcade': return ['crocWhack', 'waveRider', 'stacker', 'prize', 'soda'];
     case 'escape': return ['escapeRoom', 'soda'];
     case 'hotel': return ['room', 'rest', 'soda'];
+    case 'club': return ['entry', 'mocktail', 'energy', 'soda'];
+    case 'bottle': return ['sixpack', 'ice', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
     case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit'];
@@ -300,6 +310,9 @@ function serviceSpot() {
 let openShopRef = null;
 function openShop(sh) {
   if (sh.kind === 'cars') return openDealer(sh);
+  if (sh.kind === 'casino') return openCasino('blackjack');
+  if (sh.kind === 'vape' || sh.kind === 'adult') { toast(`"ID please." — ${sh.name} is 18+ only, so they won't serve you`); return; }
+  if (sh.kind === 'stripclub') { toast(`The bouncer at ${sh.name} shakes his head: "Members only, mate."`); return; }
   if (sh.kind === 'bank') return openBank(sh);
   if (sh.kind === 'gym') return openGym(sh);
   const list = sh.dealer ? ['pistol', 'smg', 'shotgun', 'ammoP', 'ammoS', 'ammoG'] : menuFor(sh);
@@ -332,6 +345,7 @@ function buy(id) {
   const it = ITEMS[id];
   if (!purchaseGuard(id)) return; // a rapid second click on the same item can't charge twice
   if (player.money < it.price) { toast(`Not enough money for ${it.name}`); return; }
+  if (it.club) { player.money -= it.price; player.effects.energy = Math.max(player.effects.energy, 60); gameHour = (gameHour + 3) % 24; toast('You danced for hours — full of energy'); sfxTone([392, 523, 659, 784], 0.4, 0.06, 'triangle'); return; }
   if (it.respray) { // a new colour: the police are looking for a different car
     const c = player.car || cars.filter((q) => (q.owned || q.kind === 'abandoned') && !q.dead && Math.hypot(q.x - player.x, q.z - player.z) < 25)[0];
     if (!c) { toast('Bring a car up to the pumps first'); return; }

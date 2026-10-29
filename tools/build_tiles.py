@@ -273,13 +273,13 @@ for w in graph_ways:
             sp = w['pts'][start:i + 1]
             if len(sp) >= 2 and w['ids'][start] != w['ids'][i]:
                 mid = sp[len(sp) // 2]
-                if not in_core(mid[0], mid[1], 40):
-                    tt = T(tkey(*mid))
-                    a, b = w['ids'][start], w['ids'][i]
-                    tt['nodes'][str(a)] = [round(sp[0][0], 1), round(sp[0][1], 1)]
-                    tt['nodes'][str(b)] = [round(sp[-1][0], 1), round(sp[-1][1], 1)]
-                    tt['edges'].append([a, b, 1 if w['oneway'] else 0, w['lanes'], name_idx(tt, w['name']), w['type'], round(w['width'], 1)] + flat(simplify(sp, 0.3)))
-                    n_edges += 1
+                # inside the Surfers core the hand-built network drives the traffic; these copies only join up the GPS
+                tt = T(tkey(*mid)); key = 'gpsedges' if in_core(mid[0], mid[1], 40) else 'edges'
+                a, b = w['ids'][start], w['ids'][i]
+                tt['nodes'][str(a)] = [round(sp[0][0], 1), round(sp[0][1], 1)]
+                tt['nodes'][str(b)] = [round(sp[-1][0], 1), round(sp[-1][1], 1)]
+                tt.setdefault(key, []).append([a, b, 1 if w['oneway'] else 0, w['lanes'], name_idx(tt, w['name']), w['type'], round(w['width'], 1)] + flat(simplify(sp, 0.3)))
+                n_edges += 1
             start = i
 print('roads done; graph edges', n_edges)
 
@@ -402,7 +402,8 @@ def cat_of(t):
     if s in ('clothes', 'shoes', 'boutique', 'department_store', 'sports', 'surf', 'swimwear', 'fashion_accessories'): return 'clothes'
     if a in ('restaurant', 'fast_food', 'ice_cream', 'food_court'): return 'food'
     if a == 'cafe': return 'cafe'
-    if a in ('bar', 'pub', 'nightclub', 'biergarten'): return 'night'
+    if a in ('bar', 'pub', 'nightclub', 'biergarten', 'stripclub'): return 'night'
+    if a == 'casino': return 'fun'
     if tr in ('hotel', 'motel', 'hostel', 'apartment', 'guest_house'): return 'hotel'
     if tr in ('attraction', 'museum', 'theme_park') or l in ('amusement_arcade', 'escape_game', 'bowling_alley') or a in ('cinema', 'theatre'): return 'fun'
     if s: return 'shop'

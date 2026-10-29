@@ -184,13 +184,14 @@ function updateRobbery(dt) {
   if (target) {
     if (robbing !== target) { robbing = target; target.robT = 0; addCrime(1, 'rob'); scareNear(target.kx, target.kz, 20); }
     robLost = 0;
-    const need = target.kind === 'bank' ? 10 : 4.5;
+    const need = target.kind === 'bank' ? heistNeed(target) : 4.5; // a hired hacker halves the vault time
     target.robT += dt;
     el.hidden = false;
     $('rob-text').textContent = target.kind === 'bank' ? `ROBBING ${target.name.toUpperCase()} — keep your aim on the teller` : `HOLD-UP AT ${target.name.toUpperCase()}`;
     $('rob-bar').style.width = Math.round(Math.min(1, target.robT / need) * 100) + '%';
     if (target.robT >= need) {
-      const cash = target.kind === 'bank' ? Math.round(rr(25, 60)) * 100 : Math.round(rr(15, 45)) * 10;
+      let cash = target.kind === 'bank' ? Math.round(rr(25, 60)) * 100 : Math.round(rr(15, 45)) * 10;
+      if (target.kind === 'bank') cash = heistRobDone(target, cash); // a planned heist pays out at the safehouse
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
       addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
       toast(`${target.kind === 'bank' ? 'Bank job done' : 'Cash register emptied'} · +$${cash} — get out of there!`); sfxTone([523, 659, 784], 0.4, 0.08, 'triangle');

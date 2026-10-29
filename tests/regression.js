@@ -287,6 +287,49 @@ window.runRegression = async () => {
     quiet(); player.stars = 2; player.money = 500; const c = new Car('police', null, player.x + 20, player.z, 0); c.kind = 'police'; cars.push(c);
     surrender(); const ok = player.stars === 0 && player.money === 350; c.remove(); expect(ok, `stars ${player.stars} money ${player.money}`); player.money = 100; return '$150 fine, stars cleared';
   });
+  // ---------------------------------------------------------------- V8: GPS, phone, casino, missions, planes
+  await test('GPS: the yellow route follows the roads to the destination', async () => {
+    quiet(); for (let k = 0; k < 400; k++) { stepWorld(1 / 60); if (k > 120 && !tileBusy && TILES.size >= 6) break; await new Promise((r) => setTimeout(r, 2)); }
+    const e = searchPlaces('surfers paradise state school')[0]; goToPlace(e); GPS.t = 0; updateGPS(0.016); const P = GPS.path;
+    let len = 0; for (let i = 1; i < P.length; i++) len += Math.hypot(P[i][0] - P[i - 1][0], P[i][1] - P[i - 1][1]);
+    const last = Math.hypot(P[P.length - 1][0] - P[P.length - 2][0], P[P.length - 1][1] - P[P.length - 2][1]);
+    expect(P.length > 20 && last < 200 && GPS.mesh, `${P.length} points, last leg ${last | 0} m`); cancelDestination(); expect(!WAYPOINT && !GPS.mesh, 'cancel failed');
+    return `${P.length} points, ${(len / 1000).toFixed(1)} km by road; X cancels`;
+  });
+  await test('phone: a taxi takes you to the destination for a fare', async () => {
+    quiet(); player.money = 200; const st = REGION.search.find((e) => e[1] === 0 && Math.hypot(e[2] - player.x, e[3] - player.z) > 500 && Math.hypot(e[2] - player.x, e[3] - player.z) < 900);
+    WAYPOINT = { name: st[0], x: st[2], z: st[3] }; const fare = taxiFare(); ECON.lastBuy = 0;
+    await taxi(); expect(Math.hypot(player.x - (WAYPOINT ? WAYPOINT.x : 0), player.z - (WAYPOINT ? WAYPOINT.z : 0)) < 120 && player.money === 200 - fare, `money ${player.money}`);
+    WAYPOINT = null; clearGPS(); return `fare $${fare}`;
+  });
+  await test('casino: blackjack pays 1:1 and 3:2, poker ranks hands right, slots charge the bet', () => {
+    player.money = 1000; CAS.bet = 100; const C = (r, s) => ({ r, s });
+    CAS.bj = { d: [C(0, '♠')], you: [C(9, '♠'), C(8, '♥')], dealer: [C(9, '♦'), C(5, '♣')], bet: 100, done: false }; bjStand(); // 19 vs dealer 15 + 2 = 17
+    expect(player.money === 1200, 'win paid ' + player.money);
+    CAS.bj = { d: [], you: [C(12, '♠'), C(11, '♥')], dealer: [C(9, '♦'), C(5, '♣')], bet: 100, done: false }; bjFinish(); expect(player.money === 1450, 'blackjack paid ' + player.money);
+    const royal = [C(12, '♠'), C(11, '♠'), C(10, '♠'), C(9, '♠'), C(8, '♠')], quads = [C(3, '♠'), C(3, '♥'), C(3, '♦'), C(3, '♣'), C(12, '♠')], two = [C(3, '♠'), C(3, '♥'), C(5, '♦'), C(5, '♣'), C(12, '♠')];
+    expect(rank5(royal) > rank5(quads) && rank5(quads) > rank5(two), 'hand ranking wrong');
+    player.money = 100; CAS.slotSpin = false; slotSpin(); expect(player.money === 0, 'slot bet not taken'); return 'blackjack 1:1 and 3:2 correct; royal flush > quads > two pair';
+  });
+  await test('missions: a bank heist with a hacker and driver pays your share at the safehouse', () => {
+    quiet(); player.money = 3000; HEIST.stage = 0; const bank = SHOPS.find((s) => s.kind === 'bank'); expect(bank, 'no bank loaded');
+    HEIST.stage = 1; HEIST.bank = bank; HEIST.crew = { hacker: true, driver: true }; HEIST.stage = 2;
+    expect(heistNeed(bank) === 5, 'hacker should halve the vault time'); const paidNow = heistRobDone(bank, 4000);
+    expect(paidNow === 0 && HEIST.stage === 3 && HEIST.take === 10000, 'take ' + HEIST.take); player.stars = 0; player.x = HEIST.safe.x; player.z = HEIST.safe.z; updateHeist();
+    expect(HEIST.stage === 0 && player.money === 3000 + 7000, 'paid ' + player.money); return '$10,000 take, $7,000 your share after a 30% crew cut';
+  });
+  await test('missions: a street race is won by reaching the finish in time', () => {
+    quiet(); player.money = 0; const e = searchPlaces('cavill')[0]; MISSION = { kind: 'race', title: 'Street race', t: 60, targets: [e], reward: 400 };
+    player.x = e[2]; player.z = e[3]; updateMissions(0.016); expect(!MISSION && player.money === 400, 'not won'); return 'race won, +$400';
+  });
+  await test('planes: a Cessna takes off from a straight road and climbs', async () => {
+    quiet(); const m1 = REGION.roads.find((r) => r[0] === RT.motorway && r.length > 12); expect(m1, 'no motorway on the map'); // the M1: long and straight
+    const mi = 1 + 2 * Math.floor((m1.length - 1) / 4); await goToTile(-27.9995 - m1[mi + 1] / 110574, 153.4235 + m1[mi] / (Math.cos(-27.9995 * Math.PI / 180) * 111320));
+    const ne = nearestEdge(player.x, player.z, (E) => E.type === RT.motorway && E.len > 300); expect(ne.e >= 0, 'no motorway loaded');
+    const E = EDGES[ne.e], P0 = edgePoint(E, 1, 5, {}); const p = new Plane('cessna', P0.x, P0.z, Math.atan2(P0.tx, P0.tz));
+    boardPlane(p); player.stars = 0; for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.v > p.sp.vr ? 1 : 0; p.input.r = 0; p.input.brake = 0; p.step(1 / 60); if (p.dead) break; }
+    const ok = !p.dead && !p.ground && p.alt > 50, msg = `alt ${p.alt | 0} m at ${Math.round(p.v * 3.6)} km/h`; leavePlane(true); p.remove(); expect(ok, msg); return msg;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

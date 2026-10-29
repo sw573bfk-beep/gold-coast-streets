@@ -74,7 +74,7 @@ function enterTower(E) {
   if (B.kind === 'mall') { TOWER.levelH = clamp((h - 0.3) / (floors + 1), 3.4, 5.5); TOWER.top = Math.max(TOWER.top, gy + (floors + 1) * TOWER.levelH); }
   buildTowerLevel(0);
   player.x = TOWER.exit.ix; player.z = TOWER.exit.iz; player.h = Math.atan2(-E.nx, -E.nz); camYaw = player.h;
-  toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : TOWER.kind === 'school' ? `${TOWER.name} — classrooms off the corridor` : `${TOWER.name} — lifts are in the middle (E)`);
+  if (TOWER.casino && TOWER.casino.length) toast(`${TOWER.name} — the casino floor is in the lobby: E at a table`); else toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : TOWER.kind === 'school' ? `${TOWER.name} — classrooms off the corridor` : `${TOWER.name} — lifts are in the middle (E)`);
 }
 function leaveTower() {
   const X = TOWER.exit; disposeTowerLevel(); TOWER = null;
@@ -88,7 +88,7 @@ function disposeTowerLevel() {
   for (const p of TOWER.people) disposePerson(p);
   for (const sh of TOWER.shops || []) { const k = SHOPS.indexOf(sh); if (k >= 0) SHOPS.splice(k, 1); }
   const gi = GRIDS.indexOf(TOWER.grid); if (gi >= 0) GRIDS.splice(gi, 1);
-  TOWER.mesh = null; TOWER.people = []; TOWER.shops = []; TOWER.loot = [];
+  TOWER.mesh = null; TOWER.people = []; TOWER.shops = []; TOWER.loot = []; TOWER.casino = null;
 }
 function levelY(k) {
   if (TOWER.kind === 'mall') return TOWER.base + k * TOWER.levelH; // levels shared out over the building's height (the roof is the car park)
@@ -188,6 +188,10 @@ function buildTowerLevel(k) {
       const P = makePerson({ shirt: '#f4f4f2', shorts: '#1f2a3a' }); const [qx, qz] = W(ru * 0.38, rv * 0.38); P.root.position.set(qx, y, qz); P.root.rotation.y = Math.atan2(X.ix - qx, X.iz - qz); scene.add(P.root); TOWER.people.push(P);
     }
     for (const s of [-1, 1]) { box(s * (u1 - u0) * 0.3, rv * 0.2, 2.2, 0.8, 0.9, col('#3b4a57')); box(s * (u1 - u0) * 0.38, rv * 0.5, 0.6, 1.6, 0.6, T_COLS.plant); }
+    if (/star|casino|jupiters/i.test(TOWER.name)) { // the casino floor: blackjack, poker and slot tables in the lobby
+      TOWER.casino = [];
+      [['blackjack', -0.22], ['poker', 0], ['slots', 0.22]].forEach(([g, f]) => { const t2 = box((u1 - u0) * f, -rv * 0.25, 2.6, 0.9, 1.6, col('#1f6b3a')); if (t2) TOWER.casino.push({ x: t2.x, z: t2.z, game: g }); });
+    }
   } else {
     const school = TOWER.kind === 'school';
     if (!school || TOWER.floors > 0) liftCore(); // schools: stairs only on blocks with an upper floor
@@ -356,6 +360,7 @@ function towerUse() {
   for (const L of TOWER.loot) if (!L.taken && Math.hypot(L.x - player.x, L.z - player.z) < 1.4) {
     L.taken = true; scene.remove(L.mesh); player.money += L.value; sfxTone([880, 1320], 0.12, 0.05); toast(`Took ${L.kind.name === 'cash' ? 'cash' : 'a ' + L.kind.name}: +$${L.value}`); saveGame(); return true;
   }
+  for (const C of TOWER.casino || []) if (TOWER.level === 0 && Math.hypot(C.x - player.x, C.z - player.z) < 2.4) { openCasino(C.game); return true; }
   for (const Lf of TOWER.lifts) if (Math.hypot(Lf.x - player.x, Lf.z - player.z) < 1.6) { openLift(); return true; }
   if (TOWER.level === 0 && Math.hypot(TOWER.exit.ix - player.x, TOWER.exit.iz - player.z) < 2.2) { leaveTower(); return true; }
   return false;
