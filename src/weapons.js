@@ -167,18 +167,23 @@ function copShoots(cop, dt) {
 }
 
 // ---------------------------------------------------------------- hold-ups (point a gun at a shopkeeper or bank teller)
-let robbing = null, robLost = 0;
+let robbing = null, robLost = 0, robHint = null;
+// cash in the till by kind of shop (a planned bank job pays far more at the safehouse)
+const TILL = { bank: [2500, 6000], bottle: [300, 800], fuel: [200, 550], jewellery: [600, 1500], casino: [800, 2000] };
+// hold-ups: walk up to the counter with a weapon out and point yourself (or your aim) at whoever's behind it
 function updateRobbery(dt) {
   const el = $('rob');
-  let target = null;
-  if (aiming && player.weapon !== 'fist' && player.state === 'foot') {
+  let target = null; robHint = null;
+  if (player.state === 'foot' && player.deadT === 0 && !uiOpen) {
     const v = new THREE.Vector3(); camera.getWorldDirection(v);
+    const hx = Math.sin(player.h), hz = Math.cos(player.h), armed = player.weapon !== 'fist';
     for (const sh of SHOPS) {
       if (!sh.keeper || elapsed - sh.robbedAt < 300) continue;
       const dx = sh.kx - player.x, dz = sh.kz - player.z, d = Math.hypot(dx, dz);
-      if (d > 9) continue;
-      const dot = (dx * v.x + dz * v.z) / (d * Math.hypot(v.x, v.z) || 1);
-      if (dot > 0.93) { target = sh; break; }
+      if (d > (aiming ? 9 : 6)) continue;
+      if (!armed) { if (d < 4.5) robHint = sh; continue; }
+      const look = (dx * v.x + dz * v.z) / (d * Math.hypot(v.x, v.z) || 1), face = (dx * hx + dz * hz) / (d || 1);
+      if ((aiming ? look > 0.9 : look > 0.6 || face > 0.6) && rayWalls(player.x, player.z, sh.kx, sh.kz, 1.5) >= 0.98) { target = sh; break; }
     }
   }
   if (target) {
@@ -187,10 +192,10 @@ function updateRobbery(dt) {
     const need = target.kind === 'bank' ? heistNeed(target) : 4.5; // a hired hacker halves the vault time
     target.robT += dt;
     el.hidden = false;
-    $('rob-text').textContent = target.kind === 'bank' ? `ROBBING ${target.name.toUpperCase()} — keep your aim on the teller` : `HOLD-UP AT ${target.name.toUpperCase()}`;
+    $('rob-text').textContent = target.kind === 'bank' ? `ROBBING ${target.name.toUpperCase()} — keep your gun on the teller` : `HOLD-UP AT ${target.name.toUpperCase()} — keep your weapon on them`;
     $('rob-bar').style.width = Math.round(Math.min(1, target.robT / need) * 100) + '%';
     if (target.robT >= need) {
-      let cash = target.kind === 'bank' ? Math.round(rr(25, 60)) * 100 : Math.round(rr(15, 45)) * 10;
+      const till = TILL[target.kind] || [150, 450]; let cash = Math.round(rr(till[0], till[1]) / 10) * 10;
       if (target.kind === 'bank') cash = heistRobDone(target, cash); // a planned heist pays out at the safehouse
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
       addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);

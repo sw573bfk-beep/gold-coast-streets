@@ -423,6 +423,37 @@ window.runRegression = async () => {
     phoneApp('home'); expect(document.querySelector('.pcard'), 'no active job card');
     HEIST.stage = 0; HEIST.crew = {}; closePhone(); return `${tiles.length} apps, heist planned`;
   });
+  // ---------------------------------------------------------------- V9.4: flying that makes sense, faster cars, hold-ups
+  await test('planes: A turns left, letting go levels out and holds height, power off glides in to land', async () => {
+    quiet(); const R = AIRPORT.rw; await goToTile(...toLL((R.x1 + R.x2) / 2, (R.z1 + R.z2) / 2));
+    const p = new Plane('cessna', R.x1 + R.ex * 30, R.z1 + R.ez * 30, R.h); boardPlane(p); player.stars = 0;
+    const run = (sec, inp) => { for (let k = 0; k < sec * 60 && !p.dead; k++) { Object.assign(p.input, inp); p.step(1 / 60); } };
+    run(12, { t: 1, p: 0, r: 0, brake: 0 }); run(10, { t: 1, p: 1, r: 0 }); run(4, { t: 0, p: 0, r: 0 });
+    const a0 = p.alt, h0 = p.h; run(4, { t: 0, p: 0, r: 1 }); const left = p.h > h0; run(5, { t: 0, p: 0, r: 0 });
+    const level = Math.abs(p.roll) < 0.1 && Math.abs(p.pitch) < 0.1 && Math.abs(p.alt - a0) < 30;
+    p.x = R.x1 + R.ex * 100; p.z = R.z1 + R.ez * 100; p.h = R.h; p.y = groundAt(p.x, p.z) + p.sp.gear + p.sp.fus / 2 + 50; p.v = 40; p.throttle = 0.15;
+    for (let k = 0; k < 60 * 40 && !p.dead && !(p.ground && p.v < 1); k++) { Object.assign(p.input, { t: 0, p: 0, r: 0, brake: p.ground ? 1 : 0 }); p.step(1 / 60); }
+    const landed = !p.dead && p.ground; leavePlane(true); p.remove();
+    expect(left, 'A did not turn left'); expect(level, 'did not level out'); expect(landed, 'glide landing failed'); return 'turns, levels, lands';
+  });
+  await test('cars: a sports car reaches about 200 km/h on a long straight', async () => {
+    quiet(); const c = new Car('sports', null, 0, 0, 0); c.setDriver('player'); let top = 0;
+    for (let k = 0; k < 60 * 25; k++) { c.input = { t: 1, b: 0, s: 0, hb: 0 }; c.stepTyres(1 / 60); c.x = 0; c.z = 0; top = Math.max(top, c.speed); }
+    c.remove(); expect(top * 3.6 > 190, `top ${Math.round(top * 3.6)} km/h`); return `${Math.round(top * 3.6)} km/h`;
+  });
+  await test('hold-ups: pull out a weapon at any shop counter and the till is yours', async () => {
+    quiet(); await goToTile(-28.0868, 153.4545);
+    for (let k = 0; k < 4; k++) { keeperT = 0; updateShops(0.1); }
+    let sh = SHOPS.filter((q) => q.cx !== undefined && q.kind !== 'bank').sort((a, b) => Math.hypot(a.cx - player.x, a.cz - player.z) - Math.hypot(b.cx - player.x, b.cz - player.z))[0];
+    player.x = sh.cx + 1; player.z = sh.cz + 1; keeperT = 0; updateShops(0.1); expect(sh.keeper, 'nobody behind the counter');
+    let px = null, pz = null; for (const d of [2.5, 3.5, 4.5]) for (let a = 0; a < 24 && px === null; a++) { const t = a * Math.PI / 12, x = sh.kx + Math.sin(t) * d, z = sh.kz + Math.cos(t) * d; if (!resolveCircle(x, z, 0.4) && rayWalls(x, z, sh.kx, sh.kz, 1.5) >= 0.98) { px = x; pz = z; } }
+    expect(px !== null, 'no clear spot at the counter'); player.x = px; player.z = pz; sh.robbedAt = -1e9;
+    const w0 = player.weapon; player.weapon = 'fist'; updateRobbery(0.1); const hinted = robHint === sh;
+    player.weapon = Object.keys(WEAPONS).find((w) => w !== 'fist'); const m0 = player.money;
+    for (let k = 0; k < 60 * 6; k++) { player.h = Math.atan2(sh.kx - player.x, sh.kz - player.z); updateRobbery(1 / 60); }
+    const got = player.money - m0; player.weapon = w0; quiet();
+    expect(hinted, 'no prompt to pull a weapon'); expect(got > 0, 'no cash'); return `${sh.name}: +$${got}`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

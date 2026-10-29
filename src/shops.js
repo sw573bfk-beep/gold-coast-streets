@@ -270,11 +270,12 @@ function updateShops(dt) {
   if (keeperT <= 0) {
     keeperT = 0.5;
     for (const sh of SHOPS) {
-      if (!sh.walkIn) continue;
+      if (!sh.walkIn && sh.cx === undefined) continue;
+      if (!sh.walkIn && sh.kx === undefined) { sh.kx = sh.cx; sh.kz = sh.cz; } // counter-only shops and servos: someone at the counter too
       const d = Math.abs(sh.kx - player.x) + Math.abs(sh.kz - player.z);
       if (d < 55 && !sh.keeper) {
         const P = makePerson(sh.kind === 'bank' ? { shirt: '#f2f2f2', shorts: '#1f2a3a' } : undefined);
-        P.root.position.set(sh.kx, groundAt(sh.kx, sh.kz), sh.kz); P.root.rotation.y = Math.atan2(-sh.ix, -sh.iz); scene.add(P.root);
+        P.root.position.set(sh.kx, groundAt(sh.kx, sh.kz), sh.kz); P.root.rotation.y = sh.walkIn ? Math.atan2(-sh.ix, -sh.iz) : Math.atan2(player.x - sh.kx, player.z - sh.kz); scene.add(P.root);
         sh.keeper = { m: P, t: rand() * 10 };
       } else if (d > 80 && sh.keeper) { disposePerson(sh.keeper.m); sh.keeper = null; }
     }

@@ -281,7 +281,7 @@ class Car {
     const mu = sp.mu * (sand ? 0.62 : 1);
     let Fdrive = 0, Fbrake = 0;
     // power-limited drive: big shove off the line, tapering through the 'gears'
-    if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 8 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
+    if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
     if (brk > 0) { if (vf > 0.5) Fbrake = brk * m * 10; else Fdrive = -brk * m * sp.accel * 0.6 * Math.max(0, 1 + vf / 13); }
     const share = sp.drive === 'rwd' ? 0 : sp.drive === 'fwd' ? 1 : 0.4;
     let Fxf = Fdrive * share, Fxr = Fdrive * (1 - share);
@@ -552,7 +552,7 @@ function driveAI(car, dt) {
     aiPoint(car, look, tmpA); tx = tmpA.x; tz = tmpA.z;
     aiPoint(car, look + 16, tmpB);
     const a1 = Math.abs(angDiff(car.h, Math.atan2(tx - car.x, tz - car.z))), a2 = Math.abs(angDiff(car.h, Math.atan2(tmpB.x - car.x, tmpB.z - car.z)));
-    vt = (chase ? Math.max(24, (ROAD_SPEED[E.type] || 9) * 2) : (ROAD_SPEED[E.type] || 9) * a.mul) * clamp(1 - Math.max(a1, a2 * 0.8) * 1.1, 0.28, 1);
+    vt = (chase ? Math.max(32, (ROAD_SPEED[E.type] || 9) * 2.7) : (ROAD_SPEED[E.type] || 9) * a.mul) * clamp(1 - Math.max(a1, a2 * 0.8) * 1.1, 0.28, 1);
     if (!chase) { const rl = redLightAhead(car); if (rl < Infinity) vt = Math.min(vt, Math.max(0, (rl - 7) * 0.8)); }
   }
   const ang = angDiff(car.h, Math.atan2(tx - car.x, tz - car.z));
@@ -1704,7 +1704,9 @@ function updateHUD(dt) {
   if (toastT > 0) { toastT -= dt; if (toastT <= 0) $('toast').style.opacity = 0; }
   let prompt = '';
   const spot = player.state === 'foot' && player.deadT === 0 ? serviceSpot() : null;
-  if (spot) prompt = spot.dealer ? `Press <b>F</b> to buy guns from ${spot.name}` : spot.kind === 'bank' ? `Aim a gun at the teller to rob ${spot.name}` : `Press <b>F</b> to buy at ${spot.name}`;
+  if (spot) prompt = spot.dealer ? `Press <b>F</b> to buy guns from ${spot.name}` : spot.kind === 'bank' ? `Pull out a gun (<b>1–4</b>) to rob ${spot.name}` : `Press <b>F</b> to buy at ${spot.name}`;
+  if (robHint && !spot) prompt = `Pull out a weapon (<b>1–4</b>) to rob ${robHint.name}`;
+  else if (robHint && spot && !spot.dealer && spot.kind !== 'bank') prompt += ' · or pull out a weapon to rob it';
   else if (player.state === 'foot' && player.deadT === 0) {
     const shop = nearShop();
     if (shop) prompt = `Press <b>F</b> to try on clothes at ${shop.name}`;
@@ -1792,7 +1794,7 @@ window.addEventListener('wheel', (e) => { if (started && !paused && !uiOpen && p
 window.addEventListener('mousemove', (e) => {
   if (!started || paused || uiOpen) return;
   if (!mouse.locked && !mouse.dragging) return;
-  if (player.state === 'plane') { PLANE_MOUSE.y = clamp(PLANE_MOUSE.y - e.movementY * 0.02, -1, 1); camYaw -= e.movementX * 0.0012; return; } // the mouse flies the nose
+  if (player.state === 'plane') { PLANE_MOUSE.y = clamp(PLANE_MOUSE.y - e.movementY * 0.02, -1, 1); PLANE_MOUSE.x = clamp(PLANE_MOUSE.x - e.movementX * 0.012, -1, 1); return; } // the mouse flies it: up climbs, sideways turns
   camYaw -= e.movementX * 0.0024; camPitch = clamp(camPitch + e.movementY * 0.0022, -0.35, 1.25);
   mouse.last = elapsed;
 });

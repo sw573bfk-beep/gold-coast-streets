@@ -93,8 +93,9 @@ const CAR_TYPES = {
 };
 CAR_TYPES.taxi = Object.assign({}, CAR_TYPES.sedan, { taxi: true });
 CAR_TYPES.police = Object.assign({}, CAR_TYPES.muscle, { police: true, accel: 11, max: 62, grip: 7.8, mu: 1.04 });
-// every car about 30% quicker on the road (top speed) with a punchier launch
-for (const t of Object.values(CAR_TYPES)) { t.max *= 1.3; t.accel *= 1.25; }
+// every car well up on real-world pace: about 80% higher top speed than the base specs and a much punchier launch
+// (30% in V8, another 40% in V9.4)
+for (const t of Object.values(CAR_TYPES)) { t.max *= 1.3 * 1.4; t.accel *= 1.25 * 1.4; }
 const CAR_COLORS = ['#f2f2f0', '#f2f2f0', '#c9ccd0', '#8d9399', '#2b2e33', '#1d3b6b', '#9c1f1f', '#e8e3d3', '#2f5d50', '#c96a1c', '#5a2f6b', '#d9b84a', '#3a7bbf', '#141414'];
 
 const glassMat = new THREE.MeshStandardMaterial({ color: col('#2b3d4a'), metalness: 0.6, roughness: 0.05, envMapIntensity: 1.0, transparent: true, opacity: 0.3, depthWrite: false, side: THREE.DoubleSide });
