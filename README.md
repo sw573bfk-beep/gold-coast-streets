@@ -12,6 +12,8 @@ A GTA-style open-world browser game set on the real Gold Coast, Queensland, buil
 
 ## Play
 
+**Play online:** https://sw573bfk-beep.github.io/gold-coast-streets/
+
 The game is a single page in `dist/`. The region tiles load over HTTP, so serve the folder rather than opening the file:
 
 ```bash

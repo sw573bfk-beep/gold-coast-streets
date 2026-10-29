@@ -2,6 +2,7 @@
 
 dist/gold-coast-streets.html  page body for publishing (the host adds the document skeleton)
 dist/index.html               full document for local testing
+docs/                         the public website (GitHub Pages): index.html plus the map tiles
 """
 import os
 
@@ -23,4 +24,15 @@ with open(os.path.join(ROOT, 'dist', 'index.html'), 'w', encoding='utf-8') as f:
 import shutil
 os.makedirs(os.path.join(ROOT, 'dist', 'tests'), exist_ok=True)
 shutil.copy(os.path.join(ROOT, 'tests', 'regression.js'), os.path.join(ROOT, 'dist', 'tests', 'regression.js'))  # local test page only; never published
+# the public site: the full page and every map tile (no tests)
+site = os.path.join(ROOT, 'docs')
+os.makedirs(os.path.join(site, 'tiles'), exist_ok=True)
+shutil.copy(os.path.join(ROOT, 'dist', 'index.html'), os.path.join(site, 'index.html'))
+open(os.path.join(site, '.nojekyll'), 'w').close()  # serve files as they are
+tiles = os.path.join(ROOT, 'dist', 'tiles')
+if os.path.isdir(tiles):
+    for name in os.listdir(os.path.join(site, 'tiles')):
+        if not os.path.exists(os.path.join(tiles, name)): os.remove(os.path.join(site, 'tiles', name))
+    for name in os.listdir(tiles):
+        shutil.copy(os.path.join(tiles, name), os.path.join(site, 'tiles', name))
 print('bundled', os.path.getsize(os.path.join(ROOT, 'dist', 'index.html')), 'bytes')
