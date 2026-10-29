@@ -162,6 +162,7 @@ class Car {
     if (this.driver === 'player') this.stepTyres(dt); else this.stepSimple(dt);
     this.x += this.vx * dt; this.z += this.vz * dt;
     this.spin += (this.vf / this.spec.wr) * dt;
+    hitBreakables(this);
     this.collideWorld();
     this.stepGround(dt);
     // the shallow edge of the water can be driven through, slowly; out where it's deep the engine floods and the car is lost
@@ -622,7 +623,7 @@ class Ped {
       if (resolveCircle(this.x, this.z, 0.3)) { this.x = hitRes.x; this.z = hitRes.z; this.vx *= -0.3; this.vz *= -0.3; }
       R.rotation.x = lerp(R.rotation.x, this.faceDown ? Math.PI / 2 : -Math.PI / 2, Math.min(1, dt * 7));
       R.rotation.y += this.spin * dt * (this.y > 0 ? 1 : 0);
-      R.position.set(this.x, groundAt(this.x, this.z) + this.y + 0.13, this.z);
+      R.position.set(this.x, this.feet() + this.y + 0.13, this.z);
       animatePerson(P, 0, 0);
       if (!this.hard && this.downT > this.downDur) { this.state = 'getup'; this.t = 0; this.h = R.rotation.y; }
       if (this.hard && this.downT > 16) this.gone = true;
@@ -631,7 +632,7 @@ class Ped {
     if (this.state === 'getup') {
       this.t += dt; const k = Math.min(1, this.t / 0.75);
       R.rotation.x = lerp(this.faceDown ? Math.PI / 2 : -Math.PI / 2, 0, k * k);
-      R.position.set(this.x, groundAt(this.x, this.z) + 0.13 * (1 - k), this.z);
+      R.position.set(this.x, this.feet() + 0.13 * (1 - k), this.z);
       animatePerson(P, 0, 0); P.legL.rotation.x = P.legR.rotation.x = -1.2 * (1 - k); P.armL.rotation.x = P.armR.rotation.x = -0.8 * (1 - k);
       if (k >= 1) { R.rotation.x = 0; if (this.cop) this.state = 'chase'; else if (this.brave && player.mode === 'foot') this.state = 'fight'; else this.scare(player.x, player.z, rr(4, 7)); }
       return;
@@ -640,7 +641,7 @@ class Ped {
       this.t -= dt; this.x += this.vx * dt; this.z += this.vz * dt; this.vx *= 0.9; this.vz *= 0.9;
       R.rotation.x = -0.3 * Math.sin(Math.max(0, this.t) / 0.45 * Math.PI);
       if (this.t <= 0) { R.rotation.x = 0; this.state = this.cop ? 'chase' : this.brave ? 'fight' : 'flee'; if (this.state === 'flee') this.scare(player.x, player.z, rr(4, 7)); }
-      R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.y = this.h;
+      R.position.set(this.x, this.feet() + 0, this.z); R.rotation.y = this.h;
       return;
     }
     if (this.cop) { this.updateCop(dt); return; }
@@ -659,12 +660,18 @@ class Ped {
         if (before > 0.17 && this.punchT <= 0.17 && d < 1.5 && player.state === 'foot') { damagePlayer(6); sfxNoise(0.08, 1800, 0.18); shake = Math.min(1, shake + 0.15); player.kx = dx / d * 1.5; player.kz = dz / d * 1.5; }
       }
     } else if (this.state === 'flee') {
-      this.flee -= dt; sp = 4.8; mx = this.fx; mz = this.fz;
-      if (this.flee <= 0) {
+      this.flee -= dt; sp = this.home ? 3.4 : 4.8; mx = this.fx; mz = this.fz;
+      if (this.home && this.calling > 0) { this.updateHome(dt); sp = 1.6; } // backing away with the phone out
+      if (this.flee <= 0 && this.home) this.state = 'walk';
+      else if (this.flee <= 0) {
         const ne = nearestEdge(this.x, this.z);
         if (ne.e >= 0) { this.e = ne.e; this.dir = rand() < 0.5 ? 1 : -1; this.s = this.dir > 0 ? ne.s : EDGES[ne.e].len - ne.s; }
         this.state = 'walk';
       }
+    } else if (this.home) {
+      const m = this.updateHome(dt); if (m === 0) return;
+      if (!m) { R.position.set(this.x, this.feet(), this.z); R.rotation.set(0, this.h, 0); return; }
+      [mx, mz] = m; sp = 0.9;
     } else {
       const E = EDGES[this.e];
       if (!E) { this.gone = true; return; }
@@ -690,7 +697,7 @@ class Ped {
     }
     this.move(mx, mz, sp, dt);
     if (this.punchT > 0) P.armR.rotation.x = -1.5 * Math.sin((1 - this.punchT / 0.35) * Math.PI);
-    R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.set(0, this.h, 0);
+    R.position.set(this.x, this.feet() + 0, this.z); R.rotation.set(0, this.h, 0);
   }
   updateCop(dt) {
     const R = this.m.root, P = this.m;
@@ -735,6 +742,30 @@ class Ped {
     }
     this.move(mx, mz, sp, dt);
     R.position.set(this.x, groundAt(this.x, this.z) + 0, this.z); R.rotation.set(0, this.h, 0);
+  }
+  feet() { return this.home && inRing(this.x, this.z, this.home.f) ? this.home.floorY : groundAt(this.x, this.z); }
+  // people at home: potter between rooms; a stranger inside makes them fight or run and phone the police
+  updateHome(dt) {
+    const H = this.home, dx = player.x - this.x, dz = player.z - this.z, d = Math.hypot(dx, dz);
+    const intruder = player.state === 'foot' && (houseAt(player.x, player.z) === H ? d < 9 : d < 4 && rayWalls(this.x, this.z, player.x, player.z, 1.5) >= 1);
+    if (intruder && !this.alerted) {
+      this.alerted = true; sfxNoise(0.3, 1400, 0.25);
+      if (this.brave) { this.state = 'fight'; toast('“Get out of my house!”'); return 0; }
+      this.scare(player.x, player.z, rr(2, 4)); if (!H.called) { this.calling = 3.5; toast('Someone inside is phoning the police — stop them!'); }
+    }
+    if (this.calling > 0) {
+      this.calling -= dt;
+      if (this.calling <= 0 && !H.called) { H.called = true; addCrime(1, 'breakin', true); toast('The resident called the cops!'); }
+    }
+    if (this.idle > 0) { this.idle -= dt; animatePerson(this.m, this.phase, 0); return null; }
+    if (!this.goal || Math.hypot(this.goal[0] - this.x, this.goal[1] - this.z) < 0.5) {
+      this.idle = rr(1.5, 6);
+      for (let k = 0; k < 12; k++) { const x = rr(H.x0, H.x1), z = rr(H.z0, H.z1); if (inRing(x, z, H.f)) { this.goal = [x, z]; break; } }
+      return null;
+    }
+    const gx = this.goal[0] - this.x, gz = this.goal[1] - this.z, gd = Math.hypot(gx, gz) || 1;
+    if (rand() < dt * 0.15) this.goal = null; // a wall in the way: pick somewhere else now and then
+    return [gx / gd, gz / gd];
   }
   remove() { disposePerson(this.m); const i = peds.indexOf(this); if (i >= 0) peds.splice(i, 1); }
 }
@@ -1386,7 +1417,7 @@ function updateSky(dt) {
   const top = C_NIGHT_TOP.clone().lerp(C_DAY_TOP, day).lerp(C_SET_TOP, dusk * 0.6);
   const hor = C_NIGHT_HOR.clone().lerp(C_DAY_HOR, day).lerp(C_SET_HOR, dusk * 0.85);
   skyU.top.value.copy(top); skyU.horizon.value.copy(hor); skyU.bottom.value.copy(hor).multiplyScalar(0.75);
-  skyU.sunDir.value.copy(sunDir);
+  skyU.sunDir.value.copy(sunDir); skyU.time.value = elapsed; skyU.cloud.value = 0.35 + 0.65 * day; TREE_WIND.value = elapsed;
   skyU.sunCol.value.set(dusk > 0.3 ? '#ffb070' : '#fff2d0').multiplyScalar(smooth(-0.08, 0.05, el));
   scene.fog.color.copy(hor);
   if (el > -0.04) { lightDir.copy(sunDir); sun.intensity = 2.2 * day; sun.color.set('#fff0d8').lerp(col('#ff9a50'), dusk * 0.8); }
@@ -1874,7 +1905,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

@@ -127,7 +127,7 @@ async function loadTile(i, j) {
     tileRoads(T, data); await tileYield(); if (!TILES.has(k)) return;
     const plan = planFronts(data);
     const segs = tileBuildings(T, data, plan.fronts); await tileYield(); if (!TILES.has(k)) return;
-    tileTrees(T, data); tileLamps(T, data, segs);
+    tileTrees(T, data, segs); tileLamps(T, data, segs);
     tileShops(T, data, segs, plan); tileFuel(T, data, segs);
     tileTowerNames(T, data); tileSignals(T, data, segs);
     tileHouses(T, data, segs);
@@ -143,6 +143,7 @@ async function loadTile(i, j) {
 function unloadTile(k) {
   const T = TILES.get(k); if (!T) return;
   TILES.delete(k);
+  for (let q = BREAKABLES.length - 1; q >= 0; q--) if (BREAKABLES[q].tile === k) BREAKABLES.splice(q, 1);
   for (const H of HOUSE_ACTIVE.slice()) if (H.tile === k) disposeHouseInterior(H);
   for (const m of T.meshes) scene.remove(m);
   for (const d of T.disposables) d.dispose();
@@ -383,7 +384,7 @@ function tileBuildings(T, data, fronts) {
 
 // ---------------------------------------------------------------- trees and street lights
 const LEAFY_GEO = (() => {
-  const ico = new THREE.IcosahedronGeometry(1, 1), ip = ico.attributes.position;
+  const ico = new THREE.DodecahedronGeometry(1, 0), ip = ico.attributes.position; // 36 triangles a crown: there are thousands
   for (let q = 0; q < ip.count; q++) { const x = ip.getX(q), y = ip.getY(q), z = ip.getZ(q), k = 0.88 + 0.24 * (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 0.5 + 0.5); ip.setXYZ(q, x * k, y * k, z * k); }
   ico.computeVertexNormals();
   const tr = new THREE.CylinderGeometry(0.12, 0.2, 1, 6); tr.translate(0, 0.5, 0);
@@ -391,7 +392,22 @@ const LEAFY_GEO = (() => {
 })();
 const TREE_MATS = { trunk: new THREE.MeshStandardMaterial({ color: col('#8b7a62'), roughness: 0.95, envMapIntensity: 0.3 }), crown: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide, envMapIntensity: 0.3 }),
   ltrunk: new THREE.MeshStandardMaterial({ color: col('#6b5844'), envMapIntensity: 0.3 }), leaf: new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true, envMapIntensity: 0.3 }) };
-const GREENS = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a'].map(col);
+// leaves and palm fronds sway in the sea breeze: each instance moves out of step, more at the top
+const TREE_WIND = { value: 0 };
+function addWind(mat, amt) {
+  mat.onBeforeCompile = (sh) => {
+    sh.uniforms.windT = TREE_WIND;
+    sh.vertexShader = sh.vertexShader.replace('#include <common>', '#include <common>\nuniform float windT;')
+      .replace('#include <begin_vertex>', `#include <begin_vertex>
+#ifdef USE_INSTANCING
+{ float ph = instanceMatrix[3].x * 0.37 + instanceMatrix[3].z * 0.23; float w = sin(windT * 1.3 + ph) * 0.6 + sin(windT * 2.9 + ph * 1.7) * 0.25;
+  transformed.x += w * ${amt.toFixed(3)} * max(position.y + 1.0, 0.0); transformed.z += w * ${(amt * 0.6).toFixed(3)} * max(position.y + 1.0, 0.0); }
+#endif`);
+  };
+  return mat;
+}
+addWind(TREE_MATS.leaf, 0.035); addWind(TREE_MATS.crown, 0.05);
+const GREENS = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a', '#6f7f4a', '#7d8b5a', '#46663a', '#5d7444'].map(col); // greens plus grey-green gums
 // a lighter palm crown for the suburbs (7 fronds x 4 segments instead of 11 x 7)
 const LIGHT_CROWN = (() => {
   const pos = [], colr = [], r = mulberry32(42);
@@ -410,29 +426,94 @@ const LIGHT_CROWN = (() => {
   const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3)); g.computeVertexNormals();
   return g;
 })();
-function tileTrees(T, data) {
+// extra trees the maps don't list: stands in parks and bush, and street trees along suburban verges
+function extraTrees(T, data, have) {
+  const r = mulberry32(T.i * 7349 + T.j * 1931), out = [], S = REGION.tile;
+  const used = new Set(), cell = (x, z) => Math.floor(x / 4) + ',' + Math.floor(z / 4);
+  for (const t of have) used.add(cell(t[0], t[1]));
+  const bcells = new Set(); // 4 m cells covered by a building (with a metre to spare)
+  for (const b of data.buildings) {
+    const f = b.slice(3); let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
+    for (let gx = Math.floor((x0 - 1) / 4); gx <= Math.floor((x1 + 1) / 4); gx++) for (let gz = Math.floor((z0 - 1) / 4); gz <= Math.floor((z1 + 1) / 4); gz++) bcells.add(gx + ',' + gz);
+  }
+  const ok = (x, z) => {
+    if (x < T.x0 || z < T.z0 || x >= T.x0 + S || z >= T.z0 + S) return false;
+    const c = cell(x, z); if (used.has(c) || bcells.has(c)) return false;
+    if (T.mask && T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] !== 1) return false;
+    if (onCarriageway(data.roads, x, z, 1.4)) return false;
+    used.add(c); return true;
+  };
+  const inRing = (x, z, f) => { let c = false; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) if ((f[i + 1] > z) !== (f[j + 1] > z) && x < ((f[j] - f[i]) * (z - f[i + 1])) / (f[j + 1] - f[i + 1]) + f[i]) c = !c; return c; };
+  // parks get a scattering, bush and scrub a dense stand
+  for (const [kind, per] of [['park', 260], ['grass', 420], ['wood', 55], ['scrub', 90]]) for (const poly of data.areas[kind] || []) {
+    const f = Array.isArray(poly[0]) ? poly[0] : poly; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
+    const n = Math.min(900, Math.round((x1 - x0) * (z1 - z0) / per));
+    for (let k = 0; k < n && out.length < 2400; k++) { const x = x0 + r() * (x1 - x0), z = z0 + r() * (z1 - z0); if (inRing(x, z, f) && ok(x, z)) out.push([x, z, r() < 0.12 ? 1 : 0]); }
+  }
+  // a tree or two in most yards
+  for (const b of data.buildings) {
+    if (b[2] !== 0 || out.length >= 4200) continue;
+    const f = b.slice(3); let cx = 0, cz = 0, rad = 0; const n = f.length / 2;
+    for (let q = 0; q < f.length; q += 2) { cx += f[q] / n; cz += f[q + 1] / n; }
+    for (let q = 0; q < f.length; q += 2) rad = Math.max(rad, Math.hypot(f[q] - cx, f[q + 1] - cz));
+    for (let k = 0, want = r() < 0.3 ? 0 : 1 + (r() < 0.45); k < want; k++) {
+      const a = r() * TAU, d = rad + 2 + r() * 5, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d;
+      if (ok(x, z)) out.push([x, z, r() < 0.3 ? 1 : 0]);
+    }
+  }
+  // street trees on the verges of residential streets, with gaps
+  for (const rd of data.roads) {
+    if (rd[0] !== 4 || rd[3]) continue;
+    const off = rd[1] / 2 + 2.2; let acc = r() * 12;
+    for (let i = 4; i < rd.length - 2; i += 2) {
+      const ax = rd[i], az = rd[i + 1], bx = rd[i + 2], bz = rd[i + 3], L = Math.hypot(bx - ax, bz - az) || 1;
+      for (; acc < L; acc += 10 + r() * 7) for (const side of [1, -1]) {
+        if (r() < 0.3 || out.length >= 5200) continue;
+        const t = acc / L, x = ax + (bx - ax) * t + (bz - az) / L * off * side, z = az + (bz - az) * t - (bx - ax) / L * off * side;
+        if (ok(x, z)) out.push([x, z, r() < 0.2 ? 1 : 0, 0, 1]); // street trees stay modest
+      }
+      acc -= L;
+    }
+  }
+  return out;
+}
+function tileTrees(T, data, segs) {
   // dark water in the aerial photo can pass for tree canopy: nothing grows where the tile is water
-  const trees = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
+  const mapped = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
+  const trees = mapped.concat(extraTrees(T, data, mapped));
   const palms = trees.filter((t) => t[2] === 1), leafy = trees.filter((t) => t[2] !== 1);
   const trunkG = palmGeometries()[0], crownG = LIGHT_CROWN, r = mulberry32(T.i * 31 + T.j * 17);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
   if (palms.length) {
     const tm = new THREE.InstancedMesh(trunkG, TREE_MATS.trunk, palms.length), cm = new THREE.InstancedMesh(crownG, TREE_MATS.crown, palms.length);
     palms.forEach(([x, z], k) => {
-      const H = 6 + r() * 6, a = r() * TAU, gy = groundAt(x, z); e.set(0, a, 0); q.setFromEuler(e);
+      const H = 3 + r() * r() * 11, a = r() * TAU, gy = groundAt(x, z); e.set(0, a, 0); q.setFromEuler(e); // mostly mid-height, a few towering ones
       m4.compose(v.set(x, gy, z), q, sc.set(1, H, 1)); tm.setMatrixAt(k, m4);
-      e.set(0, r() * TAU, 0); q.setFromEuler(e); const s = 0.85 + r() * 0.3;
+      e.set(0, r() * TAU, 0); q.setFromEuler(e); const s = 0.6 + r() * 0.6;
       m4.compose(v.set(x + Math.cos(a) * 0.9, gy + H, z - Math.sin(a) * 0.9), q, sc.set(s, s, s)); cm.setMatrixAt(k, m4);
     });
     tm.castShadow = cm.castShadow = true; T.meshes.push(tm, cm); T.disposables.push(tm, cm);
   }
   if (leafy.length) {
     const lt = new THREE.InstancedMesh(LEAFY_GEO.tr, TREE_MATS.ltrunk, leafy.length), lc = new THREE.InstancedMesh(LEAFY_GEO.ico, TREE_MATS.leaf, leafy.length);
-    leafy.forEach(([x, z, , crown], k) => { // crowns measured from the aerial photo carry their radius
-      const R = crown ? crown * (0.85 + r() * 0.2) : 1.8 + r() * 1.8, H = crown ? 1.6 + R * 0.7 + r() * 1.5 : 2.2 + r() * 2.6, gy = groundAt(x, z);
-      m4.compose(v.set(x, gy, z), q.identity(), sc.set(1, H, 1)); lt.setMatrixAt(k, m4);
-      e.set(r(), r() * TAU, 0); q.setFromEuler(e); m4.compose(v.set(x, gy + H + R * 0.55, z), q, sc.set(R, R * (0.7 + r() * 0.25), R)); lc.setMatrixAt(k, m4);
+    leafy.forEach(([x, z, , crown, street], k) => { // crowns measured from the aerial photo carry their radius
+      let R, H, tw = 1;
+      if (crown) { R = crown * (0.85 + r() * 0.25); H = 1.4 + R * (0.6 + r() * 0.5) + r() * 2.5; }
+      else { // a mix of sizes: shrubs, small trees, shade trees and the odd big gum
+        const k2 = r(), big = street ? 0.85 : 0.88;
+        if (k2 < 0.25) { R = 0.7 + r() * 0.6; H = 0.3 + r() * 0.6; tw = 0.5; }
+        else if (k2 < 0.6) { R = 1.4 + r() * 1.0; H = 1.5 + r() * 1.5; }
+        else if (k2 < big) { R = 2.5 + r() * 1.3; H = 3 + r() * 2.2; }
+        else { R = 4 + r() * 2.5; H = 6 + r() * 5; tw = 1.7; }
+      }
+      const gy = groundAt(x, z);
+      m4.compose(v.set(x, gy, z), q.identity(), sc.set(tw, H, tw)); lt.setMatrixAt(k, m4);
+      const tall = R > 3.8 && r() < 0.6 ? 1.25 : 0.7 + r() * 0.25; // gums: taller, open crowns
+      e.set(r(), r() * TAU, 0); q.setFromEuler(e); m4.compose(v.set(x, gy + H + R * 0.55 * tall, z), q, sc.set(R, R * tall, R)); lc.setMatrixAt(k, m4);
       lc.setColorAt(k, GREENS[Math.floor(r() * GREENS.length)]);
+      if (R > 3 && segs) segs.push(x - 0.3 * tw, z - 0.3 * tw, x + 0.3 * tw, z + 0.3 * tw, H); // big trunks stop cars
     });
     lt.castShadow = lc.castShadow = true; T.meshes.push(lt, lc); T.disposables.push(lt, lc);
   }
@@ -444,11 +525,12 @@ const LAMP_GEOS = (() => {
   return { pole, arm, head, metal: new THREE.MeshStandardMaterial({ color: col('#9aa1a6'), metalness: 0.6, roughness: 0.4, envMapIntensity: 0.3 }) };
 })();
 function tileLamps(T, data, segs) {
-  const L = data.lamps; if (!L.length) return;
+  const L = data.lamps.map(([x, z, a]) => { const p = besideRoad(data.roads, x, z); return p && [p[0], p[1], a]; }).filter(Boolean); if (!L.length) return;
   const ms = [new THREE.InstancedMesh(LAMP_GEOS.pole, LAMP_GEOS.metal, L.length), new THREE.InstancedMesh(LAMP_GEOS.arm, LAMP_GEOS.metal, L.length), new THREE.InstancedMesh(LAMP_GEOS.head, lampMat, L.length)];
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), one = new THREE.Vector3(1, 1, 1);
   L.forEach(([x, z, a], k) => { e.set(0, a, 0); q.setFromEuler(e); m4.compose(v.set(x, groundAt(x, z), z), q, one); for (const m of ms) m.setMatrixAt(k, m4); segs.push(x - 0.14, z - 0.14, x + 0.14, z + 0.14, 8); });
   ms[0].castShadow = true;
+  L.forEach(([x, z], k) => addBreakable(x, z, ms.map((m) => [m, k]), 8, 'lamp', T.k));
   for (const m of ms) { T.meshes.push(m); T.disposables.push(m); }
 }
 

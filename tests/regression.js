@@ -369,6 +369,43 @@ window.runRegression = async () => {
     for (const T of TILES.values()) for (const m of T.meshes) if (m.isInstancedMesh && m.material === TREE_MATS.leaf) { const e = m.instanceMatrix.array; for (let k = 0; k < m.count; k++) { n++; if (!isLand(e[k * 16 + 12], e[k * 16 + 14])) wet++; } }
     expect(n > 0, 'no trees loaded'); expect(wet <= n * 0.01, `${wet} of ${n} trees in water`); return `${n} trees, ${wet} in water`;
   });
+  // ---------------------------------------------------------------- V9.2: lamps, trees, residents, knock-overs
+  await test('no lamp post stands on a road', async () => {
+    let n = 0, bad = 0;
+    for (const T of TILES.values()) { const d = await (await fetch(`tiles/t_${T.i}_${T.j}.json`)).json(); for (const b of BREAKABLES) if (b.tile === T.k && b.kind === 'lamp') { n++; if (onCarriageway(d.roads, b.x, b.z, 0)) bad++; } }
+    for (const [x, z] of MAP.details.props.lamp) { n++; if (onCarriageway(MAP.roads, x, z, 0)) bad++; }
+    expect(n > 20, 'too few lamps'); expect(bad === 0, `${bad} of ${n} lamps on a road`); return `${n} lamps, none on a road`;
+  });
+  await test('suburbs get extra trees in a spread of sizes', async () => {
+    quiet(); await goToTile(-28.077, 153.392); const T = tileAt(player.x, player.z);
+    const lc = T.meshes.find((m) => m.isInstancedMesh && m.material === TREE_MATS.leaf); expect(lc, 'no trees');
+    const m4 = new THREE.Matrix4(), v = new THREE.Vector3(), q = new THREE.Quaternion(), sc = new THREE.Vector3(), rs = [];
+    for (let k = 0; k < lc.count; k++) { lc.getMatrixAt(k, m4); m4.decompose(v, q, sc); rs.push(sc.x); }
+    rs.sort((a, b) => a - b); const lo = rs[Math.floor(rs.length * 0.1)], hi = rs[Math.floor(rs.length * 0.9)];
+    expect(lc.count > 300, `${lc.count} trees`); expect(hi / lo > 2.5, `sizes ${lo.toFixed(1)}-${hi.toFixed(1)} m`);
+    return `${lc.count} leafy trees, crowns ${lo.toFixed(1)}-${hi.toFixed(1)} m`;
+  });
+  await test('houses have people home who phone the police on an intruder', async () => {
+    quiet(); await goToTile(-28.077, 153.392); const T = tileAt(player.x, player.z);
+    let H = null; for (let k = 0; k < 30 && !(H && H.inside && H.inside.residents.length); k++) {
+      if (H && H.inside) disposeHouseInterior(H); H = T.houses[k]; H.called = false; buildHouseInterior(H); HOUSE_ACTIVE.push(H);
+    }
+    expect(H.inside.residents.length, 'nobody home in 30 houses');
+    const p = H.inside.residents[0]; p.brave = false; player.x = p.x + 1; player.z = p.z; player.state = 'foot';
+    for (let k = 0; k < 60 * 5; k++) stepWorld(1 / 60);
+    const ok = H.called && player.stars >= 1; disposeHouseInterior(H); expect(ok, 'no call to the police'); quiet(); return `${H.doors.length} doors, residents called it in`;
+  });
+  await test('a fast car snaps a lamp post off and drives on', async () => {
+    quiet(); await goToTile(-28.077, 153.392);
+    const b = BREAKABLES.filter((q) => q.tile && !q.broken && q.kind === 'lamp').sort((a, c) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(c.x - player.x, c.z - player.z))[0];
+    let h = null; for (let a = 0; a < 16 && h === null; a++) { const t = a * Math.PI / 8, sx = b.x - Math.sin(t) * 8, sz = b.z - Math.cos(t) * 8; if (isLand(sx, sz) && rayWalls(sx, sz, b.x - Math.sin(t) * 0.8, b.z - Math.cos(t) * 0.8, 1) >= 1) h = t; }
+    expect(h !== null, 'no clear run-up');
+    const c = new Car('sedan', null, b.x - Math.sin(h) * 8, b.z - Math.cos(h) * 8, h); c.vx = Math.sin(h) * 15; c.vz = Math.cos(h) * 15; cars.push(c); c.setDriver('player'); player.car = c; player.state = 'car';
+    for (let k = 0; k < 60 * 2; k++) { c.input = { t: 1, b: 0, s: 0, hb: 0 }; c.step(1 / 60); c.sync(1 / 60); updateLoose(1 / 60); }
+    const past = Math.hypot(c.x - b.x, c.z - b.z) > 6, L = LOOSE[LOOSE.length - 1]; c.remove(); home();
+    expect(b.broken, 'post still standing'); expect(past, 'car stopped dead'); expect(L && L.ang > 1.2, 'post did not fall');
+    return 'post down, car through';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

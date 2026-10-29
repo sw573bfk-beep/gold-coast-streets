@@ -94,8 +94,12 @@ const nearRealBarrier = (T, x, z, r) => (T.barriers || []).some((b) => { for (le
 const DOOR_W = { front: 1.0, back: 0.9 }, DOOR_H = 2.1;
 // openings for tileBuildings: edge index -> [[t0, t1, lintel above the base]], and the door records
 function houseOpenings(data, bi, f, base) {
-  const d = data.bdoor && data.bdoor[bi]; if (!d) return null;
   const n = f.length / 2, cuts = new Map(), doors = [];
+  let d = data.bdoor && data.bdoor[bi];
+  if (!d || d[0] < 0) { // no street found when the map was built: the longest wall gets the front door, the one opposite the back
+    let q0 = -1, best = 0; for (let q = 0; q < n; q++) { const L = Math.hypot(f[(2 * q + 2) % (2 * n)] - f[2 * q], f[(2 * q + 3) % (2 * n)] - f[2 * q + 1]); if (L > best) { best = L; q0 = q; } }
+    d = [q0, n >= 4 ? (q0 + Math.floor(n / 2)) % n : -1];
+  }
   let floorY = -Infinity; for (let q = 0; q < n; q++) floorY = Math.max(floorY, groundAt(f[2 * q], f[2 * q + 1]));
   floorY += 0.12;
   ['front', 'back'].forEach((type, k) => {
@@ -282,12 +286,24 @@ function buildHouseInterior(H) {
     const m = new THREE.Mesh(LOOT_GEO, lootMat(L.kind.col)); m.scale.set(L.kind.w, L.kind.h, L.kind.w * 0.7); m.position.set(L.x, L.y + L.kind.h / 2, L.z); scene.add(m); L.mesh = m;
   }
   const grid = makeGrid(segs, H.x0, H.z0, H.x1, H.z1); GRIDS.push(grid);
-  H.inside = { mesh, geo, grid, loot, top };
+  // whoever's home: more of the household in at night
+  const residents = [], night = gameHour < 7 || gameHour > 19;
+  const want = H.called ? 0 : Math.max(0, [0, 1, 1, 2, 2, 2, 3, 4][Math.floor(r() * 8)] - (!night && r() < 0.4 ? 1 : 0));
+  for (let k = 0, tries = 0; k < want && tries < 40; tries++) {
+    const x = H.x0 + r() * (H.x1 - H.x0), z = H.z0 + r() * (H.z1 - H.z0);
+    if (!inRing(x, z, f) || resolveCircle(x, z, 0.4)) continue;
+    const p = new Ped(x, z, 0, 1, 0, 1); p.home = H; p.idle = r() * 4; p.h = r() * TAU; p.m.root.position.set(x, y0, z); peds.push(p); residents.push(p); k++;
+  }
+  H.inside = { mesh, geo, grid, loot, top, residents };
 }
 function disposeHouseInterior(H) {
   const I = H.inside; if (!I) return;
   scene.remove(I.mesh); I.geo.dispose(); I.mesh.material.dispose();
   for (const L of I.loot) if (L.mesh) scene.remove(L.mesh);
+  for (const p of I.residents || []) { // those still indoors go with the house; anyone who ran outside carries on down the street
+    if (inRing(p.x, p.z, H.f) || p.state === 'down') { p.remove(); continue; }
+    p.home = null; const ne = nearestEdge(p.x, p.z); if (ne.e >= 0) { p.e = ne.e; p.dir = 1; p.s = ne.s; } else p.gone = true;
+  }
   const gi = GRIDS.indexOf(I.grid); if (gi >= 0) GRIDS.splice(gi, 1);
   H.inside = null;
   const k = HOUSE_ACTIVE.indexOf(H); if (k >= 0) HOUSE_ACTIVE.splice(k, 1);

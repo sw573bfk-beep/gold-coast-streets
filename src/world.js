@@ -36,6 +36,9 @@ const MAJOR = new Set([RT.motorway, RT.trunk, RT.primary, RT.secondary, RT.terti
 const ROADS = MAP.roads.map((r) => ({ type: r[0], w: r[1], name: r[2] >= 0 ? MAP.names[r[2]] : null, bridge: !!r[3], p: r.slice(4) }));
 
 // ---------------------------------------------------------------- renderer + scene
+// colour grade: a touch more saturation and contrast before the filmic curve (ACES alone washes the coast out)
+THREE.ShaderChunk.tonemapping_pars_fragment = THREE.ShaderChunk.tonemapping_pars_fragment.replace('vec3 ACESFilmicToneMapping( vec3 color ) {',
+  'vec3 ACESFilmicToneMapping( vec3 color ) {\n\tfloat lum = dot( color, vec3( 0.2126, 0.7152, 0.0722 ) );\n\tcolor = max( mix( vec3( lum ), color, 1.18 ), 0.0 );\n\tcolor = pow( color, vec3( 1.06 ) ) * 1.04;');
 const renderer = new THREE.WebGLRenderer({ antialias: true, powerPreference: 'high-performance' });
 renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 1.5));
 renderer.setSize(window.innerWidth, window.innerHeight);
@@ -80,17 +83,26 @@ scene.add(sun, sun.target);
 // ---------------------------------------------------------------- sky dome
 const skyU = {
   top: { value: col('#3f8fd6') }, horizon: { value: col('#bfe3f2') }, bottom: { value: col('#8fb7c4') },
-  sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: col('#fff2d0') },
+  sunDir: { value: new THREE.Vector3(0, 1, 0) }, sunCol: { value: col('#fff2d0') }, time: { value: 0 }, cloud: { value: 1 },
 };
 const skyMat = new THREE.ShaderMaterial({
   uniforms: skyU, side: THREE.BackSide, depthWrite: false, fog: false,
   vertexShader: 'varying vec3 vDir; void main(){ vDir = position; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }',
-  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunCol; uniform vec3 sunDir; varying vec3 vDir;
+  fragmentShader: `uniform vec3 top; uniform vec3 horizon; uniform vec3 bottom; uniform vec3 sunCol; uniform vec3 sunDir; uniform float time; uniform float cloud; varying vec3 vDir;
+    float cH(vec2 p) { p = fract(p * vec2(0.1031, 0.1030)); p += dot(p, p.yx + 33.33); return fract((p.x + p.y) * p.x); }
+    float cN(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f); return mix(mix(cH(i), cH(i + vec2(1.0, 0.0)), f.x), mix(cH(i + vec2(0.0, 1.0)), cH(i + vec2(1.0, 1.0)), f.x), f.y); }
     void main(){
       vec3 d = normalize(vDir); float h = d.y;
       vec3 c = h > 0.0 ? mix(horizon, top, pow(h, 0.5)) : mix(horizon, bottom, clamp(-h * 6.0, 0.0, 1.0));
       float s = max(dot(d, normalize(sunDir)), 0.0);
       c += sunCol * (pow(s, 1200.0) * 8.0 + pow(s, 14.0) * 0.28);
+      if (h > 0.01) { // fair-weather cumulus drifting off the sea, thinning towards the horizon
+        vec2 uv = d.xz / (h + 0.12) * 1.6 + vec2(time * 0.006, time * 0.002);
+        float n = cN(uv) * 0.5 + cN(uv * 2.1) * 0.27 + cN(uv * 4.3) * 0.15 + cN(uv * 9.0) * 0.08;
+        float k = smoothstep(0.52, 0.78, n) * smoothstep(0.01, 0.2, h) * cloud;
+        vec3 lit = mix(horizon * 1.05, vec3(1.0), 0.75) * (0.75 + 0.35 * max(dot(normalize(sunDir), vec3(0.0, 1.0, 0.0)), 0.0)) + sunCol * pow(s, 6.0) * 0.4;
+        c = mix(c, mix(lit * 0.82, lit, smoothstep(0.55, 0.9, n)), k * 0.9);
+      }
       gl_FragColor = vec4(c, 1.0);
       #include <tonemapping_fragment>
       #include <encodings_fragment>
@@ -300,6 +312,30 @@ function maskAt(mask, x, z) {
 }
 const inCore = (x, z) => x >= MINX && x <= MAXX && z >= MINZ && z <= MAXZ;
 const isLand = (x, z) => (inCore(x, z) ? maskAt(landMask, x, z) === 1 : tileIsLand(x, z));
+// street furniture (lamp posts, poles) belongs beside the carriageway, never on it
+const CARRIAGEWAY = new Set([0, 1, 2, 3, 4, 5, 11, 12, 14]); // road types cars use, driveways and car-park lanes included
+function onCarriageway(roads, x, z, pad = 0.5) {
+  for (const r of roads) {
+    if (!CARRIAGEWAY.has(r[0])) continue;
+    const hw = r[1] / 2 + pad;
+    for (let i = 4; i < r.length - 2; i += 2) {
+      const ax = r[i], az = r[i + 1], ex = r[i + 2] - ax, ez = r[i + 3] - az;
+      if (Math.abs(x - ax) > 40 + Math.abs(ex) || Math.abs(z - az) > 40 + Math.abs(ez)) continue;
+      const L2 = ex * ex + ez * ez || 1, t = clamp(((x - ax) * ex + (z - az) * ez) / L2, 0, 1);
+      if (Math.hypot(x - ax - ex * t, z - az - ez * t) < hw) return true;
+    }
+  }
+  return false;
+}
+// the nearest spot just off the road, or null when there's no room (a lamp in the middle of an intersection)
+function besideRoad(roads, x, z) {
+  if (!onCarriageway(roads, x, z)) return [x, z];
+  for (const d of [1.5, 3, 4.5, 6]) for (let a = 0; a < 8; a++) {
+    const px = x + Math.cos(a * Math.PI / 4) * d, pz = z + Math.sin(a * Math.PI / 4) * d;
+    if (!onCarriageway(roads, px, pz)) return [px, pz];
+  }
+  return null;
+}
 
 // ---------------------------------------------------------------- collision grid (building walls, trunks, poles)
 const CELL = 16;
@@ -345,6 +381,56 @@ function forSegs(x0, z0, x1, z1, fn) {
       const c = G.cells.get(cellKey(i, j)); if (!c) continue;
       for (const id of c) if (G.stamp[id] !== st) { G.stamp[id] = st; fn(G.segs, id * 5); }
     }
+  }
+}
+// ---------------------------------------------------------------- street furniture a car can knock over
+// lamp posts and bins are instances in shared meshes; a hard hit hides the instance, drops its collision and
+// swaps in a loose copy that topples (posts) or tumbles away (bins)
+const BREAKABLES = [], LOOSE = [];
+const _bm = new THREE.Matrix4(), _bzero = new THREE.Matrix4().makeScale(0, 0, 0);
+function addBreakable(x, z, parts, h, kind, tile) { BREAKABLES.push({ x, z, parts, h, kind, tile, broken: false }); }
+// clear the small collision boxes (posts, bins) standing at a point
+function knockWalls(x, z, r) {
+  forSegs(x - r, z - r, x + r, z + r, (S, o) => {
+    if (Math.abs(S[o] - S[o + 2]) > 1.2 || Math.abs(S[o + 1] - S[o + 3]) > 1.2) return;
+    if (Math.hypot((S[o] + S[o + 2]) / 2 - x, (S[o + 1] + S[o + 3]) / 2 - z) > r) return;
+    S[o] = S[o + 2] = 1e7; S[o + 1] = S[o + 3] = 1e7;
+  });
+}
+// called for a fast car just before it resolves walls: anything in its path breaks instead of stopping it
+function hitBreakables(c) {
+  const sp = c.speed; if (sp < 7) return;
+  const fx = Math.sin(c.h), fz = Math.cos(c.h);
+  for (const b of BREAKABLES) {
+    if (b.broken || Math.abs(b.x - c.x) > 5 || Math.abs(b.z - c.z) > 5) continue;
+    if (!c.offs.some((s) => Math.hypot(c.x + fx * s - b.x, c.z + fz * s - b.z) < c.r + 0.35)) continue;
+    b.broken = true; knockWalls(b.x, b.z, 0.7);
+    const gy = groundAt(b.x, b.z), g = new THREE.Group(); g.position.set(b.x, gy, b.z);
+    for (const [m, k] of b.parts) {
+      m.getMatrixAt(k, _bm); const piece = new THREE.Mesh(m.geometry, m.material); piece.applyMatrix4(_bm); piece.position.x -= b.x; piece.position.y -= gy; piece.position.z -= b.z;
+      piece.castShadow = true; g.add(piece); m.setMatrixAt(k, _bzero); m.instanceMatrix.needsUpdate = true;
+    }
+    scene.add(g);
+    const ux = c.vx / sp, uz = c.vz / sp;
+    LOOSE.push({ g, kind: b.kind, axis: new THREE.Vector3(uz, 0, -ux), ang: 0, av: 1.5 + sp * 0.12, vx: c.vx * (b.kind === 'bin' ? 0.9 : 0.25), vz: c.vz * (b.kind === 'bin' ? 0.9 : 0.25), vy: b.kind === 'bin' ? 3 + sp * 0.15 : 0, y: 0, t: 0 });
+    c.vx *= b.kind === 'bin' ? 0.93 : 0.72; c.vz *= b.kind === 'bin' ? 0.93 : 0.72; c.health -= b.kind === 'bin' ? 1 : 5;
+    if (c === player.car) { shake = Math.min(1, shake + (b.kind === 'bin' ? 0.1 : 0.35)); sfxNoise(0.35, b.kind === 'bin' ? 900 : 300, 0.5); }
+  }
+}
+function updateLoose(dt) {
+  for (let q = LOOSE.length - 1; q >= 0; q--) {
+    const L = LOOSE[q]; L.t += dt;
+    if (L.kind === 'bin') { // thrown: flies, bounces, rolls to a stop
+      L.vy -= 20 * dt; L.y += L.vy * dt; L.ang += L.av * 3 * dt;
+      if (L.y < 0) { L.y = 0; L.vy = Math.abs(L.vy) > 1.5 ? -L.vy * 0.35 : 0; L.vx *= 0.7; L.vz *= 0.7; L.av *= 0.7; }
+    } else if (L.ang < Math.PI / 2) { // toppling: gravity speeds it up the further it leans
+      L.av += (2 + 9 * Math.sin(L.ang)) * dt; L.ang = Math.min(Math.PI / 2, L.ang + L.av * dt);
+      if (L.ang >= Math.PI / 2 && L.av > 1) { L.av = 0; sfxNoise(0.2, 500, 0.25); }
+    }
+    const fr = Math.exp(-(L.kind === 'bin' && L.y > 0 ? 0.2 : 2.5) * dt); L.vx *= fr; L.vz *= fr;
+    L.g.position.x += L.vx * dt; L.g.position.z += L.vz * dt; L.g.position.y = groundAt(L.g.position.x, L.g.position.z) + L.y;
+    L.g.quaternion.setFromAxisAngle(L.axis, L.ang);
+    if (L.t > 40) { scene.remove(L.g); LOOSE.splice(q, 1); }
   }
 }
 function querySegs(x0, z0, x1, z1) { // core grid only (kept for older callers)

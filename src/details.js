@@ -333,7 +333,8 @@ function buildProps() {
   instanced(bench, vc, D.props.bench, true, true);
   D.props.bench.forEach(([x, z]) => addBox(x, z, 0.4, 0.8));
   const bin = mergeGeos([paintGeo(new THREE.CylinderGeometry(0.3, 0.27, 0.95, 10).translate(0, 0.47, 0), '#2f5a3a'), paintGeo(new THREE.CylinderGeometry(0.32, 0.32, 0.08, 10).translate(0, 0.98, 0), '#c43a2a')]);
-  instanced(bin, vc, D.props.bin, false, true);
+  const binM = instanced(bin, vc, D.props.bin, false, true);
+  D.props.bin.forEach(([x, z], k) => addBreakable(x, z, [[binM, k]], 1, 'bin'));
   D.props.bin.forEach(([x, z]) => addBox(x, z, 0.3, 1));
   const shower = mergeGeos([paintGeo(new THREE.CylinderGeometry(0.05, 0.05, 2.4, 6).translate(0, 1.2, 0), '#c9ced2'), box(0.5, 0.05, 0.08, 0.22, 2.38, 0, '#c9ced2'), paintGeo(new THREE.CylinderGeometry(0.1, 0.06, 0.08, 8).translate(0.45, 2.32, 0), '#c9ced2'), box(0.9, 0.04, 0.9, 0, 0.02, 0, '#bdb6a8')]);
   instanced(shower, vc, D.props.shower, false, true);
@@ -341,10 +342,12 @@ function buildProps() {
   instanced(bubbler, vc, D.props.water, false, true);
   const shelter = mergeGeos([box(3.6, 0.08, 1.6, 0, 2.5, 0, '#e4e6e8'), box(3.6, 2.4, 0.04, 0, 1.25, -0.75, '#9fc4d4'), box(0.06, 2.5, 1.6, -1.78, 1.25, 0, '#5f6468'), box(0.06, 2.5, 1.6, 1.78, 1.25, 0, '#5f6468'), box(2.4, 0.06, 0.4, 0, 0.5, -0.5, '#5f6468'), box(0.5, 0.5, 0.05, 1.5, 2.15, 0.78, '#f2c200')]);
   const sm = instanced(shelter, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.2, transparent: true, opacity: 0.92 }), D.props.bus.map(([x, z]) => { const rd = roadNear(x, z, isDrive, 1); return rd ? [x + (x - rd.cx) / (rd.d || 1) * 1.2, z + (z - rd.cz) / (rd.d || 1) * 1.2] : [x, z]; }), true, true);
+  D.props.lamp = D.props.lamp.map(([x, z, ...rest]) => { const p = besideRoad(MAP.roads, x, z); return p && [p[0], p[1], ...rest]; }).filter(Boolean);
   const lampG = mergeGeos([paintGeo(new THREE.CylinderGeometry(0.06, 0.09, 5, 6).translate(0, 2.5, 0), '#55595d')]);
-  instanced(lampG, vc, D.props.lamp, false, true);
+  const poleM = instanced(lampG, vc, D.props.lamp, false, true);
   const globe = new THREE.SphereGeometry(0.25, 10, 8).translate(0, 5.1, 0);
-  instanced(globe, nightMat(new THREE.MeshStandardMaterial({ color: col('#f4efe2'), emissive: col('#ffd8a0'), emissiveIntensity: 0 }), 0, 3), D.props.lamp, false);
+  const globeM = instanced(globe, nightMat(new THREE.MeshStandardMaterial({ color: col('#f4efe2'), emissive: col('#ffd8a0'), emissiveIntensity: 0 }), 0, 3), D.props.lamp, false);
+  D.props.lamp.forEach(([x, z], k) => addBreakable(x, z, [[poleM, k], [globeM, k]], 5, 'lamp'));
   D.props.lamp.forEach(([x, z]) => addBox(x, z, 0.1, 5));
 }
 
