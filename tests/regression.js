@@ -210,6 +210,54 @@ window.runRegression = async () => {
     const em = REGION.search.find((e) => e[0] === 'Emmanuel College'); expect(em, 'Emmanuel College missing from the map');
     expect(typeof devTerrainText === 'function' && /TERRAIN/.test(devTerrainText()), 'no terrain readout'); return 'Emmanuel College found; terrain readout ok';
   });
+  // ---------------------------------------------------------------- the economy: jobs, cars, bank, hotels, safe purchases
+  const fakeShop = (name, kind, cat) => ({ id: 'test-' + name, name, kind, cat, x: player.x, z: player.z, cx: player.x, cz: player.z, dx: player.x, dz: player.z });
+  await test('economy: buying a café item takes money once and heals; two food shops have different menus', () => {
+    closeShop(); player.money = 100; player.health = 50; ECON.lastBuy = 0;
+    const a = fakeShop('Bakers Delight', 'cafe', 1), b = fakeShop('Zarraffas Coffee', 'cafe', 1), c = fakeShop('Grill\'d', 'food', 0);
+    const ma = menuFor(a), mb = menuFor(b), mc = menuFor(c); expect(ma.join() !== mb.join() && mb.join() !== mc.join(), 'menus identical');
+    openShop(a); buy(ma[0]); buy(ma[0]); // second click within 250 ms is ignored
+    const spent = 100 - player.money; expect(spent === ITEMS[ma[0]].price, 'charged ' + spent); expect(player.health > 50, 'no heal'); closeShop();
+    return `${a.name}: ${ma.map((i) => ITEMS[i].name).join(', ')} | ${b.name}: ${mb.slice(0, 3).map((i) => ITEMS[i].name).join(', ')}…`;
+  });
+  await test('economy: not enough money means no charge and nothing given', () => {
+    player.money = 3; ECON.lastBuy = 0; const before = JSON.stringify(player.items); buy('brekky');
+    expect(player.money === 3 && JSON.stringify(player.items) === before, 'charged or given'); return 'refused cleanly';
+  });
+  await test('jobs: a barista shift — make 5 orders and get paid', async () => {
+    ECON.shift = null; ECON.jobs = {}; player.money = 0; const sh = fakeShop('Test Café', 'cafe', 1);
+    startShift('barista', sh);
+    for (let n = 0; n < 5; n++) {
+      const want = $('shop-sub').textContent.split(':')[1].split('·')[0].split('+').map((t) => t.trim());
+      for (const w of want) { const row = [...document.querySelectorAll('#shop-body .srow')].find((r) => r.firstChild.textContent === w); ECON.lastBuy = 0; row.querySelector('button').click(); }
+      ECON.lastBuy = 0; [...document.querySelectorAll('#shop-body .srow')].pop().querySelector('button').click();
+    }
+    expect(!ECON.shift && jobState('barista').shifts === 1, 'shift not finished'); expect(player.money === 5 * 16, 'paid $' + player.money);
+    return `5/5 orders, paid $${player.money}`;
+  });
+  await test('jobs: a delivery shift — reach 3 addresses and get paid', async () => {
+    home(); ECON.shift = null; player.money = 0; startShift('delivery', fakeShop('Test Pizza', 'food', 0));
+    for (let n = 0; n < 3 && ECON.shift; n++) { const t = ECON.shift.target; expect(t, 'no address'); player.x = t.x; player.z = t.z; updateEconomy(0.016); }
+    expect(!ECON.shift && player.money > 3 * 22, 'paid $' + player.money); return `3 deliveries, paid $${player.money}`;
+  });
+  await test('cars: buy a car, it is parked outside, and you still own it after reloading', () => {
+    home(); ECON.garage = []; player.money = 20000; const sh = fakeShop('Southport Toyota', 'cars', 3);
+    openDealer(sh); ECON.lastBuy = 0; buyCar(sh, 'hatch');
+    expect(player.money === 20000 - CAR_PRICES.hatch && ECON.garage.length === 1, 'not bought'); expect(ECON.called && cars.includes(ECON.called), 'not delivered');
+    ECON.garage = []; loadGame(); expect(ECON.garage.length === 1 && ECON.garage[0].type === 'hatch', 'lost on reload');
+    ECON.called.remove(); ECON.called = null; return `hatchback for $${CAR_PRICES.hatch}, kept after reload`;
+  });
+  await test('clothes and money survive a reload', () => {
+    player.look.shirt = '#5a3d8a'; player.money = 4321; saveGame(); player.look.shirt = '#ffffff'; player.money = 0; loadGame();
+    expect(player.look.shirt === '#5a3d8a' && player.money === 4321, 'not restored'); return 'shirt and $4321 restored';
+  });
+  await test('hotels: booking a room heals you and makes it your home; the bank keeps savings', () => {
+    player.money = 500; player.health = 30; ECON.lastBuy = 0; const sh = fakeShop('Test Hotel', 'hotel', 4);
+    openShop(sh); buy('room'); expect(player.health === 100 && ECON.home && ECON.home.name === 'Test Hotel' && player.money === 420, 'room not booked');
+    openBank(fakeShop('Gold Coast Savings Bank', 'bank', 8)); [...document.querySelectorAll('#shop-body .srow')][1].querySelector('button').click();
+    expect(player.money === 0 && ECON.bank >= 420, 'deposit failed'); closeShop();
+    ECON.home = null; ECON.bank = 0; player.money = 100; saveGame(); return 'room booked, $420 deposited';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

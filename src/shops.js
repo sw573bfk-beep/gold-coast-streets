@@ -13,6 +13,7 @@ const ITEMS = {
   toastie: { name: 'Ham & cheese toastie', price: 11, heal: 30 }, bananabread: { name: 'Banana bread', price: 6, heal: 15 }, croissant: { name: 'Croissant', price: 5, heal: 14 },
   brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
   sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
+  room: { name: 'Book a room for the night (becomes your home)', price: 80, room: true },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
   pizza: { name: 'Pizza slice', price: 8, heal: 25 }, kebab: { name: 'Kebab', price: 13, heal: 40 }, sushi: { name: 'Sushi roll', price: 10, heal: 25 },
   taco: { name: 'Burrito', price: 14, heal: 40 }, chicken: { name: 'Fried chicken', price: 12, heal: 35 }, icecream: { name: 'Gelato', price: 7, heal: 15 },
@@ -36,8 +37,11 @@ const ITEMS = {
   ammoG: { name: 'Shotgun shells ×16', price: 60, ammoFor: 'shotgun', ammo: 16 },
 };
 // what a shop sells, from its type and name
-function shopKind(cat, name) {
+function shopKind(cat, name, type) {
   const n = name.toLowerCase();
+  if (type === 'car' || /car sales|motors\b|dealership|toyota|mazda|hyundai|\bkia\b|nissan|mitsubishi|subaru|volkswagen|isuzu|lexus|mercedes|bmw|audi\b/.test(n) && cat !== 0 && cat !== 1) return 'cars';
+  if (/\bgym\b|fitness|anytime|f45|crossfit|jetts|goodlife|snap fitness|plus fitness/.test(n)) return 'gym';
+  if (type === 'supermarket') return 'convenience';
   if (cat === 8) return 'bank';
   if (cat === 9) return 'fuel';
   if (/ripley/.test(n) && !/cargo/.test(n)) return 'ripley';
@@ -82,7 +86,7 @@ function menuFor(shop) {
     case 'ripley': return ['specs', 'spiral', 'cube', 'head', 'eye'];
     case 'arcade': return ['crocWhack', 'waveRider', 'stacker', 'prize', 'soda'];
     case 'escape': return ['escapeRoom', 'soda'];
-    case 'hotel': return ['rest', 'soda'];
+    case 'hotel': return ['room', 'rest', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
     case 'fuel': return ['repair', 'energy', 'soda', 'fries', 'medkit'];
@@ -294,6 +298,9 @@ function serviceSpot() {
 // ---------------------------------------------------------------- buy menu
 let openShopRef = null;
 function openShop(sh) {
+  if (sh.kind === 'cars') return openDealer(sh);
+  if (sh.kind === 'bank') return openBank(sh);
+  if (sh.kind === 'gym') return openGym(sh);
   const list = sh.dealer ? ['pistol', 'smg', 'shotgun', 'ammoP', 'ammoS', 'ammoG'] : menuFor(sh);
   if (!list.length) { toast(sh.kind === 'bank' ? "The teller isn't handing over cash for free…" : 'Nothing for sale here'); return; }
   uiOpen = true; openShopRef = sh;
@@ -316,12 +323,15 @@ function renderShop(list) {
     b.addEventListener('click', () => { buy(id); renderShop(list); });
     row.append(label, b); body.appendChild(row);
   }
+  if (openShopRef && !openShopRef.dealer) jobRowFor(openShopRef, body);
   $('shop-money').textContent = '$' + player.money;
 }
 function closeShop() { $('shop').hidden = true; uiOpen = false; openShopRef = null; saveGame(); lockPointer(); }
 function buy(id) {
   const it = ITEMS[id];
-  if (player.money < it.price) return;
+  if (!purchaseGuard(id)) return; // a rapid second click on the same item can't charge twice
+  if (player.money < it.price) { toast(`Not enough money for ${it.name}`); return; }
+  if (it.room) { if (openShopRef && bookRoom(openShopRef)) closeShop(); return; }
   if (it.outfit) { player.money -= it.price; closeShop(); openWardrobe({ name: 'Change rooms' }); return; }
   if (it.game) { player.money -= it.price; closeShop(); startMiniGame(it.game); return; }
   if (it.repair) {
@@ -357,13 +367,19 @@ function openBag() {
   const lines = [...weap, ...have.map(([id, n]) => `${ITEMS[id].name} ×${n}`)];
   if (!lines.length) lines.push('Empty. Shops on Cavill Mall have plenty to buy.');
   for (const l of lines) { const p = document.createElement('p'); p.textContent = l; body.appendChild(p); }
+  const info = document.createElement('p'); info.textContent = `Savings: $${ECON.bank.toLocaleString()} · fitness ${ECON.fitness}/10${ECON.home ? ' · home: ' + ECON.home.name : ''}`; body.appendChild(info);
+  ECON.garage.forEach((g, i) => { // your cars: bring one to the nearest road
+    const row = document.createElement('div'); row.className = 'srow'; const l = document.createElement('span'); l.textContent = `Your ${CAR_LABEL[g.type]}`;
+    const b = document.createElement('button'); b.type = 'button'; b.textContent = 'Bring it here'; b.addEventListener('click', () => { closeBag(); callCar(i); toast(`Your ${CAR_LABEL[g.type]} is on the nearest road`); });
+    row.append(l, b); body.appendChild(row);
+  });
 }
 function closeBag() { $('bag').hidden = true; uiOpen = false; lockPointer(); }
 function initShopUI() { $('shop-close').addEventListener('click', closeShop); $('bag-close').addEventListener('click', closeBag); }
 
 // ---------------------------------------------------------------- saving
 function saveGame() {
-  try { localStorage.setItem('gcs-save', JSON.stringify({ money: player.money, items: player.items, weapons: player.weapons, weapon: player.weapon, look: player.look })); } catch (e) { /* storage blocked */ }
+  try { localStorage.setItem('gcs-save', JSON.stringify(Object.assign({ money: player.money, items: player.items, weapons: player.weapons, weapon: player.weapon, look: player.look }, economySave()))); } catch (e) { /* storage blocked */ }
 }
 function loadGame() {
   try {
@@ -372,5 +388,7 @@ function loadGame() {
     Object.assign(player.items, s.items || {}); Object.assign(player.weapons, s.weapons || {});
     if (s.weapon && (s.weapon === 'fist' || player.weapons[s.weapon] !== undefined)) player.weapon = s.weapon;
     if (s.look) Object.assign(player.look, s.look);
+    economyLoad(s); // bank, owned cars, jobs, home, fitness (absent in older saves: defaults stay)
+    if (ECON.home) playerSpot = { x: ECON.home.x, z: ECON.home.z };
   } catch (e) { /* storage blocked */ }
 }

@@ -1195,7 +1195,7 @@ function updatePlayer(dt) {
   let mx = fx * kF + rxv * kR, mz = fz * kF + rzv * kR;
   const ml = Math.hypot(mx, mz);
   const sprint = (keys.ShiftLeft || keys.ShiftRight) && !aiming;
-  const sp = swim ? (sprint ? 2.6 : 1.7) : aiming ? 2.6 : sprint ? (player.effects.energy > 0 ? 9.2 : 7.6) : 4.4;
+  const sp = swim ? (sprint ? 2.6 : 1.7) : aiming ? 2.6 : sprint ? (player.effects.energy > 0 ? 9.2 : 7.6) * fitnessSpeed() : 4.4;
   if (ml > 0) { mx /= ml; mz /= ml; if (!aiming) player.h += angDiff(player.h, Math.atan2(mx, mz)) * Math.min(1, dt * 12); }
   if (aiming) player.h += angDiff(player.h, camYaw) * Math.min(1, dt * 18);
   player.x += mx * sp * dt + player.kx * dt; player.z += mz * sp * dt + player.kz * dt;
@@ -1765,7 +1765,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateTowers(dt);
+  updateTiles(dt); updateHouses(dt); updateTowers(dt); updateEconomy(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

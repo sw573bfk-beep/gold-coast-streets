@@ -463,7 +463,7 @@ function tileShops(T, data, segs, plan) {
   const slotW = 256, slotH = 48, cols = 4, rows = 21, atlases = [];
   let A = null, n = 0;
   const frame = col('#2a2d30'), poleSegs = [];
-  for (const [x, z, cat, name, id] of data.pois) {
+  for (const [x, z, cat, name, id, , type] of data.pois) {
     if (inCore(x, z)) continue;
     if (!A || n >= cols * rows) { const c = document.createElement('canvas'); c.width = 1024; c.height = 1024; A = { c, ctx: c.getContext('2d'), B: newBuf(), F: newBuf() }; atlases.push(A); n = 0; }
     const sx = (n % cols) * slotW, sy = Math.floor(n / cols) * slotH; n++;
@@ -482,7 +482,7 @@ function tileShops(T, data, segs, plan) {
       poleSegs.push([x, z]);
       shop = { x, z, cx: x + 1.2, cz: z };
     }
-    const sh = Object.assign(shop, { id, name, cat, kind: shopKind(cat, name), dx: shop.cx, dz: shop.cz, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9, tile: T.k });
+    const sh = Object.assign(shop, { id, name, cat, kind: shopKind(cat, name, type), dx: shop.cx, dz: shop.cz, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9, tile: T.k });
     if (pl) { // a real shopfront: doorway, glass, a room with a counter and someone behind it
       Object.assign(sh, { ax: pl.ax, az: pl.az, ex: pl.ex, ez: pl.ez, ix: pl.ix, iz: pl.iz, t0: pl.t0, t1: pl.t1, depth: pl.depth, walkIn: true });
       buildInterior(IB, IG, boards, sh, (ax, az, bx, bz, h) => segs.push(ax, az, bx, bz, h));

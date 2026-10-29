@@ -95,6 +95,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #dev b { color: var(--surf); letter-spacing: .1em; }
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
 #menu { overflow-y: auto; align-items: safe center; }
+#jobhud { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,14,18,.85); color: #fff; font: 600 18px var(--hud); padding: 6px 14px; border-radius: 8px; border: 2px solid var(--gold); pointer-events: none; }
 #setup { display: grid; gap: 8px; margin: -8px 0 20px; }
 .pick { display: flex; align-items: center; gap: 12px; flex-wrap: wrap; }
 .pick > span { min-width: 74px; font: 700 17px var(--hud); color: var(--gold); letter-spacing: .04em; }
@@ -180,6 +181,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <div id="wardrobe-body"></div>
   <button id="wardrobe-done" type="button">Done</button>
 </div>
+<div id="jobhud" hidden></div>
 <div id="bigmap" hidden>
   <canvas id="bigc"></canvas>
   <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
