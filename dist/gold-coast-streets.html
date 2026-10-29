@@ -4446,7 +4446,9 @@ const LIGHT_CROWN = (() => {
   return g;
 })();
 function tileTrees(T, data) {
-  const palms = data.trees.filter((t) => t[2] === 1), leafy = data.trees.filter((t) => t[2] !== 1);
+  // dark water in the aerial photo can pass for tree canopy: nothing grows where the tile is water
+  const trees = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
+  const palms = trees.filter((t) => t[2] === 1), leafy = trees.filter((t) => t[2] !== 1);
   const trunkG = palmGeometries()[0], crownG = LIGHT_CROWN, r = mulberry32(T.i * 31 + T.j * 17);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
   if (palms.length) {
@@ -5782,6 +5784,13 @@ function updateAudio(dt) {
 }
 
 // ---------------------------------------------------------------- cars
+// how deep the water is: none on land, then about a metre for every 9 m out from the nearest shore
+const WATER_SINK = 1.1; // metres: deeper than this floods a car
+function waterDepth(x, z) {
+  if (isLand(x, z)) return 0;
+  for (let r = 2; r <= 12; r += 2) for (let a = 0; a < 8; a++) if (isLand(x + Math.cos(a * TAU / 8) * r, z + Math.sin(a * TAU / 8) * r)) return r / 9;
+  return 2;
+}
 class Car {
   constructor(type, color, x, z, h) {
     this.type = type; this.spec = CAR_TYPES[type];
@@ -5803,7 +5812,14 @@ class Car {
     this.spin += (this.vf / this.spec.wr) * dt;
     this.collideWorld();
     this.stepGround(dt);
-    if (this.sink === 0 && !isLand(this.x, this.z)) { this.sink = 0.001; if (this === player.car) toast('Splash! Swim back to shore'); sfxNoise(1.2, 900, 0.5); }
+    // the shallow edge of the water can be driven through, slowly; out where it's deep the engine floods and the car is lost
+    const wd = this.sink === 0 ? waterDepth(this.x, this.z) : 0;
+    if (wd > 0) {
+      const d = Math.exp(-wd * 2.4 * dt); this.vx *= d; this.vz *= d; this.y = -wd * 0.7;
+      if (!this.wet) { this.wet = true; sfxNoise(0.5, 900, 0.3); if (this === player.car) toast('Shallow water — any deeper and the car is gone'); }
+      if (rand() < dt * 25 * Math.min(1, this.speed / 5)) emit(this.x + rr(-1, 1), 0.1, this.z + rr(-1, 1), rr(-1.5, 1.5), 2.6, rr(-1.5, 1.5), 0.7, 0.35, 1.1, '#e8f4f8', 0.7);
+      if (wd >= WATER_SINK) { this.sink = 0.001; if (this === player.car) toast('Too deep! The car is swamped — swim back to shore'); sfxNoise(1.2, 900, 0.5); }
+    } else if (this.wet && this.sink === 0) { this.wet = false; this.y = 0; }
     if (this.sink > 0) {
       this.sink += dt; this.y = -Math.min(2.4, this.sink * 0.9); this.vx *= Math.exp(-2 * dt); this.vz *= Math.exp(-2 * dt);
       if (this.sink > 1.2 && this === player.car && player.state === 'car') bailOut();
@@ -7482,6 +7498,7 @@ async function goToSpawn(v) {
   for (let i = 0; i < 20; i++) spawnTraffic(30, 330, 'traffic');
   for (let i = 0; i < 24; i++) spawnPed(4, 140);
   updateCamera(0.016); toast(P[0]);
+  $('play').disabled = false; // the same button becomes Resume on the pause menu
 }
 window.addEventListener('resize', () => {
   renderer.setSize(window.innerWidth, window.innerHeight);

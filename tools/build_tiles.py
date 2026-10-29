@@ -549,13 +549,15 @@ def ground_raw(x, z):
     if h is None: return 0.0
     return max(0.0, h - GROUND_BASE) * core_fade(x, z)
 def tile_heights(ti, tj):
-    """101 x 101 heights for a tile, smoothed 3 x 3 over a one-sample apron so neighbouring tiles agree at the seam."""
+    """101 x 101 heights for a tile, lightly smoothed (1-2-1) over a one-sample apron so neighbouring tiles agree at the seam
+    and short steep streets keep their slope."""
     x0, z0 = ti * TILE, tj * TILE
     raw = [[ground_raw(x0 + (i - 1) * HSTEP, z0 + (j - 1) * HSTEP) for i in range(HN + 2)] for j in range(HN + 2)]
+    W3 = ((-1, 1), (0, 2), (1, 1))
     out = []
     for j in range(1, HN + 1):
         for i in range(1, HN + 1):
-            out.append(sum(raw[j + dj][i + di] for dj in (-1, 0, 1) for di in (-1, 0, 1)) / 9)
+            out.append(sum(raw[j + dj][i + di] * wj * wi for dj, wj in W3 for di, wi in W3) / 16)
     return out
 
 # roof colours: the median photo colour inside each footprint (leaves and shadow-black left out)
@@ -756,6 +758,7 @@ if HAVE_DEM or HAVE_AIR:
             mapped = [(t[0], t[1]) for t in tt['trees']]
             for x, z, r in crowns[:3000]:
                 if in_core(x, z) or near_road(x, z) or any(abs(x - a) < 4 and abs(z - b) < 4 for a, b in mapped[:400]): continue
+                if DEM and (DEM.value(*unproj(x, z)) or 0) < 0.5: continue  # dark water looks like canopy: nothing grows at sea level
                 tt['trees'].append([round(x, 1), round(z, 1), 0, round(r, 1)]); n_tree += 1
             tt['aerial'] = 1
     print('heights from LiDAR' if HAVE_DEM else '', '| roof colours', n_col, 'pools', n_pool, 'photo trees', n_tree)

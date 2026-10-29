@@ -347,6 +347,28 @@ window.runRegression = async () => {
     AIRPORT.nextAI = 0; updatePlanes(0.016); expect(PLANES.some((q) => q.ai), 'no airliner');
     return `${parked.length} parked, Cessna ${msg}, airliner rolling`;
   });
+  // ---------------------------------------------------------------- V9.1: water, pause menu, trees
+  await test('water: a car wades through the shallows and backs out, but deep water swamps it', async () => {
+    quiet(); await goToTile(-27.9663, 153.4176); // Broadwater Parklands: a park running straight into the water
+    let x = player.x - 200; const z = player.z; while (isLand(x, z) && x < player.x + 600) x += 1; expect(!isLand(x, z), 'no shore found');
+    const c = new Car('sedan', null, x + 3, z, Math.PI / 2); cars.push(c); c.setDriver('player'); player.car = c; player.state = 'car';
+    for (let k = 0; k < 60 * 4; k++) { c.input = { t: 0, b: 1, s: 0, hb: 0 }; c.step(1 / 60); c.sync(1 / 60); }
+    const backed = !c.dead && c.sink === 0 && c.x < x; c.remove();
+    const d = new Car('sedan', null, x - 15, z, Math.PI / 2); cars.push(d); d.setDriver('player'); player.car = d; player.state = 'car'; let maxIn = 0;
+    for (let k = 0; k < 60 * 8 && !d.dead; k++) { d.input = { t: 1, b: 0, s: 0, hb: 0 }; d.step(1 / 60); d.sync(1 / 60); if (d.sink === 0) maxIn = Math.max(maxIn, d.x - x); }
+    const lost = d.sink > 0, out = player.state === 'foot'; d.remove(); home();
+    expect(backed, 'stuck in the shallows'); expect(maxIn > 3, `swamped at the water's edge (${maxIn.toFixed(1)} m)`); expect(lost && out, 'deep water did not take the car');
+    return `drove ${maxIn.toFixed(1)} m in before it got too deep`;
+  });
+  await test('the pause menu can resume after choosing a start spot', async () => {
+    const sel = $('pick-spawn'), i = SPAWN_PLACES.findIndex((q) => /Coolangatta/.test(q[0])); await goToSpawn(String(i));
+    const ok = !$('play').disabled; home(); expect(ok, 'Resume button left disabled'); return 'Resume clickable';
+  });
+  await test('no trees stand in the water', () => {
+    let wet = 0, n = 0;
+    for (const T of TILES.values()) for (const m of T.meshes) if (m.isInstancedMesh && m.material === TREE_MATS.leaf) { const e = m.instanceMatrix.array; for (let k = 0; k < m.count; k++) { n++; if (!isLand(e[k * 16 + 12], e[k * 16 + 14])) wet++; } }
+    expect(n > 0, 'no trees loaded'); expect(wet <= n * 0.01, `${wet} of ${n} trees in water`); return `${n} trees, ${wet} in water`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

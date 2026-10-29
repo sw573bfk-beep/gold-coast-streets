@@ -411,7 +411,9 @@ const LIGHT_CROWN = (() => {
   return g;
 })();
 function tileTrees(T, data) {
-  const palms = data.trees.filter((t) => t[2] === 1), leafy = data.trees.filter((t) => t[2] !== 1);
+  // dark water in the aerial photo can pass for tree canopy: nothing grows where the tile is water
+  const trees = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
+  const palms = trees.filter((t) => t[2] === 1), leafy = trees.filter((t) => t[2] !== 1);
   const trunkG = palmGeometries()[0], crownG = LIGHT_CROWN, r = mulberry32(T.i * 31 + T.j * 17);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
   if (palms.length) {

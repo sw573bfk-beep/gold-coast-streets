@@ -1,6 +1,6 @@
 # Completion audit
 
-Generated 2026-10-29 by `tools/build_registry.py` from `data/locations.json`. Real-world verification and gameplay are counted separately; decorative buildings are not counted as destinations.
+Generated 2026-10-30 by `tools/build_registry.py` from `data/locations.json`. Real-world verification and gameplay are counted separately; decorative buildings are not counted as destinations.
 
 ## The map
 
@@ -8,7 +8,7 @@ Generated 2026-10-29 by `tools/build_registry.py` from `data/locations.json`. Re
 |---|---|
 | Buildings in streamed tiles | 131114 |
 | of which houses | 111439 |
-| Terrain tiles with LiDAR heights | 866 of 1206 |
+| Terrain tiles with LiDAR heights | 864 of 1206 |
 | Mapped fence / wall / hedge pieces (OSM) | 0 |
 
 ## Places by category
