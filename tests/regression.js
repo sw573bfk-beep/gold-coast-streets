@@ -93,6 +93,14 @@ window.runRegression = async () => {
     home(); [player.x, player.z] = ll(lat, lon);
     for (let k = 0; k < 600; k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 10)); if (k > 30 && !tileBusy && TILES.size >= need) break; }
   };
+  // teleport and wait until the tile under the point itself has streamed in
+  const goToTile = async (lat, lon) => {
+    home(); [player.x, player.z] = ll(lat, lon);
+    const key = Math.floor(player.x / REGION.tile) + ',' + Math.floor(player.z / REGION.tile);
+    const ready = () => TILES.has(key) && TILES.get(key).mask && !tileBusy; // a tile is listed while it is still fetching
+    for (let k = 0; k < 600 && !ready(); k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 10)); }
+    expect(ready(), 'tile ' + key + ' never loaded');
+  };
   await test('region index loaded and the world spans Southport to Burleigh', () => {
     expect(REGION && REGION.tiles.length > 150, 'no region'); expect(WORLD.z1 - WORLD.z0 > 18000 && WORLD.x1 - WORLD.x0 > 10000, 'world too small');
     return `${REGION.tiles.length} tiles, ${((WORLD.x1 - WORLD.x0) / 1000).toFixed(1)} x ${((WORLD.z1 - WORLD.z0) / 1000).toFixed(1)} km`;
@@ -115,7 +123,8 @@ window.runRegression = async () => {
   });
   await test('ocean is water, suburbs are land', async () => {
     await goTo(-28.0, 153.385, 2); expect(isLand(player.x, player.z), 'Benowa should be land');
-    const [sx, sz] = ll(-28.06, 153.466); expect(!isLand(sx, sz), 'the sea off Broadbeach should be water'); return 'ok';
+    await goToTile(-28.06, 153.466); const [sx, sz] = ll(-28.06, 153.466); expect(!isLand(sx, sz), 'the sea off Broadbeach should be water');
+    await goToTile(-27.965, 153.422); expect(!isLand(player.x, player.z), 'the Broadwater off Southport should be water'); return 'ok';
   });
   await test('petrol station repairs your car', async () => {
     const f = SHOPS.find((s) => s.kind === 'fuel') || (await goTo(-27.975, 153.405, 3), SHOPS.find((s) => s.kind === 'fuel'));
