@@ -590,7 +590,8 @@ def convex_hull(pts):
     return lo[:-1] + hi[:-1]
 def in_water_area(x, z, tt):
     if in_ocean(x, z): return True
-    for ring in tt['areas'].get('water', []):
+    for poly in tt['areas'].get('water', []):
+        ring = poly[0] if poly and isinstance(poly[0], list) else poly  # outer ring of a polygon with holes
         if pip((x, z), list(zip(ring[0::2], ring[1::2]))): return True
     return False
 def scan_photo(ti, tj, tt):

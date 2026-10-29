@@ -193,6 +193,13 @@ window.runRegression = async () => {
     player.x = (ax + bx) / 2 + nx; player.z = (az + bz) / 2 + nz; expect(towerUse() && TOWER && TOWER.kind === 'mall', 'not inside');
     const n = TOWER.shops.length, name = TOWER.name; leaveTower(); expect(n >= 4, 'only ' + n + ' shops'); return `${name}: ${n} shops`;
   });
+  await test('map search finds schools and streets and sets a waypoint', () => {
+    const schools = REGION.search.filter((e) => REGION.searchKinds[e[1]] === 'school').length;
+    expect(schools > 50, 'only ' + schools + ' schools');
+    const r = searchPlaces('cavill avenue'); expect(r.length && /cavill/i.test(r[0][0]), 'no Cavill Avenue');
+    const s2 = searchPlaces('robina state high'); expect(s2.length, 'no Robina State High'); goToPlace(s2[0]);
+    expect(WAYPOINT && WAYPOINT.name === s2[0][0], 'no waypoint'); WAYPOINT = null; return `${schools} schools; ${REGION.search.length} places`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');
