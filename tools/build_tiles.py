@@ -531,7 +531,11 @@ def roof_colour(f):
     if not got: return None
     keep = [c for c in got if not (c[1] > c[0] + 8 and c[1] > c[2] + 4) and sum(c) > 60] or got
     med = lambda k: sorted(c[k] for c in keep)[len(keep) // 2]
-    return (med(0), med(1), med(2))
+    r, g, b = med(0), med(1), med(2)
+    # aerial photos look through haze: restore some saturation and contrast so roofs read as they do from the street
+    l = 0.3 * r + 0.59 * g + 0.11 * b
+    fix = lambda v: max(0, min(255, round((l + (v - l) * 1.45 - 128) * 1.08 + 128)))
+    return (fix(r), fix(g), fix(b))
 WALLS_WARM = [(0xd8, 0xc3, 0xa5), (0xe8, 0xdc, 0xc6), (0xc9, 0x8a, 0x63), (0xb7, 0x70, 0x4f), (0xef, 0xe7, 0xda), (0xd9, 0xb8, 0x8f)]
 WALLS_COOL = [(0xf4, 0xf1, 0xea), (0xe6, 0xe6, 0xe2), (0xd9, 0xd3, 0xc7), (0xc8, 0xc8, 0xc4), (0xf0, 0xec, 0xe0), (0x9a, 0x9a, 0x96)]
 def wall_for(roof, rnd):
