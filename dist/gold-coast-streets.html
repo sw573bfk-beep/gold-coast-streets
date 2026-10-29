@@ -94,8 +94,18 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #dev { left: calc(18px + env(safe-area-inset-left, 0px)); top: calc(14px + env(safe-area-inset-top, 0px)); font: 600 14px/1.35 var(--hud); background: rgba(8,14,18,.82); padding: 8px 10px; border-left: 4px solid var(--surf); max-width: 360px; text-shadow: none; }
 #dev b { color: var(--surf); letter-spacing: .1em; }
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
-#bigmap canvas { max-width: 96vw; max-height: 92vh; }
-#bigmap p { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
+#bigmap canvas { position: fixed; inset: 0; cursor: grab; touch-action: none; }
+#mapsearch { position: fixed; top: 16px; left: 16px; width: min(380px, calc(100vw - 96px)); z-index: 2; }
+#mapq { width: 100%; box-sizing: border-box; font: 600 18px var(--hud); padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; outline: none; }
+#mapq:focus { border-color: var(--gold); }
+#mapres { list-style: none; margin: 6px 0 0; padding: 0; max-height: 60vh; overflow: auto; }
+#mapres li { background: rgba(8,14,18,.94); border-left: 5px solid #fff; margin-bottom: 4px; padding: 7px 12px; cursor: pointer; border-radius: 6px; }
+#mapres li:hover { background: rgba(40,52,60,.96); }
+#mapres b { display: block; font: 700 17px var(--hud); color: #fff; }
+#mapres span { font: 500 14px var(--hud); color: #a9b6bb; }
+#mapzoom { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
+#mapzoom button { width: 44px; height: 44px; font: 700 22px var(--hud); border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: var(--gold); cursor: pointer; }
+#bigmap p { position: fixed; z-index: 2; pointer-events: none; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
 #menu { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: radial-gradient(120% 90% at 70% 20%, rgba(255,140,80,.35), transparent 60%), linear-gradient(180deg, rgba(8,20,28,.55), rgba(8,14,18,.92)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .card { max-width: 680px; width: 100%; }
 .card h1 { font: 400 clamp(44px, 9vw, 92px)/.88 var(--display); margin: 0; color: var(--gold); text-shadow: 4px 4px 0 #000, 0 0 40px rgba(246,196,69,.35); letter-spacing: .01em; text-wrap: balance; }
@@ -162,7 +172,12 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <div id="wardrobe-body"></div>
   <button id="wardrobe-done" type="button">Done</button>
 </div>
-<div id="bigmap" hidden><canvas id="bigc"></canvas><p>Map of the Gold Coast · press M to close</p></div>
+<div id="bigmap" hidden>
+  <canvas id="bigc"></canvas>
+  <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
+  <div id="mapzoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zme" aria-label="Centre on me">◎</button><button type="button" id="zclear" aria-label="Clear waypoint">✕</button></div>
+  <p>Scroll or + − to zoom · drag to move · pick a result to set a waypoint · M to close</p>
+</div>
 <div id="menu">
   <div class="card">
     <h1>Gold Coast Streets</h1>
@@ -171,8 +186,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>W A S D</b> move / drive</div>
       <div><b>Mouse</b> look around</div>
       <div><b>Shift</b> sprint</div>
-      <div><b>Space</b> jump / handbrake drift</div>
-      <div><b>F</b> cars · shops · buy</div>
+      <div><b>Space</b> jump · climb fences · handbrake</div>
+      <div><b>F / E</b> cars · shops · houses · lifts</div>
       <div><b>Click / Q</b> punch · shoot</div>
       <div><b>Right-click</b> aim a gun</div>
       <div><b>1–4 · wheel</b> switch weapon</div>
@@ -186,7 +201,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
     </div>
     <button id="play" disabled>Loading…</button>
     <div id="load">Building Surfers Paradise…</div>
-    <div class="credit">Streets, shops and coastline © OpenStreetMap contributors (ODbL). Building outlines: Microsoft Global ML Building Footprints (ODbL).</div>
+    <div class="credit">Streets, shops and coastline © OpenStreetMap contributors (ODbL). Building outlines: Microsoft Global ML Building Footprints (ODbL). Ground heights (LiDAR, CC BY 3.0) and aerial photos for roof colours (CC BY 4.0) © State of Queensland.</div>
   </div>
 </div>
 <script src="https://cdn.jsdelivr.net/npm/three@0.149.0/build/three.min.js"></script>
@@ -5909,6 +5924,14 @@ function drawMinimap() {
   for (const p of peds) if (p.cop) dot(p.x, p.z, 5, '#6aa8ff');
   if (player.mode === 'foot') { for (const c of cars) if (!c.dead && Math.hypot(c.x - tx, c.z - tz) < 40 && c.kind !== 'police') dot(c.x, c.z, 3, 'rgba(255,255,255,0.55)'); }
   mctx.restore();
+  if (WAYPOINT) { // the waypoint, pinned to the rim when it's off the minimap
+    const dx = (WAYPOINT.x - tx) * zoomPx, dz = (WAYPOINT.z - tz) * zoomPx;
+    let sx = dx * Math.cos(theta) - dz * Math.sin(theta), sz = dx * Math.sin(theta) + dz * Math.cos(theta); const L = Math.hypot(sx, sz);
+    if (L > R - 14) { sx *= (R - 14) / L; sz *= (R - 14) / L; }
+    mctx.fillStyle = '#000'; mctx.beginPath(); mctx.arc(R + sx, R + sz, 10, 0, TAU); mctx.fill();
+    mctx.fillStyle = '#c3a6ff'; mctx.beginPath(); mctx.arc(R + sx, R + sz, 7, 0, TAU); mctx.fill();
+    if (Math.hypot(WAYPOINT.x - player.x, WAYPOINT.z - player.z) < 25) { toast(`You've arrived: ${WAYPOINT.name}`); WAYPOINT = null; }
+  }
   const nx = Math.cos(theta - Math.PI / 2) * (R - 18), nz = Math.sin(theta - Math.PI / 2) * (R - 18);
   mctx.fillStyle = '#0b1216'; mctx.beginPath(); mctx.arc(R + nx, R + nz, 15, 0, TAU); mctx.fill();
   mctx.fillStyle = '#f6c445'; mctx.font = '700 20px "Barlow Condensed", sans-serif'; mctx.textAlign = 'center'; mctx.textBaseline = 'middle';
@@ -5918,14 +5941,23 @@ function drawMinimap() {
   mctx.beginPath(); mctx.moveTo(0, -16); mctx.lineTo(11, 12); mctx.lineTo(0, 6); mctx.lineTo(-11, 12); mctx.closePath(); mctx.stroke(); mctx.fill();
   mctx.restore();
 }
+// the big map: zoom (wheel, + and -), drag to move, and search for any street or place
+const MAPV = { cx: 0, cz: 0, zoom: 1, init: false };
+let WAYPOINT = null;
+const SEARCH_COLORS = ['#ffffff', '#ffd166', '#7bd88f', '#f4e3a1', '#ff6b6b', '#ff8ad8', '#9fd3ff', '#cfe8ef', '#c3a6ff', '#ffb000', '#ff9f43', '#5ee0c8', '#ffa8a8', '#b8c4cc', '#2ec4b6'];
+function mapFit() { const B = REGION ? REGION.bounds : [GX0, GZ0, GX0 + GW, GZ0 + GH]; return Math.min((window.innerWidth * 0.96) / (B[2] - B[0]), (window.innerHeight * 0.92) / (B[3] - B[1])); }
+function mapToWorld(px, py) { const S = mapFit() * MAPV.zoom; return [MAPV.cx + (px - window.innerWidth / 2) / S, MAPV.cz + (py - window.innerHeight / 2) / S]; }
 function drawBigMap() {
   const c = $('bigc'), B = REGION ? REGION.bounds : [GX0, GZ0, GX0 + GW, GZ0 + GH];
-  const wW = B[2] - B[0], wH = B[3] - B[1];
-  const S = Math.min((window.innerWidth * 0.96) / wW, (window.innerHeight * 0.92) / wH), dpr = Math.min(2, window.devicePixelRatio || 1);
-  c.width = Math.round(wW * S * dpr); c.height = Math.round(wH * S * dpr); c.style.width = wW * S + 'px'; c.style.height = wH * S + 'px';
+  if (!MAPV.init) { MAPV.cx = player.x; MAPV.cz = player.z; MAPV.zoom = 3; MAPV.init = true; }
+  const Wd = window.innerWidth, Ht = window.innerHeight, S = mapFit() * MAPV.zoom, dpr = Math.min(2, window.devicePixelRatio || 1);
+  c.width = Math.round(Wd * dpr); c.height = Math.round(Ht * dpr); c.style.width = Wd + 'px'; c.style.height = Ht + 'px';
   const x = c.getContext('2d');
-  x.setTransform(S * dpr, 0, 0, S * dpr, -B[0] * S * dpr, -B[1] * S * dpr);
-  x.fillStyle = MINI_PAL.water; x.fillRect(B[0], B[1], wW, wH);
+  x.setTransform(1, 0, 0, 1, 0, 0); x.fillStyle = MINI_PAL.water; x.fillRect(0, 0, c.width, c.height); // ocean past the edges too
+  x.setTransform(S * dpr, 0, 0, S * dpr, (Wd / 2 - MAPV.cx * S) * dpr, (Ht / 2 - MAPV.cz * S) * dpr);
+  const vx0 = MAPV.cx - Wd / 2 / S, vx1 = MAPV.cx + Wd / 2 / S, vz0 = MAPV.cz - Ht / 2 / S, vz1 = MAPV.cz + Ht / 2 / S, inView = (wx, wz) => wx > vx0 && wx < vx1 && wz > vz0 && wz < vz1;
+  x.fillStyle = MINI_PAL.water; x.fillRect(B[0], B[1], B[2] - B[0], B[3] - B[1]);
+  x.imageSmoothingEnabled = MAPV.zoom < 6;
   if (OVERVIEW) x.drawImage(OVERVIEW.canvas, OVERVIEW.x0, OVERVIEW.z0, OVERVIEW.canvas.width / OV_PPM, OVERVIEW.canvas.height / OV_PPM);
   for (const T of TILES.values()) if (T.mini) x.drawImage(T.mini, T.x0, T.z0, T.mini.width / MAPPPM, T.mini.height / MAPPPM);
   x.drawImage(mapCanvas, GX0, GZ0, mapCanvas.width / MAPPPM, mapCanvas.height / MAPPPM);
@@ -5935,9 +5967,24 @@ function drawBigMap() {
   };
   const dot = (wx, wz, r, color) => { x.fillStyle = color; x.beginPath(); x.arc(wx, wz, r / S, 0, TAU); x.fill(); };
   if (REGION) {
-    for (const [sx, sz, nm, place] of REGION.suburbs) if (place === 'suburb' || place === 'town') label(nm.toUpperCase(), sx, sz, 15, '#cfe8ef');
+    // street names and places appear as you zoom in
+    if (REGION.search) {
+      // most important first; a label is skipped if it would overlap one already drawn
+      const need = (k) => (k === 1 || k === 4 || k === 5 ? 2.5 : k === 0 ? 6 : k === 2 || k === 3 || k === 8 || k === 9 || k === 10 || k === 11 || k === 14 ? 7 : k === 7 ? 99 : 16);
+      const order = [1, 5, 4, 3, 2, 9, 10, 14, 8, 11, 0, 12, 6, 13], taken = [];
+      const free = (wx, wz, w) => { const px = (wx - vx0) * S, py = (wz - vz0) * S; for (const t of taken) if (Math.abs(t[0] - px) < (t[2] + w) / 2 && Math.abs(t[1] - py) < 15) return false; taken.push([px, py, w]); return true; };
+      for (const k of order) {
+        if (MAPV.zoom < need(k)) continue;
+        for (const [nm, kk, sx, sz] of REGION.search) {
+          if (kk !== k || !inView(sx, sz) || taken.length > 360) continue;
+          if (!free(sx, sz - (k ? 11 / S : 0), nm.length * 6.2 + 8)) continue;
+          if (k === 0) label(nm, sx, sz, 11, 'rgba(255,255,255,0.8)'); else { dot(sx, sz, 3.5, SEARCH_COLORS[k]); label(nm, sx, sz - 11 / S, 11, SEARCH_COLORS[k]); }
+        }
+      }
+    }
+    for (const [sx, sz, nm, place] of REGION.suburbs) if ((place === 'suburb' || place === 'town') && MAPV.zoom < 8) label(nm.toUpperCase(), sx, sz, 15, '#cfe8ef');
     const seen = new Set();
-    for (const [lx, lz, nm] of REGION.landmarks) { if (seen.has(nm)) continue; seen.add(nm); dot(lx, lz, 3, '#ff8ad8'); label(nm, lx, lz - 14 / S, 11, '#ffc2ea'); }
+    for (const [lx, lz, nm] of REGION.landmarks) { if (seen.has(nm) || (MAPV.zoom >= 2.5 && REGION.search)) continue; seen.add(nm); dot(lx, lz, 3, '#ff8ad8'); label(nm, lx, lz - 14 / S, 11, '#ffc2ea'); }
   }
   label('Surfers Paradise', (MINX + MAXX) / 2, MINZ + 120, 16, '#f6c445');
   for (const n of ['Timezone', 'Ripleys Believe it or Not', "Surfer's Paradise Arch"]) if (D.spots[n]) dot(D.spots[n][0], D.spots[n][1], 3, '#ff8ad8');
@@ -5946,10 +5993,74 @@ function drawBigMap() {
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
+  if (WAYPOINT) { // a pin with the place's name
+    const px = WAYPOINT.x, pz = WAYPOINT.z, u = 1 / S;
+    x.fillStyle = '#c3a6ff'; x.strokeStyle = '#000'; x.lineWidth = 2.5 * u;
+    x.beginPath(); x.moveTo(px, pz); x.lineTo(px - 9 * u, pz - 16 * u); x.arc(px, pz - 20 * u, 10 * u, Math.PI * 0.8, Math.PI * 0.2); x.closePath(); x.fill(); x.stroke();
+    label(WAYPOINT.name, px, pz - 40 * u, 15, '#e6dcff');
+  }
   x.save(); x.translate(player.x, player.z); x.rotate(Math.atan2(Math.cos(player.h), Math.sin(player.h)) + Math.PI / 2);
   const s = 1.4 / S; x.fillStyle = '#f6c445'; x.strokeStyle = '#000'; x.lineWidth = 3 * s;
   x.beginPath(); x.moveTo(0, -14 * s); x.lineTo(10 * s, 10 * s); x.lineTo(0, 5 * s); x.lineTo(-10 * s, 10 * s); x.closePath(); x.stroke(); x.fill();
   x.restore();
+  // scale bar
+  x.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const metres = [50, 100, 200, 500, 1000, 2000, 5000].find((m) => m * S > 80) || 5000, bw = metres * S;
+  x.fillStyle = 'rgba(0,0,0,0.6)'; x.fillRect(Wd - bw - 34, Ht - 70, bw + 20, 30);
+  x.fillStyle = '#fff'; x.fillRect(Wd - bw - 24, Ht - 50, bw, 4);
+  x.font = '600 14px "Barlow Condensed", sans-serif'; x.textAlign = 'center'; x.fillText(metres >= 1000 ? metres / 1000 + ' km' : metres + ' m', Wd - bw / 2 - 24, Ht - 60);
+}
+function zoomMap(f, px, py) {
+  const before = mapToWorld(px === undefined ? window.innerWidth / 2 : px, py === undefined ? window.innerHeight / 2 : py);
+  MAPV.zoom = clamp(MAPV.zoom * f, 0.8, 60);
+  const after = mapToWorld(px === undefined ? window.innerWidth / 2 : px, py === undefined ? window.innerHeight / 2 : py);
+  MAPV.cx += before[0] - after[0]; MAPV.cz += before[1] - after[1]; drawBigMap();
+}
+function searchPlaces(q) {
+  q = q.trim().toLowerCase(); if (q.length < 2 || !REGION || !REGION.search) return [];
+  const words = q.split(/\s+/), out = [];
+  for (const e of REGION.search) {
+    const n = e[0].toLowerCase(); if (!words.every((w) => n.includes(w))) continue;
+    const score = (n === q ? 0 : n.startsWith(q) ? 1 : n.split(/[\s-]/).some((w) => w.startsWith(words[0])) ? 2 : 3) + Math.hypot(e[2] - player.x, e[3] - player.z) / 40000;
+    out.push([score, e]);
+  }
+  out.sort((p, q2) => p[0] - q2[0]);
+  return out.slice(0, 9).map((o) => o[1]);
+}
+function renderSearch() {
+  const list = $('mapres'); list.innerHTML = '';
+  for (const e of searchPlaces($('mapq').value)) {
+    const li = document.createElement('li'), d = Math.hypot(e[2] - player.x, e[3] - player.z);
+    const kind = REGION.searchKinds[e[1]], sub = REGION.suburbs.length ? suburbAt(e[2], e[3]) : '';
+    li.innerHTML = '<b></b><span></span>'; li.firstChild.textContent = e[0];
+    li.lastChild.textContent = `${kind}${sub && kind !== 'suburb' ? ' · ' + sub : ''} · ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}`;
+    li.style.borderLeftColor = SEARCH_COLORS[e[1]];
+    li.addEventListener('click', (ev) => { ev.stopPropagation(); goToPlace(e); });
+    list.appendChild(li);
+  }
+}
+function goToPlace(e) {
+  WAYPOINT = { name: e[0], x: e[2], z: e[3] };
+  MAPV.cx = e[2]; MAPV.cz = e[3]; MAPV.zoom = e[1] === 7 ? 4 : 10;
+  $('mapres').innerHTML = ''; $('mapq').blur(); drawBigMap();
+  const d = Math.hypot(e[2] - player.x, e[3] - player.z);
+  toast(`Waypoint: ${e[0]} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away`);
+}
+function initBigMap() {
+  const c = $('bigc'); let drag = null;
+  c.addEventListener('wheel', (e) => { e.preventDefault(); zoomMap(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
+  c.addEventListener('pointerdown', (e) => { drag = { x: e.clientX, y: e.clientY, cx: MAPV.cx, cz: MAPV.cz, moved: false }; c.setPointerCapture(e.pointerId); });
+  c.addEventListener('pointermove', (e) => {
+    if (!drag) return; const S = mapFit() * MAPV.zoom, dx = e.clientX - drag.x, dy = e.clientY - drag.y;
+    if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
+    MAPV.cx = drag.cx - dx / S; MAPV.cz = drag.cz - dy / S; drawBigMap();
+  });
+  c.addEventListener('pointerup', () => { drag = null; });
+  $('mapq').addEventListener('input', renderSearch);
+  $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
+  $('zin').addEventListener('click', () => zoomMap(1.6)); $('zout').addEventListener('click', () => zoomMap(1 / 1.6));
+  $('zme').addEventListener('click', () => { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); });
+  $('zclear').addEventListener('click', () => { WAYPOINT = null; drawBigMap(); });
 }
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
@@ -6070,6 +6181,7 @@ window.addEventListener('mousemove', (e) => {
   mouse.last = elapsed;
 });
 window.addEventListener('keydown', (e) => {
+  if (e.target && (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA')) { if (e.key === 'Escape') e.target.blur(); return; } // typing in the map search
   const code = keyCode(e);
   if (['Space', 'ArrowUp', 'ArrowDown', 'ArrowLeft', 'ArrowRight', 'Tab'].includes(code)) e.preventDefault();
   if (MG.active) { if (!e.repeat && !(e.target && e.target.tagName === 'INPUT')) mgKey(code); else if (code === 'Escape') mgKey('Escape'); return; }
@@ -6095,10 +6207,10 @@ window.addEventListener('keyup', (e) => { keys[keyCode(e)] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 function toggleMap() {
   bigMapOpen = !bigMapOpen; $('bigmap').hidden = !bigMapOpen;
-  if (bigMapOpen) { drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
-  else lockPointer();
+  if (bigMapOpen) { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
+  else { $('mapq').blur(); lockPointer(); }
 }
-$('bigmap').addEventListener('click', toggleMap);
+initBigMap();
 function setPaused(p) {
   paused = p;
   $('menu').hidden = !p;

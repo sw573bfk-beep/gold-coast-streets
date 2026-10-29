@@ -94,8 +94,18 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #dev { left: calc(18px + env(safe-area-inset-left, 0px)); top: calc(14px + env(safe-area-inset-top, 0px)); font: 600 14px/1.35 var(--hud); background: rgba(8,14,18,.82); padding: 8px 10px; border-left: 4px solid var(--surf); max-width: 360px; text-shadow: none; }
 #dev b { color: var(--surf); letter-spacing: .1em; }
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
-#bigmap canvas { max-width: 96vw; max-height: 92vh; }
-#bigmap p { position: fixed; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
+#bigmap canvas { position: fixed; inset: 0; cursor: grab; touch-action: none; }
+#mapsearch { position: fixed; top: 16px; left: 16px; width: min(380px, calc(100vw - 96px)); z-index: 2; }
+#mapq { width: 100%; box-sizing: border-box; font: 600 18px var(--hud); padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; outline: none; }
+#mapq:focus { border-color: var(--gold); }
+#mapres { list-style: none; margin: 6px 0 0; padding: 0; max-height: 60vh; overflow: auto; }
+#mapres li { background: rgba(8,14,18,.94); border-left: 5px solid #fff; margin-bottom: 4px; padding: 7px 12px; cursor: pointer; border-radius: 6px; }
+#mapres li:hover { background: rgba(40,52,60,.96); }
+#mapres b { display: block; font: 700 17px var(--hud); color: #fff; }
+#mapres span { font: 500 14px var(--hud); color: #a9b6bb; }
+#mapzoom { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
+#mapzoom button { width: 44px; height: 44px; font: 700 22px var(--hud); border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: var(--gold); cursor: pointer; }
+#bigmap p { position: fixed; z-index: 2; pointer-events: none; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
 #menu { position: fixed; inset: 0; z-index: 10; display: grid; place-items: center; background: radial-gradient(120% 90% at 70% 20%, rgba(255,140,80,.35), transparent 60%), linear-gradient(180deg, rgba(8,20,28,.55), rgba(8,14,18,.92)); padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
 .card { max-width: 680px; width: 100%; }
 .card h1 { font: 400 clamp(44px, 9vw, 92px)/.88 var(--display); margin: 0; color: var(--gold); text-shadow: 4px 4px 0 #000, 0 0 40px rgba(246,196,69,.35); letter-spacing: .01em; text-wrap: balance; }
@@ -162,7 +172,12 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <div id="wardrobe-body"></div>
   <button id="wardrobe-done" type="button">Done</button>
 </div>
-<div id="bigmap" hidden><canvas id="bigc"></canvas><p>Map of the Gold Coast · press M to close</p></div>
+<div id="bigmap" hidden>
+  <canvas id="bigc"></canvas>
+  <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
+  <div id="mapzoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zme" aria-label="Centre on me">◎</button><button type="button" id="zclear" aria-label="Clear waypoint">✕</button></div>
+  <p>Scroll or + − to zoom · drag to move · pick a result to set a waypoint · M to close</p>
+</div>
 <div id="menu">
   <div class="card">
     <h1>Gold Coast Streets</h1>
@@ -171,8 +186,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>W A S D</b> move / drive</div>
       <div><b>Mouse</b> look around</div>
       <div><b>Shift</b> sprint</div>
-      <div><b>Space</b> jump / handbrake drift</div>
-      <div><b>F</b> cars · shops · buy</div>
+      <div><b>Space</b> jump · climb fences · handbrake</div>
+      <div><b>F / E</b> cars · shops · houses · lifts</div>
       <div><b>Click / Q</b> punch · shoot</div>
       <div><b>Right-click</b> aim a gun</div>
       <div><b>1–4 · wheel</b> switch weapon</div>

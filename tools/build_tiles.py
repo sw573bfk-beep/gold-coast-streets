@@ -737,8 +737,50 @@ for ln in coast:
             run = []
         else: run.append(q)
     if len(run) > 1: ov_coast.append(flat(simplify(run, 1.5)))
+# ---------------------------------------------------------------- the map search: every named street and place, as [name, kind, x, z]
+SEARCH_KINDS = ['street', 'school', 'park', 'beach', 'hospital', 'shopping centre', 'shop', 'suburb', 'hotel', 'petrol', 'attraction', 'sport', 'food', 'service', 'transport']
+def search_kind(t):
+    a, sh, le, to = t.get('amenity'), t.get('shop'), t.get('leisure'), t.get('tourism')
+    if a in ('school', 'kindergarten', 'college', 'university') or t.get('building') == 'school': return 1
+    if le in ('park', 'nature_reserve', 'garden', 'playground', 'dog_park') or t.get('boundary') == 'protected_area': return 2
+    if t.get('natural') == 'beach': return 3
+    if a in ('hospital', 'clinic'): return 4
+    if sh == 'mall': return 5
+    if to in ('hotel', 'motel', 'hostel', 'apartment', 'guest_house'): return 8
+    if a == 'fuel': return 9
+    if to in ('attraction', 'museum', 'theme_park', 'zoo', 'viewpoint', 'gallery') or t.get('historic'): return 10
+    if le in ('stadium', 'sports_centre', 'golf_course', 'pitch', 'swimming_pool', 'fitness_centre', 'marina') : return 11
+    if a in ('restaurant', 'cafe', 'fast_food', 'pub', 'bar', 'ice_cream', 'food_court', 'nightclub'): return 12
+    if a in ('bank', 'pharmacy', 'police', 'fire_station', 'library', 'post_office', 'place_of_worship', 'doctors', 'dentist', 'community_centre', 'townhall', 'courthouse', 'cinema', 'theatre'): return 13
+    if t.get('railway') in ('station', 'tram_stop') or t.get('public_transport') == 'station' or a == 'bus_station': return 14
+    if sh: return 6
+    return None
+search, seen_s = [], {}
+def add_search(name, kind, x, z, spread):
+    if not (RX0 <= x <= RX1 and RZ0 <= z <= RZ1): return
+    key = (name.lower(), kind)
+    for (px, pz) in seen_s.get(key, ()):
+        if abs(px - x) < spread and abs(pz - z) < spread: return
+    seen_s.setdefault(key, []).append((x, z)); search.append([name, kind, round(x), round(z)])
+for e in els:
+    t = e.get('tags', {}); nm = t.get('name')
+    if not nm: continue
+    if e['type'] == 'way' and t.get('highway') and t.get('highway') not in ('footway', 'path', 'steps', 'cycleway', 'bus_stop', 'platform'):
+        g = geom(e)
+        if g: m = g[len(g) // 2]; add_search(nm, 0, m[0], m[1], 700)  # one entry per stretch of street
+        continue
+    if t.get('place') in ('suburb', 'town', 'neighbourhood', 'quarter', 'village'):
+        p = epos(e)
+        if p: add_search(nm, 7, p[0], p[1], 2000)
+        continue
+    k = search_kind(t)
+    if k is None: continue
+    p = epos(e)
+    if p: add_search(nm, k, p[0], p[1], 150)
+print('search entries', len(search), {SEARCH_KINDS[k]: sum(1 for s_ in search if s_[1] == k) for k in range(len(SEARCH_KINDS))})
+
 region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,
-              suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES)
+              suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS)
 json.dump(region, open(os.path.join(out_dir, 'region.json'), 'w'), separators=(',', ':'))
 print('tiles', len(index), 'total', total // 1024, 'KB; region.json', os.path.getsize(os.path.join(out_dir, 'region.json')) // 1024, 'KB')
 print('largest tiles', sorted(index, key=lambda q: -q[3])[:5])
