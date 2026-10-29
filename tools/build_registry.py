@@ -9,20 +9,21 @@ Outputs: data/locations.json         one record per significant place, with sour
 Nothing is invented: a place is "verified" only when an official source confirms it; OpenStreetMap-only places stay
 "mapped (OSM)" with medium confidence, and anything that can't be matched is listed for research.
 """
-import csv, datetime, glob, json, math, os, re
+import sys, csv, datetime, glob, json, math, os, re
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TODAY = datetime.date.today().isoformat()
 LAT0, LON0 = (-28.013 + -27.986) / 2, (153.411 + 153.436) / 2
 KX = math.cos(math.radians(LAT0)) * 111320.0; KZ = 110574.0
 def proj(lat, lon): return (round((lon - LON0) * KX, 1), round((LAT0 - lat) * KZ, 1))
-S, W, N, E = -28.110, 153.355, -27.935, 153.468
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from region_bounds import S, W, N, E  # the extended map
 CORE = json.load(open(os.path.join(ROOT, 'data', 'map.json')))['bounds']
 in_core = lambda x, z: CORE[0] <= x <= CORE[2] and CORE[1] <= z <= CORE[3]
 
 # ---------------------------------------------------------------- OpenStreetMap places
 els = {}
-for p in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json'))):
+for p in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json'))):
     for e in json.load(open(p))['elements']: els[(e['type'], e['id'])] = e
 def center(e):
     if e['type'] == 'node': return e['lat'], e['lon']

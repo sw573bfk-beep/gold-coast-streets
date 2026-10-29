@@ -14,7 +14,8 @@ LAT0, LON0 = (-28.013 + -27.986) / 2, (153.411 + 153.436) / 2
 KX = math.cos(math.radians(LAT0)) * 111320.0
 KZ = 110574.0
 def proj(lat, lon): return (round((lon - LON0) * KX, 1), round((LAT0 - lat) * KZ, 1))
-RS, RW, RN, RE = -28.110, 153.355, -27.935, 153.468
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from region_bounds import S as RS, W as RW, N as RN, E as RE  # the extended map: Southport to Coolangatta, ~30 km inland
 RX0, RZ0 = proj(RN, RW)
 RX1, RZ1 = proj(RS, RE)
 CORE = json.load(open(os.path.join(ROOT, 'data', 'map.json')))['bounds']  # [minx, minz, maxx, maxz]
@@ -23,7 +24,7 @@ def tkey(x, z): return (int(math.floor(x / TILE)), int(math.floor(z / TILE)))
 
 # ---------------------------------------------------------------- load OSM blocks (deduplicated)
 els = {}
-for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json'))):
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json'))):
     for e in json.load(open(path))['elements']:
         els[(e['type'], e['id'])] = e
 els = list(els.values())
@@ -283,6 +284,35 @@ for w in graph_ways:
             start = i
 print('roads done; graph edges', n_edges)
 
+# ---------------------------------------------------------------- the airport: runways and taxiways as paved strips, aprons as tarmac
+AIRPORT = dict(name='Gold Coast Airport', runways=[])
+for e in els:
+    t = e.get('tags', {}); aw = t.get('aeroway')
+    if e['type'] != 'way' or aw not in ('runway', 'taxiway', 'apron'): continue
+    pts = geom(e)
+    if len(pts) < 2: continue
+    if aw == 'apron':
+        ring = ring_clean(pts)
+        if len(ring) >= 3:
+            xs = [q[0] for q in ring]; zs = [q[1] for q in ring]
+            for ti in range(tkey(min(xs), 0)[0], tkey(max(xs), 0)[0] + 1):
+                for tj in range(tkey(0, min(zs))[1], tkey(0, max(zs))[1] + 1):
+                    x0, z0 = ti * TILE, tj * TILE; cp = clip_polygon(ring, x0, z0, x0 + TILE, z0 + TILE)
+                    if len(cp) >= 3: T((ti, tj))['areas'].setdefault('parking', []).append(flat(cp))
+        continue
+    try: wdt = float(str(t.get('width', '')).split()[0])
+    except (ValueError, IndexError): wdt = 45.0 if aw == 'runway' else 23.0
+    if aw == 'runway' and math.hypot(pts[-1][0] - pts[0][0], pts[-1][1] - pts[0][1]) > 800:
+        AIRPORT['runways'].append([round(pts[0][0], 1), round(pts[0][1], 1), round(pts[-1][0], 1), round(pts[-1][1], 1), wdt])
+    xs = [q[0] for q in pts]; zs = [q[1] for q in pts]
+    for ti in range(tkey(min(xs), 0)[0], tkey(max(xs), 0)[0] + 1):
+        for tj in range(tkey(0, min(zs))[1], tkey(0, max(zs))[1] + 1):
+            x0, z0 = ti * TILE, tj * TILE
+            for pc in clip_polyline(pts, x0, z0, x0 + TILE, z0 + TILE):
+                tt = T((ti, tj)); tt['roads'].append([ROAD_TYPES.index('motorway'), round(wdt, 1), name_idx(tt, t.get('ref') and 'Runway ' + t['ref'] or t.get('name')), 0] + flat(simplify(pc, 0.5)))
+AIRPORT['runways'].sort(key=lambda r: -math.hypot(r[2] - r[0], r[3] - r[1]))
+print('airport runways', len(AIRPORT['runways']))
+
 # ---------------------------------------------------------------- buildings: OSM first, Microsoft footprints where OSM has none
 KINDS = {'house': 0, 'detached': 0, 'semidetached_house': 0, 'bungalow': 0, 'terrace': 0, 'residential': 1, 'apartments': 1, 'hotel': 1,
          'retail': 2, 'commercial': 2, 'office': 2, 'supermarket': 2, 'industrial': 2, 'warehouse': 2, 'school': 2, 'church': 2, 'university': 2,
@@ -472,8 +502,22 @@ sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 from aerial import Raster
 HAVE_DEM = os.path.exists(os.path.join(ROOT, 'data', 'region', 'dem.json'))
 HAVE_AIR = os.path.exists(os.path.join(ROOT, 'data', 'region', 'air.json'))
-DEM = Raster('dem') if HAVE_DEM else None
-AIR = Raster('air') if HAVE_AIR else None
+HAVE_DEMX = os.path.exists(os.path.join(ROOT, 'data', 'region', 'demx.json'))
+DEM = Raster('demx') if HAVE_DEMX else Raster('dem') if HAVE_DEM else None  # demx covers the whole extended map
+HAVE_DEM = HAVE_DEM or HAVE_DEMX
+AIRS = [Raster(k) for k in ('air', 'airx') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]  # 2 m photos first, 3 m beyond
+HAVE_AIR = bool(AIRS)
+AIR = AIRS[0] if AIRS else None
+def air_rgb(lat, lon):
+    for R in AIRS:
+        c = R.rgb(lat, lon)
+        if c: return c
+    return None
+def air_for_tile(ti, tj):
+    la0, lo0 = LAT0 - (tj * TILE + TILE) / KZ, LON0 + ti * TILE / KX; la1, lo1 = LAT0 - tj * TILE / KZ, LON0 + (ti * TILE + TILE) / KX
+    for R in AIRS:
+        if R.W <= lo0 and lo1 <= R.E and R.S <= la0 and la1 <= R.N: return R
+    return AIRS[-1]
 def unproj(x, z): return LAT0 - z / KZ, LON0 + x / KX
 GROUND_BASE = 3.0   # metres above sea level that game height 0 stands for (the flat Surfers core sits around 4-6 m)
 HSTEP, HN = 10.0, 101  # height grid: one sample every 10 m, 101 x 101 per tile (shared edges)
@@ -526,12 +570,12 @@ def roof_colour(f):
         while z < max(zs):
             if pip((x, z), poly):
                 qx, qz = cx + (x - cx) * 0.8, cz + (z - cz) * 0.8
-                c = AIR.rgb(*unproj(qx, qz))
+                c = air_rgb(*unproj(qx, qz))
                 if c: got.append(c)
             z += step
         x += step
     if not got:
-        c = AIR.rgb(*unproj(cx, cz)); got = [c] if c else []
+        c = air_rgb(*unproj(cx, cz)); got = [c] if c else []
     if not got: return None
     keep = [c for c in got if not (c[1] > c[0] + 8 and c[1] > c[2] + 4) and sum(c) > 60] or got
     med = lambda k: sorted(c[k] for c in keep)[len(keep) // 2]
@@ -613,7 +657,7 @@ def scan_photo(ti, tj, tt):
             for px in range(max(0, int((min(xs) - x0) / P)), min(N, int((max(xs) - x0) / P) + 1)):
                 if pip((x0 + (px + 0.5) * P, z0 + (py + 0.5) * P), poly): occ[py * N + px] = 1
     cls = bytearray(N * N)  # 1 pool, 2 canopy
-    S = AIR.size
+    AIR = air_for_tile(ti, tj); S = AIR.size
     cols = [int(round(AIR.px(LAT0, LON0 + (x0 + (px + 0.5) * P) / KX)[0])) for px in range(N)]  # photo column for each tile pixel
     for py in range(N):
         yy = int(round(AIR.px(LAT0 - (z0 + (py + 0.5) * P) / KZ, LON0)[1]))
@@ -700,7 +744,7 @@ if HAVE_DEM or HAVE_AIR:
             hs = tile_heights(ti, tj)
             if max(hs) > 0.3:
                 tt['hgt'] = base64.b64encode(array.array('h', [int(round(v * 10)) for v in hs]).tobytes()).decode()
-        if HAVE_AIR and AIR.complete():
+        if HAVE_AIR:
             rnd = random.Random(ti * 7919 + tj)
             tt['bcol'] = []
             for b in tt['buildings']:
@@ -785,7 +829,7 @@ BARRIER_CLS = {'fence': 0, 'wall': 1, 'city_wall': 1, 'hedge': 2, 'guard_rail': 
 BARRIER_H = {0: 1.5, 1: 1.8, 2: 1.4, 3: 0.85, 4: 1.0}
 n_bar = n_gate = 0
 bar_els = {}
-for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'barriers_*.json'))):
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'barriers_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'barx_*.json'))):
     for e in json.load(open(path))['elements']: bar_els[(e['type'], e['id'])] = e
 gates = [proj(e['lat'], e['lon']) + (e['tags'].get('barrier'),) for e in bar_els.values() if e['type'] == 'node']
 GG = 20.0
@@ -873,7 +917,7 @@ for e in els:
 print('search entries', len(search), {SEARCH_KINDS[k]: sum(1 for s_ in search if s_[1] == k) for k in range(len(SEARCH_KINDS))})
 
 region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,
-              suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS)
+              suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS, airport=AIRPORT)
 json.dump(region, open(os.path.join(out_dir, 'region.json'), 'w'), separators=(',', ':'))
 print('tiles', len(index), 'total', total // 1024, 'KB; region.json', os.path.getsize(os.path.join(out_dir, 'region.json')) // 1024, 'KB')
 print('largest tiles', sorted(index, key=lambda q: -q[3])[:5])

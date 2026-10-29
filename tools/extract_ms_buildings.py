@@ -6,7 +6,8 @@ Writes data/region/ms_buildings.json: list of [height, x0, z0, x1, z1, ...] (met
 import gzip, json, math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-S, W, N, E = -28.110, 153.355, -27.935, 153.468
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
+from region_bounds import S, W, N, E  # the extended map
 LAT0, LON0 = (-28.013 + -27.986) / 2, (153.411 + 153.436) / 2  # the Surfers map origin
 KX = math.cos(math.radians(LAT0)) * 111320.0
 KZ = 110574.0
