@@ -7,6 +7,12 @@ const DEALERS = []; // back-room gun dealers
 
 // ---------------------------------------------------------------- items
 const ITEMS = {
+  // café menus (each café picks its own mix)
+  latte: { name: 'Latte', price: 6, heal: 10, energy: 20 }, longblack: { name: 'Long black', price: 5, heal: 6, energy: 25 }, icedlatte: { name: 'Iced latte', price: 7, heal: 12, energy: 20 },
+  chai: { name: 'Chai latte', price: 6, heal: 12, energy: 10 }, smoothie: { name: 'Mango smoothie', price: 9, heal: 22 }, acai: { name: 'Açaí bowl', price: 15, heal: 40 },
+  toastie: { name: 'Ham & cheese toastie', price: 11, heal: 30 }, bananabread: { name: 'Banana bread', price: 6, heal: 15 }, croissant: { name: 'Croissant', price: 5, heal: 14 },
+  brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
+  sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
   pizza: { name: 'Pizza slice', price: 8, heal: 25 }, kebab: { name: 'Kebab', price: 13, heal: 40 }, sushi: { name: 'Sushi roll', price: 10, heal: 25 },
   taco: { name: 'Burrito', price: 14, heal: 40 }, chicken: { name: 'Fried chicken', price: 12, heal: 35 }, icecream: { name: 'Gelato', price: 7, heal: 15 },
@@ -47,6 +53,17 @@ function shopKind(cat, name) {
   if (cat === 5) return 'fun';
   return /7-eleven|convenience|food store|bws|bottle|woolworths|coles|supermarket|news/.test(n) ? 'convenience' : 'shop';
 }
+// every café gets its own menu: bakeries sell pies, juice bars blend, the rest pick from the café list by name
+function cafeMenu(shop) {
+  const n = shop.name.toLowerCase();
+  if (/bake|bread|pie|patisserie|donut|doughnut/.test(n)) return ['pie', 'sausageroll', 'croissant', 'bananabread', 'coffee'];
+  if (/juice|smoothie|boost|acai|açaí|bowl/.test(n)) return ['smoothie', 'juice', 'acai', 'icedlatte'];
+  const all = ['coffee', 'latte', 'longblack', 'icedlatte', 'chai', 'toastie', 'bananabread', 'croissant', 'brekky', 'avo', 'muffin', 'cake', 'smoothie'];
+  let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+  const pick = ['coffee']; // everyone does a flat white
+  for (let k = 0; pick.length < 5 && k < 40; k++) { const id = all[(h >>> (k % 24)) % all.length + 0]; h = (h * 1103515245 + 12345) >>> 0; if (!pick.includes(id)) pick.push(id); }
+  return pick;
+}
 function menuFor(shop) {
   const n = shop.name.toLowerCase();
   switch (shop.kind) {
@@ -58,7 +75,7 @@ function menuFor(shop) {
       if (/kfc|chicken|oporto|flock|wings/.test(n)) return ['chicken', 'fries', 'soda'];
       return ['burger', 'fries', 'shake', 'soda'];
     case 'icecream': return ['icecream', 'shake', 'cake'];
-    case 'cafe': return ['coffee', 'cake', 'soda'];
+    case 'cafe': return cafeMenu(shop);
     case 'bar': return ['mocktail', 'fries', 'soda'];
     case 'convenience': return ['energy', 'soda', 'fries', 'medkit'];
     case 'clothes': return ['outfit', 'sunnies', 'cap'];

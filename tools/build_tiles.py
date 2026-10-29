@@ -667,10 +667,11 @@ for e in els:
 n_inst = 0
 for (ti, tj), tt in tiles.items():
     for b in tt['buildings']:
-        if b[2] != 0: continue
+        if b[2] not in (0, 2): continue
         f = b[3:]; cx = sum(f[0::2]) / (len(f) / 2); cz = sum(f[1::2]) / (len(f) / 2)
         for k, nm, ring, x0, z0, x1, z1 in GROUNDS:
-            if x0 <= cx <= x1 and z0 <= cz <= z1 and pip((cx, cz), ring): b[2] = 2; n_inst += 1; break
+            if b[2] == 2 and k == 'mall': continue
+            if x0 <= cx <= x1 and z0 <= cz <= z1 and pip((cx, cz), ring): b[2] = {'school': 6, 'hospital': 7}.get(k, 2); n_inst += 1; break  # 6 school, 7 hospital
 # a name sign at each school's street entrance (the grounds' edge nearest a drivable road)
 n_sign = 0
 for k, nm, ring, x0, z0, x1, z1 in GROUNDS:

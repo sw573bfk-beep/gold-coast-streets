@@ -6,6 +6,8 @@
 let TOWER = null; // the building you're inside: { b, f, name, kind, floors, level, y, top, mesh, geo, grid, lifts, exit, shops, loot, people }
 
 function towerKindOf(h, kind, area, name) {
+  if (kind === 6) return area >= 100 ? 'school' : null; // buildings inside school grounds
+  if (kind === 7) return area >= 150 ? 'hospital' : null;
   if (/fair|town centre|shopping|plaza|marketplace|mall|harbour town|australia fair/i.test(name || '') || (kind === 2 && area > 7000 && h < 30)) return 'mall';
   if (h < 14 || area < 250) return null;
   if (/hotel|resort|hilton|marriott|sofitel|novotel|star|crowne|meriton|peppers|qt |vibe|mantra|ibis|holiday inn|langham|jw /i.test(name || '')) return 'hotel';
@@ -15,7 +17,7 @@ function towerKindOf(h, kind, area, name) {
 // big buildings near a point: the Surfers core plus the streamed tiles
 function bigBuildingsNear(x, z, r) {
   const out = [];
-  const consider = (b, name, pois) => {
+  const consider = (b, name, pois, core) => { // core buildings use their own kind numbers: 6 and 7 mean school/hospital only in tiles
     const f = b.slice(3); let x0 = Infinity, z0 = Infinity, x1 = -Infinity, z1 = -Infinity;
     for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
     if (x < x0 - r || x > x1 + r || z < z0 - r || z > z1 + r) return;
@@ -24,10 +26,15 @@ function bigBuildingsNear(x, z, r) {
       const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2;
       let bd = 220; for (const [lx, lz, ln] of REGION.landmarks) { const d = Math.hypot(lx - cx, lz - cz); if (d < bd && /fair|centre|plaza|shopping|marketplace|town/i.test(ln) && !/^[A-Z]{2,4} /.test(ln)) { bd = d; name = ln; } } // skip stores like "MBE Pacific Fair"
     }
-    const kind = towerKindOf(b[0], b[2], area, name);
+    const bk = core && b[2] >= 6 ? 2 : b[2];
+    if (!name && (bk === 6 || bk === 7) && REGION && REGION.search) { // a school or hospital building takes its campus name
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; let bd = 350;
+      for (const [nm, k2, sx, sz] of REGION.search) if ((k2 === 1 && bk === 6) || (k2 === 4 && bk === 7)) { const d = Math.hypot(sx - cx, sz - cz); if (d < bd) { bd = d; name = nm; } }
+    }
+    const kind = towerKindOf(b[0], bk, area, name);
     if (kind) out.push({ b, f, name: name || '', kind, area, pois, x0, z0, x1, z1 });
   };
-  if (inCore(x, z) || Math.abs(x) < 1600 && Math.abs(z) < 1900) MAP.buildings.forEach((b, bi) => consider(b, MAP.details && MAP.details.bnames && MAP.details.bnames[bi], CORE_POIS()));
+  if (inCore(x, z) || Math.abs(x) < 1600 && Math.abs(z) < 1900) MAP.buildings.forEach((b, bi) => consider(b, MAP.details && MAP.details.bnames && MAP.details.bnames[bi], CORE_POIS(), true));
   for (const T of TILES.values()) // big footprints can sit across a tile edge, so look in every loaded tile nearby
     if (T.blds && x > T.x0 - r - 600 && x < T.x0 + REGION.tile + r + 600 && z > T.z0 - r - 600 && z < T.z0 + REGION.tile + r + 600) T.blds.forEach((b, bi) => consider(b, T.bnames && T.bnames[bi], T.pois));
   return out;
@@ -61,13 +68,13 @@ function enterTower(E) {
   const B = E.B, gy = groundAt(E.px, E.pz), h = /^Q1\b/.test(B.name) ? 245 : B.b[0];
   let mallLevels = null;
   if (B.kind === 'mall') { const lv = new Set(); for (const p of B.pois || []) if (inRing(p[0], p[1], B.f) && p[5] !== null && p[5] !== undefined) lv.add(p[5]); mallLevels = [...lv].sort((a, b) => a - b); if (!mallLevels.length) mallLevels = [0]; }
-  const floors = B.kind === 'mall' ? mallLevels.length - 1 : /^Q1\b/.test(B.name) ? 77 : Math.max(1, Math.floor((h - 4.5) / 3.1));
-  TOWER = { b: B.b, f: B.f, name: B.name || ({ hotel: 'Hotel', apartments: 'Apartments', offices: 'Office tower', mall: 'Shopping centre' })[B.kind], kind: B.kind, floors, level: 0,
+  const floors = B.kind === 'mall' ? mallLevels.length - 1 : B.kind === 'school' ? Math.max(0, Math.round((h - 3.4) / 3.4)) : /^Q1\b/.test(B.name) ? 77 : Math.max(1, Math.floor((h - 4.5) / 3.1));
+  TOWER = { b: B.b, f: B.f, name: B.name || ({ hotel: 'Hotel', apartments: 'Apartments', offices: 'Office tower', mall: 'Shopping centre', school: 'School building', hospital: 'Hospital' })[B.kind], kind: B.kind, floors, level: 0,
     mallLevels, base: gy, top: gy + h, exit: { x: E.px + E.nx * 1.2, z: E.pz + E.nz * 1.2, ix: E.px - E.nx * 1.5, iz: E.pz - E.nz * 1.5, nx: E.nx, nz: E.nz, ex: E.ex, ez: E.ez, px: E.px, pz: E.pz }, pois: B.pois, people: [] };
   if (B.kind === 'mall') { TOWER.levelH = clamp((h - 0.3) / (floors + 1), 3.4, 5.5); TOWER.top = Math.max(TOWER.top, gy + (floors + 1) * TOWER.levelH); }
   buildTowerLevel(0);
   player.x = TOWER.exit.ix; player.z = TOWER.exit.iz; player.h = Math.atan2(-E.nx, -E.nz); camYaw = player.h;
-  toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : `${TOWER.name} — lifts are in the middle (E)`);
+  toast(TOWER.kind === 'mall' ? `${TOWER.name} — walk up to a shop counter, E to buy` : TOWER.kind === 'school' ? `${TOWER.name} — classrooms off the corridor` : `${TOWER.name} — lifts are in the middle (E)`);
 }
 function leaveTower() {
   const X = TOWER.exit; disposeTowerLevel(); TOWER = null;
@@ -85,13 +92,14 @@ function disposeTowerLevel() {
 }
 function levelY(k) {
   if (TOWER.kind === 'mall') return TOWER.base + k * TOWER.levelH; // levels shared out over the building's height (the roof is the car park)
+  if (TOWER.kind === 'school') return k > TOWER.floors ? TOWER.top : TOWER.base + k * 3.4;
   return k === 0 ? TOWER.base : k > TOWER.floors ? TOWER.top : TOWER.base + 4.5 + (k - 1) * 3.1;
 }
 
 function buildTowerLevel(k) {
   disposeTowerLevel();
   const mall = TOWER.kind === 'mall', f = TOWER.f, n = f.length / 2, y = levelY(k), roof = k > TOWER.floors;
-  const ceil = roof ? y + 40 : mall ? y + TOWER.levelH - 0.25 : k === 0 ? Math.min(TOWER.top - 0.1, y + 4.4) : y + 2.9;
+  const ceil = roof ? y + 40 : mall ? y + TOWER.levelH - 0.25 : TOWER.kind === 'school' ? y + 3.1 : k === 0 ? Math.min(TOWER.top - 0.1, y + 4.4) : y + 2.9;
   const r = mulberry32((TOWER.b[3] * 1000 + TOWER.b[4]) | 0 + k * 7), Bf = newBuf(), segs = [], lifts = [], loot = [];
   TOWER.level = k; TOWER.y = y; TOWER.ceil = ceil;
   const X = TOWER.exit;
@@ -172,7 +180,7 @@ function buildTowerLevel(k) {
     if (lb) { const [lx, lz] = W(0, -(v1 - v0) * 0.22 + 2.4); lifts.push({ x: lx, z: lz, h: Math.atan2(vx, vz) }); }
   } else if (mall) {
     buildMallConcourse({ box, wall, u0, u1, v0, v1, W, y, ceil, segs, r, k, cx, cz, ux, uz, vx, vz, lifts });
-  } else if (k === 0) {
+  } else if (k === 0 && TOWER.kind !== 'school') {
     liftCore();
     const [ex, ez] = [X.ix, X.iz], ru = (ex - cx) * ux + (ez - cz) * uz, rv = (ex - cx) * vx + (ez - cz) * vz;
     const desk = box(ru * 0.45, rv * 0.45, 3.6, 1.1, 0.8, T_COLS.wood);
@@ -181,16 +189,22 @@ function buildTowerLevel(k) {
     }
     for (const s of [-1, 1]) { box(s * (u1 - u0) * 0.3, rv * 0.2, 2.2, 0.8, 0.9, col('#3b4a57')); box(s * (u1 - u0) * 0.38, rv * 0.5, 0.6, 1.6, 0.6, T_COLS.plant); }
   } else {
-    liftCore();
-    // a corridor down the long axis, rooms either side every ~4.5 m
-    const hw = 1.1, roomW = TOWER.kind === 'offices' ? 9 : 4.6;
+    const school = TOWER.kind === 'school';
+    if (!school || TOWER.floors > 0) liftCore(); // schools: stairs only on blocks with an upper floor
+    // a corridor down the long axis, rooms either side every ~4.5 m (classrooms every ~8 m)
+    const hw = school ? 1.4 : 1.1, roomW = TOWER.kind === 'offices' ? 9 : school ? 8 : 4.6;
     for (const side of [-1, 1]) {
       const doors = []; for (let u = u0 + roomW / 2; u < u1; u += roomW) doors.push(u - u0 + 1);
       wall([u0 - 1, side * hw], [u1 + 1, side * hw], doors.map((d) => d));
       for (let u = u0 + roomW; u < u1 - 1; u += roomW) wall([u, side * hw], [u, side * (v1 - v0 + 2)], []);
       for (let u = u0 + roomW / 2; u < u1; u += roomW) {
         const vm = side * (hw + (side > 0 ? v1 - hw : -v0 - hw) / 2);
-        if (TOWER.kind === 'offices') { lootOn(box(u, vm, 1.6, 0.75, 0.8, T_COLS.desk), 0.35); box(u + 2.2, vm, 1.6, 0.75, 0.8, T_COLS.desk); }
+        if (school) { // rows of student desks facing a whiteboard and the teacher's desk
+          const depth = Math.abs(side > 0 ? v1 - hw : -v0 - hw);
+          for (let r2 = 0; r2 < 3; r2++) for (let c2 = -1; c2 <= 1; c2++) box(u + c2 * 1.9, side * (hw + 2.2 + r2 * 1.5), 1.1, 0.72, 0.6, col('#c8a77a'));
+          lootOn(box(u + 2.6, side * (hw + 1.0), 1.4, 0.75, 0.7, T_COLS.wood), 0.2);
+          if (depth > 6) box(u, side * (hw + depth - 0.1), 3.2, 1.2, 0.06, col('#f7f7f4'), false, y + 0.9); // whiteboard on the back wall
+        } else if (TOWER.kind === 'offices') { lootOn(box(u, vm, 1.6, 0.75, 0.8, T_COLS.desk), 0.35); box(u + 2.2, vm, 1.6, 0.75, 0.8, T_COLS.desk); }
         else {
           lootOn(box(u, vm + side * 0.6, 1.6, 0.55, 2.0, T_COLS.bed), 0.3);
           lootOn(box(u + 1.6, vm - side * 0.4, 0.5, 0.55, 0.45, T_COLS.wood), 0.35);
@@ -375,7 +389,7 @@ function updateTowers(dt) {
   }
   if (TOWER && player.state !== 'foot' && player.state !== 'down' && TOWER.level !== 0) { const X = TOWER.exit; disposeTowerLevel(); TOWER = null; player.x = X.x; player.z = X.z; }
   if (towerHintT <= 0 && player.state === 'foot') {
-    if (!TOWER) { const E = towerEntrance(1.5); if (E) { toast(`E: go inside ${E.B.name || 'the ' + ({ hotel: 'hotel', apartments: 'building', offices: 'office tower', mall: 'shopping centre' })[E.B.kind]}`); towerHintT = 6; } }
+    if (!TOWER) { const E = towerEntrance(1.5); if (E) { toast(`E: go inside ${E.B.name || 'the ' + ({ hotel: 'hotel', apartments: 'building', offices: 'office tower', mall: 'shopping centre', school: 'school building', hospital: 'hospital' })[E.B.kind]}`); towerHintT = 6; } }
     else if (TOWER.lifts.some((L) => Math.hypot(L.x - player.x, L.z - player.z) < 1.6)) { toast('E: call the lift'); towerHintT = 6; }
   }
 }

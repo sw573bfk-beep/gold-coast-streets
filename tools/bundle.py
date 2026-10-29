@@ -27,7 +27,10 @@ shutil.copy(os.path.join(ROOT, 'tests', 'regression.js'), os.path.join(ROOT, 'di
 # the public site: the full page and every map tile (no tests)
 site = os.path.join(ROOT, 'docs')
 os.makedirs(os.path.join(site, 'tiles'), exist_ok=True)
-shutil.copy(os.path.join(ROOT, 'dist', 'index.html'), os.path.join(site, 'index.html'))
+# the public site counts visits with GoatCounter (only there: the Claude-hosted page doesn't load outside scripts)
+GOATCOUNTER = '<script data-goatcounter="https://sw573.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>'
+html = open(os.path.join(ROOT, 'dist', 'index.html'), encoding='utf-8').read().replace('</body>', GOATCOUNTER + '\n</body>', 1)
+open(os.path.join(site, 'index.html'), 'w', encoding='utf-8').write(html)
 open(os.path.join(site, '.nojekyll'), 'w').close()  # serve files as they are
 tiles = os.path.join(ROOT, 'dist', 'tiles')
 if os.path.isdir(tiles):
