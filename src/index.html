@@ -96,10 +96,20 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #bigmap { position: fixed; inset: 0; z-index: 8; background: rgba(5, 10, 14, .86); display: grid; place-items: center; }
 #menu { overflow-y: auto; align-items: safe center; }
 #jobhud { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 5; background: rgba(8,14,18,.85); color: #fff; font: 600 18px var(--hud); padding: 6px 14px; border-radius: 8px; border: 2px solid var(--gold); pointer-events: none; }
-#phone { position: fixed; right: 18px; bottom: 18px; width: min(340px, calc(100vw - 36px)); max-height: 78vh; overflow: auto; z-index: 9; background: #0d1418; border: 3px solid #2a3740; border-radius: 26px; padding: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
+#phone { position: fixed; right: 18px; bottom: 18px; width: min(360px, calc(100vw - 36px)); max-height: 78vh; overflow: auto; z-index: 9; background: #0d1418; border: 3px solid #2a3740; border-radius: 26px; padding: 14px; box-shadow: 0 10px 40px rgba(0,0,0,.6); }
 .phone-top { display: flex; justify-content: space-between; align-items: center; margin-bottom: 10px; font: 700 20px var(--hud); color: var(--gold); }
 .phone-top button { background: none; border: 0; color: #fff; font-size: 20px; cursor: pointer; }
 .papp { display: block; width: 100%; text-align: left; margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; border: 0; background: #1b262d; color: #fff; cursor: pointer; }
+.psec { font: 700 13px var(--hud); letter-spacing: .08em; text-transform: uppercase; color: #8fa3ab; margin: 12px 2px 6px; }
+.ptiles { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+.ptile { position: relative; display: flex; flex-direction: column; align-items: center; gap: 4px; padding: 10px 2px 8px; border: 0; border-radius: 14px; background: #1b262d; color: #fff; cursor: pointer; }
+.ptile:hover, .papp:hover:not(:disabled) { background: #26343d; } .ptile i { font-style: normal; font-size: 28px; line-height: 1; } .ptile b { font: 600 13px var(--hud); }
+.ptile em { position: absolute; top: 4px; right: 6px; font: 700 11px var(--hud); font-style: normal; background: #e5484d; color: #fff; border-radius: 9px; padding: 1px 6px; }
+.pcard { background: linear-gradient(135deg, #3a2a08, #1b262d); border: 2px solid var(--gold); border-radius: 14px; padding: 10px 12px; margin-bottom: 4px; }
+.pcard b { display: block; font: 700 17px var(--hud); color: var(--gold); } .pcard span { display: block; font: 500 14px var(--hud); color: #d9d2bd; margin: 2px 0 8px; }
+.pcard div { display: flex; gap: 6px; } .pcard button { font: 700 15px var(--hud); padding: 6px 12px; border-radius: 9px; border: 2px solid rgba(246,196,69,.6); background: #0d1418; color: #fff; cursor: pointer; } .pcard button.go { background: var(--gold); color: #111; }
+.papp.go { background: var(--gold); color: #111; } .papp.go span { color: #3a2f10; } .papp.on { outline: 2px solid #33d17a; }
+.pfoot { font: 600 14px var(--hud); color: #8fa3ab; text-align: center; margin-top: 12px; }
 .papp:disabled { opacity: .45; cursor: default; } .papp b { display: block; font: 700 17px var(--hud); } .papp span { font: 500 14px var(--hud); color: #a9b6bb; }
 .clip { background: linear-gradient(160deg, #2b1a4a, #11324a); border-radius: 16px; padding: 22px 16px; margin-bottom: 10px; text-align: center; color: #fff; }
 .clip-e { font-size: 54px; animation: bob 1.2s ease-in-out infinite; } .clip-t { font: 700 20px var(--hud); margin: 10px 0 6px; } .clip-c { font: 500 16px var(--hud); color: #d8d0ff; } .clip-u { font: 600 13px var(--hud); color: #9fb0b5; margin-top: 12px; }
@@ -128,6 +138,10 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #mapres li:hover { background: rgba(40,52,60,.96); }
 #mapres b { display: block; font: 700 17px var(--hud); color: #fff; }
 #mapres span { font: 500 14px var(--hud); color: #a9b6bb; }
+#mappin { position: fixed; z-index: 3; min-width: 200px; max-width: 280px; background: rgba(8,14,18,.96); border: 2px solid var(--gold); border-radius: 12px; padding: 10px 12px; color: #fff; box-shadow: 0 8px 24px rgba(0,0,0,.5); transform: translate(-50%, calc(-100% - 18px)); }
+#mappin b { display: block; font: 700 18px var(--hud); } #mappin span { display: block; font: 500 14px var(--hud); color: #a9b6bb; margin-bottom: 8px; }
+.pin-btns { display: flex; gap: 6px; } .pin-btns button { font: 700 16px var(--hud); padding: 7px 12px; border-radius: 9px; border: 2px solid rgba(246,196,69,.7); background: #1b262d; color: #fff; cursor: pointer; }
+#pin-go { background: var(--gold); color: #111; border-color: var(--gold); flex: 1; } .pin-btns button:disabled { opacity: .4; cursor: default; }
 #mapzoom { position: fixed; right: 16px; top: 16px; display: flex; flex-direction: column; gap: 6px; z-index: 2; }
 #mapzoom button { width: 44px; height: 44px; font: 700 22px var(--hud); border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: var(--gold); cursor: pointer; }
 #bigmap p { position: fixed; z-index: 2; pointer-events: none; bottom: 14px; left: 0; right: 0; text-align: center; margin: 0; font: 600 18px var(--hud); color: #c9d3d6; letter-spacing: .05em; }
@@ -210,7 +224,8 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
   <canvas id="bigc"></canvas>
   <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
   <div id="mapzoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zme" aria-label="Centre on me">◎</button><button type="button" id="zclear" aria-label="Clear waypoint">✕</button></div>
-  <p>Scroll or + − to zoom · drag to move · pick a result to set a waypoint · M to close</p>
+  <div id="mappin" hidden><b id="pin-name"></b><span id="pin-sub"></span><div class="pin-btns"><button type="button" id="pin-go">Go ▶</button><button type="button" id="pin-taxi">🚕 Taxi</button><button type="button" id="pin-x" aria-label="Remove pin">✕</button></div></div>
+  <p>Click anywhere to drop a pin, then press Go · double-click to go straight there · scroll to zoom · drag to move · M to close</p>
 </div>
 <div id="menu">
   <div class="card">

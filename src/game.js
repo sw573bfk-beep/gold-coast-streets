@@ -1578,6 +1578,11 @@ function drawBigMap() {
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
   strokeGPS(x, (wx, wz) => [wx, wz], 4 / S);
+  if (MAPV.pin) { // the pin you just dropped (not a destination until you press Go)
+    const u = 1 / S; x.strokeStyle = '#ffd21f'; x.lineWidth = 3 * u; x.fillStyle = 'rgba(255,210,31,0.35)';
+    x.beginPath(); x.arc(MAPV.pin.x, MAPV.pin.z, 9 * u, 0, TAU); x.fill(); x.stroke();
+    x.beginPath(); x.moveTo(MAPV.pin.x - 14 * u, MAPV.pin.z); x.lineTo(MAPV.pin.x + 14 * u, MAPV.pin.z); x.moveTo(MAPV.pin.x, MAPV.pin.z - 14 * u); x.lineTo(MAPV.pin.x, MAPV.pin.z + 14 * u); x.stroke();
+  }
   if (WAYPOINT) { // a pin with the place's name
     const px = WAYPOINT.x, pz = WAYPOINT.z, u = 1 / S;
     x.fillStyle = '#c3a6ff'; x.strokeStyle = '#000'; x.lineWidth = 2.5 * u;
@@ -1588,6 +1593,7 @@ function drawBigMap() {
   const s = 1.4 / S; x.fillStyle = '#f6c445'; x.strokeStyle = '#000'; x.lineWidth = 3 * s;
   x.beginPath(); x.moveTo(0, -14 * s); x.lineTo(10 * s, 10 * s); x.lineTo(0, 5 * s); x.lineTo(-10 * s, 10 * s); x.closePath(); x.stroke(); x.fill();
   x.restore();
+  if (MAPV.pin) { const el = $('mappin'); el.style.left = clamp(Wd / 2 + (MAPV.pin.x - MAPV.cx) * S, 150, Wd - 150) + 'px'; el.style.top = clamp(Ht / 2 + (MAPV.pin.z - MAPV.cz) * S, 150, Ht - 10) + 'px'; } // the card follows its pin
   // scale bar
   x.setTransform(dpr, 0, 0, dpr, 0, 0);
   const metres = [50, 100, 200, 500, 1000, 2000, 5000].find((m) => m * S > 80) || 5000, bw = metres * S;
@@ -1631,6 +1637,26 @@ function goToPlace(e) {
   const d = Math.hypot(e[2] - player.x, e[3] - player.z);
   GPS.t = 0; toast(`Waypoint: ${e[0]} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away · follow the yellow line · X to cancel`);
 }
+// click the big map: a pin with the nearest place or street, then Go (set the route) or take a taxi there
+function dropPin(px, py) {
+  const [x, z] = mapToWorld(px, py), S = mapFit() * MAPV.zoom;
+  let name = null, bd = 30 / S + 15;
+  if (REGION && REGION.search) for (const e of REGION.search) { const d = Math.hypot(e[2] - x, e[3] - z); if (d < bd && e[1] !== 0) { bd = d; name = e[0]; } }
+  const st = nearestStreet(x, z), d = Math.hypot(x - player.x, z - player.z), sub = REGION && REGION.suburbs.length ? suburbAt(x, z) : '';
+  MAPV.pin = { x, z, name: name || (st ? st : 'Dropped pin') };
+  $('pin-name').textContent = MAPV.pin.name;
+  $('pin-sub').textContent = `${name && st && st !== name ? st + ' · ' : ''}${sub ? sub + ' · ' : ''}${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away`;
+  const fare = Math.round(5 + d / 1000 * 2.6), taxiOk = player.state === 'foot' && player.money >= fare;
+  $('pin-taxi').textContent = `🚕 Taxi $${fare}`; $('pin-taxi').disabled = !taxiOk; $('pin-taxi').title = taxiOk ? '' : player.state !== 'foot' ? 'get out of the car first' : 'not enough cash';
+  $('mappin').hidden = false; drawBigMap();
+}
+function pinGo() {
+  const P = MAPV.pin; if (!P) return;
+  WAYPOINT = { name: P.name, x: P.x, z: P.z }; GPS.t = 0; MAPV.pin = null; $('mappin').hidden = true;
+  const d = Math.hypot(P.x - player.x, P.z - player.z);
+  if (bigMapOpen) toggleMap();
+  toast(`Heading to ${P.name} — ${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} · follow the yellow line · X to cancel`);
+}
 function initBigMap() {
   const c = $('bigc'); let drag = null;
   c.addEventListener('wheel', (e) => { e.preventDefault(); zoomMap(e.deltaY < 0 ? 1.2 : 1 / 1.2, e.clientX, e.clientY); }, { passive: false });
@@ -1640,7 +1666,11 @@ function initBigMap() {
     if (Math.abs(dx) + Math.abs(dy) > 4) drag.moved = true;
     MAPV.cx = drag.cx - dx / S; MAPV.cz = drag.cz - dy / S; drawBigMap();
   });
-  c.addEventListener('pointerup', () => { drag = null; });
+  c.addEventListener('pointerup', (e) => { if (drag && !drag.moved) dropPin(e.clientX, e.clientY); drag = null; });
+  c.addEventListener('dblclick', (e) => { dropPin(e.clientX, e.clientY); pinGo(); });
+  $('pin-go').addEventListener('click', pinGo);
+  $('pin-taxi').addEventListener('click', () => { if (!MAPV.pin) return; pinGo(); taxi(); });
+  $('pin-x').addEventListener('click', () => { MAPV.pin = null; $('mappin').hidden = true; drawBigMap(); });
   $('mapq').addEventListener('input', renderSearch);
   $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
   $('zin').addEventListener('click', () => zoomMap(1.6)); $('zout').addEventListener('click', () => zoomMap(1 / 1.6));
@@ -1802,7 +1832,7 @@ window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; }
 function toggleMap() {
   bigMapOpen = !bigMapOpen; $('bigmap').hidden = !bigMapOpen;
   if (bigMapOpen) { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
-  else { $('mapq').blur(); lockPointer(); }
+  else { $('mapq').blur(); MAPV.pin = null; $('mappin').hidden = true; lockPointer(); }
 }
 initBigMap();
 function setPaused(p) {

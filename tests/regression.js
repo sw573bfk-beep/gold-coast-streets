@@ -406,6 +406,23 @@ window.runRegression = async () => {
     expect(b.broken, 'post still standing'); expect(past, 'car stopped dead'); expect(L && L.ang > 1.2, 'post did not fall');
     return 'post down, car through';
   });
+  // ---------------------------------------------------------------- V9.3: click-to-go map, organised phone
+  await test('map: click drops a pin and Go sets the route', async () => {
+    quiet(); WAYPOINT = null; toggleMap(); const px = innerWidth * 0.3, py = innerHeight * 0.6; dropPin(px, py);
+    const pin = MAPV.pin; expect(pin && !$('mappin').hidden, 'no pin card'); pinGo();
+    const ok = WAYPOINT && Math.hypot(WAYPOINT.x - pin.x, WAYPOINT.z - pin.z) < 1 && !bigMapOpen; const nm = WAYPOINT && WAYPOINT.name; cancelDestination();
+    expect(ok, 'Go did not set the destination'); return `pin “${nm}”`;
+  });
+  await test('phone: home screen is organised and the heist planner walks through bank, crew, start', async () => {
+    quiet(); openPhone(); const tiles = [...document.querySelectorAll('.ptile b')].map((b) => b.textContent);
+    expect(['Map', 'Taxi', 'Bank heist', 'Hold-ups', 'Jobs', 'TikTak'].every((t) => tiles.includes(t)), 'missing apps: ' + tiles.join(','));
+    player.money = 5000; HEIST.stage = 0; HEIST.crew = {}; phoneApp('heist');
+    const pickBank = [...document.querySelectorAll('#phone-body .papp')].find((b) => b.textContent.startsWith('🏦')); expect(pickBank, 'no banks listed'); pickBank.click();
+    const hire = [...document.querySelectorAll('#phone-body .papp')].find((b) => /Hacker/.test(b.textContent)); hire.click();
+    expect(HEIST.stage === 1 && HEIST.crew.hacker && player.money === 4100, 'hiring failed');
+    phoneApp('home'); expect(document.querySelector('.pcard'), 'no active job card');
+    HEIST.stage = 0; HEIST.crew = {}; closePhone(); return `${tiles.length} apps, heist planned`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');
