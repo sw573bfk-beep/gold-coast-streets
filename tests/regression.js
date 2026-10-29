@@ -134,6 +134,65 @@ window.runRegression = async () => {
     [...document.querySelectorAll('#shop-body .srow')].find((r) => /repair/i.test(r.textContent)).querySelector('button').click(); closeShop();
     expect(c.health === 100 && player.money === 140, `health ${c.health} money ${player.money}`); c.remove(); return `${f.name}: $200 → $140, car fixed`;
   });
+  // ---------------------------------------------------------------- Version 6: hills, houses, towers
+  await test('hills: the Burleigh hinterland stands well above the beach', async () => {
+    await goToTile(-28.0911, 153.4487); let peak = 0;
+    for (const T of TILES.values()) if (T.hgt) for (const v of T.hgt) peak = Math.max(peak, v);
+    expect(peak > 30, 'highest ground only ' + peak.toFixed(1) + ' m'); return `peak ${peak.toFixed(0)} m`;
+  });
+  await test('a car left on a slope rolls downhill and tilts with the road', async () => {
+    let best = null;
+    for (const T of TILES.values()) if (T.hgt) for (let j = 1; j < 99; j += 2) for (let i = 1; i < 99; i += 2) {
+      const k = j * 101 + i, sx = (T.hgt[k + 1] - T.hgt[k - 1]) / 20, sz = (T.hgt[k + 101] - T.hgt[k - 101]) / 20, sl = Math.hypot(sx, sz);
+      if (sl > 0.08 && sl < 0.25 && (!best || sl > best.sl)) best = { sl, x: T.x0 + i * 10, z: T.z0 + j * 10, sx, sz };
+    }
+    expect(best, 'no slope found');
+    const c = new Car('sedan', null, best.x, best.z, Math.atan2(-best.sx, -best.sz)); cars.push(c); c.setDriver('test'); c.input = { t: 0, b: 0, s: 0, hb: 0 };
+    const g0 = groundAt(c.x, c.z); for (let k = 0; k < 120; k++) { c.step(1 / 60); c.sync(1 / 60); }
+    const ok = c.speed > 0.8 && c.alt < g0 && Math.abs(c.tp) > 0.03; const msg = `speed ${c.speed.toFixed(1)}, dropped ${(g0 - c.alt).toFixed(1)} m, pitch ${c.tp.toFixed(2)}`; c.remove();
+    expect(ok, msg); return msg;
+  });
+  let testHouse = null;
+  await test('houses: kicking in a front door calls the cops and the rooms are built', async () => {
+    await goToTile(-28.075, 153.392); const T = tileAt(player.x, player.z);
+    testHouse = T.houses.find((h) => h.doors.length === 2 && (h.x1 - h.x0) * (h.z1 - h.z0) > 150); expect(testHouse, 'no house with two doors');
+    const fd = testHouse.doors.find((d) => d.type === 'front'); player.stars = 0;
+    player.x = fd.x + fd.nx; player.z = fd.z + fd.nz; for (let k = 0; k < 10; k++) stepWorld(1 / 60);
+    expect(testHouse.inside, 'interior not built'); houseUse(); for (let k = 0; k < 40; k++) stepWorld(1 / 60);
+    expect(fd.open > 0.9, 'door did not open'); expect(player.stars >= 2, 'no police'); const n = testHouse.inside.loot.length; player.stars = 0;
+    return `door open, ${n} things to steal`;
+  });
+  await test('houses: loot adds money and stays taken', async () => {
+    const L = testHouse.inside.loot.find((q) => !q.taken); expect(L, 'nothing to take');
+    player.x = L.x; player.z = L.z; const m0 = player.money; houseUse(); expect(player.money === m0 + L.value, 'money unchanged'); return `+$${L.value}`;
+  });
+  await test('houses: jumping a side fence puts you on the other side quietly', async () => {
+    const T = tileAt(player.x, player.z); const F = T.fences[0]; expect(F, 'no fences');
+    const mx = (F[0] + F[2]) / 2, mz = (F[1] + F[3]) / 2, L = Math.hypot(F[2] - F[0], F[3] - F[1]), nx = -(F[3] - F[1]) / L, nz = (F[2] - F[0]) / L;
+    player.x = mx + nx * 0.6; player.z = mz + nz * 0.6; player.h = Math.atan2(-nx, -nz);
+    expect(tryVault(), 'no vault'); for (let k = 0; k < 50; k++) stepWorld(1 / 60);
+    expect((player.x - mx) * nx + (player.z - mz) * nz < 0, 'still on the same side'); return 'over';
+  });
+  await test('towers: Q1 lobby, lift to level 70 and back down, then out', async () => {
+    home(); const bn = MAP.details.bnames, qi = Object.keys(bn).find((k) => /^Q1/.test(bn[k])), f = MAP.buildings[qi].slice(3);
+    let e = null; for (let q = 0; q < f.length / 2; q++) { const L = Math.hypot(f[(2 * q + 2) % f.length] - f[2 * q], f[(2 * q + 3) % f.length] - f[2 * q + 1]); if (!e || L > e.L) e = { q, L }; }
+    const ax = f[2 * e.q], az = f[2 * e.q + 1], bx = f[(2 * e.q + 2) % f.length], bz = f[(2 * e.q + 3) % f.length];
+    let nx = (bz - az) / e.L, nz = -(bx - ax) / e.L; if (inRing((ax + bx) / 2 + nx * 0.5, (az + bz) / 2 + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+    player.x = (ax + bx) / 2 + nx; player.z = (az + bz) / 2 + nz; for (let k = 0; k < 5; k++) stepWorld(1 / 60);
+    expect(towerUse() && TOWER && inTower(player.x, player.z), 'could not go in'); expect(TOWER.floors === 77, 'floors ' + TOWER.floors);
+    rideLift(70); expect(Math.abs(standAt(player.x, player.z) - TOWER.y) < 0.01 && TOWER.y > 200, 'not up high');
+    rideLift(0); player.x = TOWER.exit.ix; player.z = TOWER.exit.iz; expect(towerUse() && !TOWER, 'could not leave'); return 'level 70 at 218 m';
+  });
+  await test('towers: a shopping centre has shops you can buy from', async () => {
+    await goToTile(-27.9995 - 4067 / 110574, 153.4235 + 440 / (Math.cos(-27.9995 * Math.PI / 180) * 111320)); let E = null; // Pacific Fair
+    for (const B of bigBuildingsNear(player.x, player.z, 400)) if (B.kind === 'mall' && (!E || B.area > E.area)) E = B;
+    expect(E, 'no shopping centre found'); const f = E.f; let e = null;
+    for (let q = 0; q < f.length / 2; q++) { const L = Math.hypot(f[(2 * q + 2) % f.length] - f[2 * q], f[(2 * q + 3) % f.length] - f[2 * q + 1]); if (!e || L > e.L) e = { q, L }; }
+    const ax = f[2 * e.q], az = f[2 * e.q + 1], bx = f[(2 * e.q + 2) % f.length], bz = f[(2 * e.q + 3) % f.length], L = e.L;
+    let nx = (bz - az) / L, nz = -(bx - ax) / L; if (inRing((ax + bx) / 2 + nx * 0.5, (az + bz) / 2 + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+    player.x = (ax + bx) / 2 + nx; player.z = (az + bz) / 2 + nz; expect(towerUse() && TOWER && TOWER.kind === 'mall', 'not inside');
+    const n = TOWER.shops.length, name = TOWER.name; leaveTower(); expect(n >= 4, 'only ' + n + ' shops'); return `${name}: ${n} shops`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

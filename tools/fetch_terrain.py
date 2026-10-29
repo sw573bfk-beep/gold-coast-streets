@@ -26,8 +26,9 @@ def fetch(url, path, expect, tries=8):
         if os.path.exists(path + '.part') and os.path.getsize(path + '.part') >= expect:
             os.replace(path + '.part', path)
             return True
-        print('  retry', attempt + 1, flush=True)
-        time.sleep(10 * (attempt + 1))
+        if attempt + 1 < tries:
+            print('  retry', attempt + 1, flush=True)
+            time.sleep(10 * (attempt + 1))
     if os.path.exists(path + '.part'): os.remove(path + '.part')
     return False
 
@@ -35,10 +36,10 @@ def fetch(url, path, expect, tries=8):
 def fetch_split(make_url, path, w0, s, e0, n, cw, ch, bands, nbytes):
     """Some areas (open ocean, the edges of photo runs) refuse to export. Split into quarters down to 128 px,
     keep the parts that work and leave the rest zero (the builder treats zero pixels as no photo)."""
-    if fetch(make_url(w0, s, e0, n, cw, ch), path, cw * ch * bands * nbytes, tries=2):
+    if fetch(make_url(w0, s, e0, n, cw, ch), path, cw * ch * bands * nbytes, tries=2 if cw >= 1024 else 1):
         return open(path, 'rb').read()[:cw * ch * bands * nbytes]
     out = bytearray(cw * ch * bands * nbytes)
-    if cw <= 128: return out
+    if cw <= 256: return out
     hw, hh = cw // 2, ch // 2
     for (qx, qy, qw, qh) in ((0, 0, hw, hh), (hw, 0, cw - hw, hh), (0, hh, hw, ch - hh), (hw, hh, cw - hw, ch - hh)):
         lon0 = w0 + (e0 - w0) * qx / cw; lon1 = w0 + (e0 - w0) * (qx + qw) / cw

@@ -239,7 +239,9 @@ function houseAt(x, z) {
   return null;
 }
 // where your feet are: a house floor when inside one, otherwise the ground
-function standAt(x, z) { const H = houseAt(x, z); return H ? H.floorY : groundAt(x, z); }
+function standAt(x, z) { if (TOWER && inRing(x, z, TOWER.f)) return TOWER.y; const H = houseAt(x, z); return H ? H.floorY : groundAt(x, z); }
+// indoors (a house or a tower level): the ceiling the camera stays under, or null outside
+function indoorAt(x, z) { if (TOWER && inRing(x, z, TOWER.f)) return TOWER.level > TOWER.floors ? null : { top: TOWER.ceil }; const H = houseAt(x, z); return H && H.inside ? { top: H.inside.top } : null; }
 function nearestDoor(x, z, maxD) {
   let best = null, bd = maxD;
   for (const H of houseCandidates(x, z, 30)) for (const d of H.doors) { if (!d.mesh) continue; const dd = Math.hypot(d.x - x, d.z - z); if (dd < bd) { bd = dd; best = d; } }

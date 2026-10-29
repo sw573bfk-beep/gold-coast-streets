@@ -604,15 +604,23 @@ def scan_photo(ti, tj, tt):
             for px in range(max(0, int((min(xs) - x0) / P)), min(N, int((max(xs) - x0) / P) + 1)):
                 if pip((x0 + (px + 0.5) * P, z0 + (py + 0.5) * P), poly): occ[py * N + px] = 1
     cls = bytearray(N * N)  # 1 pool, 2 canopy
+    S = AIR.size
+    cols = [int(round(AIR.px(LAT0, LON0 + (x0 + (px + 0.5) * P) / KX)[0])) for px in range(N)]  # photo column for each tile pixel
     for py in range(N):
-        lat = LAT0 - (z0 + (py + 0.5) * P) / KZ
+        yy = int(round(AIR.px(LAT0 - (z0 + (py + 0.5) * P) / KZ, LON0)[1]))
+        if yy < 0 or yy >= AIR.h: continue
+        row = py * N
         for px in range(N):
-            if occ[py * N + px]: continue
-            c = AIR.rgb(lat, LON0 + (x0 + (px + 0.5) * P) / KX)
-            if not c: continue
-            r, g, b = c
-            if b > 140 and g > 120 and r < 135 and b - r > 55 and g - r > 30: cls[py * N + px] = 1
-            elif g > r + 6 and g >= b and r + g + b < 260: cls[py * N + px] = 2
+            if occ[row + px]: continue
+            xx = cols[px]
+            if xx < 0 or xx >= AIR.w: continue
+            ch = AIR.chunks.get((yy // S, xx // S))
+            if not ch: continue
+            cw, chh, data = ch; o = (yy % S) * cw + (xx % S); plane = cw * chh
+            r = data[o]; g = data[o + plane]; b = data[o + 2 * plane]
+            if r == 0 and g == 0 and b == 0: continue
+            if b > 140 and g > 120 and r < 135 and b - r > 55 and g - r > 30: cls[row + px] = 1
+            elif g > r + 6 and g >= b and r + g + b < 260: cls[row + px] = 2
     seen = bytearray(N * N); pools, crowns = [], []
     for start in range(N * N):
         k = cls[start]

@@ -100,7 +100,7 @@ async function loadTile(i, j) {
     if (!res.ok) throw new Error('HTTP ' + res.status);
     const data = await res.json();
     if (!TILES.has(k)) return; // unloaded while fetching
-    T.roads = data.roads; T.names = data.names; if (data.hgt) T.hgt = decodeHeights(data.hgt);
+    T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) T.hgt = decodeHeights(data.hgt);
     tileGround(T, data); await tileYield(); if (!TILES.has(k)) return;
     tileRoads(T, data); await tileYield(); if (!TILES.has(k)) return;
     const plan = planFronts(data);

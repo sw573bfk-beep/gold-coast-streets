@@ -1140,7 +1140,7 @@ function useKey() {
   if (player.deadT > 0) return;
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state !== 'foot') return;
-  if (houseUse()) return;
+  if (towerUse() || houseUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const c = nearestEnterableCar(); if (c) startEnter(c);
@@ -1255,7 +1255,7 @@ function updateCamera(dt) {
   } else {
     const low = player.state === 'tackled' || player.state === 'cuffed' || player.state === 'down';
     tx = player.x; ty = standAt(player.x, player.z) + player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
-    const inShop = shopAt(player.x, player.z), inHouse = houseAt(player.x, player.z);
+    const inShop = shopAt(player.x, player.z), inHouse = indoorAt(player.x, player.z);
     if (inShop) dist = 3.0;
     if (inHouse) { dist = 2.6; camPitch = Math.min(camPitch, 0.35); tx += -Math.cos(camYaw) * 0.55; tz += Math.sin(camYaw) * 0.55; ty -= 0.25; } // over the shoulder
     if (aiming) { tx += -Math.cos(camYaw) * 0.6; tz += Math.sin(camYaw) * 0.6; ty += 0.05; dist = 2.2; }
@@ -1264,13 +1264,13 @@ function updateCamera(dt) {
   camera.updateProjectionMatrix();
   const cp = Math.cos(camPitch), fx = Math.sin(camYaw) * cp, fy = -Math.sin(camPitch), fz = Math.cos(camYaw) * cp;
   const cx = tx - fx * dist, cz = tz - fz * dist;
-  const inside = player.state !== 'car' && houseAt(player.x, player.z);
+  const inside = player.state !== 'car' && indoorAt(player.x, player.z);
   const t = rayWalls(tx, tz, cx, cz, inside ? 1 : 3);
   const allowed = t < 1 ? Math.max(1.2, dist * t - 0.5) : dist;
   camDist = allowed < camDist ? allowed : lerp(camDist, allowed, Math.min(1, dt * 2.5));
   let px = tx - fx * camDist, py = ty - fy * camDist, pz = tz - fz * camDist;
   py = Math.max(py, isLand(px, pz) ? groundAt(px, pz) + 0.4 : -0.2);
-  if (inside && inside.inside) py = Math.min(py, inside.inside.top - 0.25); // under the ceiling
+  if (inside) py = Math.min(py, inside.top - 0.25); // under the ceiling
   if (shake > 0) { px += rr(-1, 1) * shake * 0.25; py += rr(-1, 1) * shake * 0.25; pz += rr(-1, 1) * shake * 0.25; shake = Math.max(0, shake - dt * 2); }
   camera.position.set(px, py, pz);
   camera.lookAt(tx, ty + 0.2, tz);
@@ -1605,7 +1605,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt);
+  updateTiles(dt); updateHouses(dt); updateTowers(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
