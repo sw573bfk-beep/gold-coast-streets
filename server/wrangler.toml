@@ -1,0 +1,17 @@
+name = "gold-coast-streets-online"
+main = "src/index.js"
+account_id = "8859192e3ec70410341f57569d7da75f" # Sw573bfk@gmail.com's Account (has the sw573bfk.workers.dev address)
+compatibility_date = "2024-12-01"
+
+# one World object per world (room code), and one Lobby that lists the public worlds
+[[durable_objects.bindings]]
+name = "WORLD"
+class_name = "World"
+
+[[durable_objects.bindings]]
+name = "LOBBY"
+class_name = "Lobby"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["World", "Lobby"]

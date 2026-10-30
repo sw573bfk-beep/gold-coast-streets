@@ -1205,7 +1205,7 @@ function rebuildPlayer() {
   player.model = makePerson(player.look); scene.add(player.model.root);
   player.model.root.visible = vis;
   if (player.car && player.state === 'car') setDriverLook(player.car.model, player.look);
-  attachGun();
+  attachGun(); netLook();
 }
 function sidewalkNear(x, z) {
   const ne = nearestEdge(x, z); const E = EDGES[ne.e];
@@ -1453,6 +1453,7 @@ function updatePlayer(dt) {
         const dx = p.x - player.x, dz = p.z - player.z;
         if (Math.hypot(dx, dz) < 1.5 && (dx * hx + dz * hz) > 0.2) { p.punched(hx, hz); scareNear(p.x, p.z, 20); hitSomeone = true; break; }
       }
+      if (!hitSomeone) hitSomeone = punchPeers(hx, hz);
       sfxNoise(0.08, hitSomeone ? 1200 : 2400, hitSomeone ? 0.3 : 0.1);
     }
   }
@@ -1619,6 +1620,7 @@ function drawMinimap() {
   for (const d of DEALERS) if (Math.abs(d.x - tx) < 400 && Math.abs(d.z - tz) < 400) { dot(d.x, d.z, 9, '#000'); dot(d.x, d.z, 7, '#ff3030'); }
   for (const sh of SHOPS) if (sh.kind === 'bank' && Math.abs(sh.x - tx) < 400 && Math.abs(sh.z - tz) < 400) { dot(sh.x, sh.z, 9, '#000'); dot(sh.x, sh.z, 7, '#33d17a'); }
   for (const P of ECON.props) if (Math.abs(P.x - tx) < 400 && Math.abs(P.z - tz) < 400) { dot(P.x, P.z, 10, '#000'); dot(P.x, P.z, 8, '#ff9f43'); } // your places
+  for (const P of NET.peers.values()) if (P.s) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#5ee0c8'); } // other players online
   for (const t of trams) for (const md of t.mods) if (Math.abs(md.x - tx) < 300 && Math.abs(md.z - tz) < 300) dot(md.x, md.z, 4, '#2ec4b6');
   for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 7, Math.floor(elapsed * 4) % 2 ? '#ff3b3b' : '#3b7bff');
   for (const p of peds) if (p.cop) dot(p.x, p.z, 5, '#6aa8ff');
@@ -1697,6 +1699,7 @@ function drawBigMap() {
   for (const d of DEALERS) { dot(d.x, d.z, 5, '#ff3030'); }
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
   for (const P of ECON.props) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#ff9f43'); }
+  for (const P of NET.peers.values()) if (P.s) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#5ee0c8'); label(P.name, P.x, P.z - 18 / S, 13, '#5ee0c8'); }
   if (hasGear('scanner')) for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 5, '#3b7bff'); // the scanner app
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
@@ -2186,7 +2189,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!ready) return;
-  updateTouch();
+  updateTouch(); updateNet(dt); // online: keeps sending and showing other players even while paused
   if (!started || paused || bigMapOpen || uiOpen) {
     if (!started) { camYaw += dt * 0.05; elapsed += dt; updateCamera(dt); updateSky(0); }
     if (uiOpen) { elapsed += dt; updateCamera(dt); if (MG.active) mgUpdate(dt); }

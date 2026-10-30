@@ -11,3 +11,5 @@ data/extension_fetch.log
 data/imagery_fetch.log
 dist/packs/
 data/build_tiles_v9.log
+server/node_modules/
+server/.wrangler/

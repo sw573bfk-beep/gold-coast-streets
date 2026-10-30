@@ -668,6 +668,16 @@ window.runRegression = async () => {
     setStick(0, -1); const fw = keys.KeyW && keys.ShiftLeft; setStick(-0.6, 0); const left = keys.KeyA && !keys.KeyW; setStick(0, 0);
     expect(fw && left && !keys.KeyA, `forward ${fw}, left ${left}`); return 'forward + sprint, left, centred';
   });
+  // ---------------------------------------------------------------- V12: online
+  await test('online: other players are drawn from what the server sends, and their data is cleaned first', () => {
+    const L = safeLook({ shirt: '#ff0000', hair: 'red; background:url(x)', hairStyle: 'mohawk', tats: { sleeves: true, neck: 'yes' }, evil: 1 });
+    expect(L.shirt === '#ff0000' && L.hair === '#3b2a1e' && !L.evil && L.hairStyle === 'mohawk' && L.tats.sleeves && !L.tats.neck, JSON.stringify(L));
+    const P = addPeer('test1', 'Tester', L); peerState(P, { m: 'c', x: player.x + 5, z: player.z, y: 0, h: 0, ty: 'sports', co: '#e23b2a' }); updatePeers(0.1);
+    const car = P.veh && P.veh.kind === 'car', hit = castShot([player.x, 1.2, player.z], [1, 0, 0], 30, null).kind;
+    peerState(P, { m: 'f', x: player.x + 5, z: player.z, y: 0, h: 0 }); updatePeers(0.1); const onFoot = !P.veh && P.person.root.visible;
+    dropPeer(P); NET.peers.delete('test1'); const s = myState();
+    expect(car && hit === 'peer' && onFoot && s.m === 'f', `car ${car}, shot ${hit}, on foot ${onFoot}, state ${s.m}`); return 'car, then on foot; a shot hits them; looks cleaned';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

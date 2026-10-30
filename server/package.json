@@ -1,0 +1,7 @@
+{
+  "name": "gold-coast-streets-online",
+  "private": true,
+  "description": "The online world server: a Cloudflare Worker with one Durable Object per world.",
+  "scripts": { "deploy": "wrangler deploy", "dev": "wrangler dev" },
+  "devDependencies": { "wrangler": "3.99.0" }
+}

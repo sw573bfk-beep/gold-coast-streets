@@ -23,10 +23,11 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Getting around'); grid = null;
+    tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
     tile('🗺️', 'Map', () => { closePhone(); toggleMap(); });
     tile('🚕', 'Taxi', () => phoneApp('travel'));
     tile('🚗', 'My cars', () => phoneApp('cars'), ECON.garage.length ? String(ECON.garage.length) : '');
@@ -74,6 +75,7 @@ function phoneApp(app) {
       btn(`${J.name} · $${jobRate(k)} a task`, at ? `${at.name} · ${km(at.x, at.z)} · ${jobState(k).shifts} shifts done` : 'no workplace nearby', () => at && directions(at.name, at.x, at.z), !!at);
     }
   } else if (app === 'clips') { back(); showClip(); }
+  else if (app === 'online') { back(); onlineApp(btn, head); }
   else if (app === 'rocco') { back(); roccoApp(btn, head); }
   else if (app === 'realty') { back(); realtyApp(btn, head); }
   else if (app === 'listing') { btn('← Listings', '', () => phoneApp('realty')); listingApp(btn, head); }

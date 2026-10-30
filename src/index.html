@@ -179,6 +179,9 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
 .tuse { right: 104px; bottom: 30px; } .tjump { right: 26px; bottom: 96px; } .tfire { right: 26px; bottom: 176px; width: 72px; height: 72px; } .taim { right: 108px; bottom: 112px; }
 .twep { right: 182px; bottom: 30px; width: 52px; height: 52px; font-size: 18px; }
 .tphone, .tmap, .tradio, .tpause { width: 48px; height: 48px; font-size: 20px; top: 50%; right: 14px; } .tphone { margin-top: -110px; } .tmap { margin-top: -54px; } .tradio { margin-top: 2px; } .tpause { margin-top: -166px; }
+#net { position: fixed; left: 18px; top: 14px; z-index: 5; font: 600 15px var(--hud); color: #5ee0c8; background: rgba(8,14,18,.7); padding: 4px 10px; border-radius: 8px; pointer-events: none; } body.touch #net { top: 140px; }
+.pinput { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
+.psays { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; } .psays button { border: 0; border-radius: 16px; padding: 7px 11px; background: #26343d; color: #fff; font: 600 14px var(--hud); cursor: pointer; }
 </style>
 <div id="view"></div>
 <div class="hud" id="tr">
@@ -232,6 +235,7 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
   <button id="wardrobe-done" type="button">Done</button>
 </div>
 <div id="jobhud" hidden></div>
+<div id="net" hidden></div>
 <div id="radio" hidden></div>
 <div id="flighthud" hidden><div class="fh-row"><div><b id="fh-spd">0</b><small>KM/H</small></div><div><b id="fh-alt">0</b><small>M HIGH</small></div><div><b id="fh-vs">0</b><small>M/S CLIMB</small></div></div><div class="fh-thr"><span>POWER</span><i><em id="fh-thr"></em></i></div><div id="fh-tip"></div></div>
 <div id="phone" hidden><div class="phone-top"><b id="phone-title">Phone</b><button id="phone-close" type="button" aria-label="Close phone">✕</button></div><div id="phone-body"></div></div>

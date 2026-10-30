@@ -68,6 +68,7 @@ function castShot(o, d, maxD, shooterPed) {
     body(p.x, p.z, p.state === 'down' ? 0.45 : 1.9, p.state === 'down' ? 0.7 : 0.42, 'ped', p);
   }
   for (const sh of SHOPS) if (sh.keeper) body(sh.kx, sh.kz, 1.9, 0.42, 'keeper', sh);
+  if (!shooterPed) for (const P of peerTargets()) body(P.x, P.z, P.s.m === 'c' ? 1.5 : 1.9, P.s.m === 'c' ? 1.0 : 0.42, 'peer', P); // other players online
   if (shooterPed && player.deadT === 0) body(player.x, player.z, player.state === 'car' ? 1.5 : 1.9, player.state === 'car' ? 1.0 : 0.42, 'player', null);
   for (const c of cars) {
     if (c === player.car && !shooterPed) continue;
@@ -132,6 +133,9 @@ function applyHit(hit, hp, d, dmg, byPlayer) {
     else { p.state = 'stagger'; p.t = 0.4; p.vx = d[0] * 2; p.vz = d[2] * 2; }
     for (let i = 0; i < 4; i++) emit(hp[0], hp[1], hp[2], rr(-1, 1), rr(0, 2), rr(-1, 1), 0.25, 0.15, 0.05, '#f2e0c8', 1);
     if (byPlayer) addCrime(p.cop ? 2 : 1, p.cop ? 'shootCop' : 'shootPed', p.cop);
+  } else if (hit.kind === 'peer') {
+    if (byPlayer) netHit(hit.obj, dmg * (player.weapon === 'shotgun' ? 6 : 12));
+    for (let i = 0; i < 4; i++) emit(hp[0], hp[1], hp[2], rr(-1, 1), rr(0, 2), rr(-1, 1), 0.25, 0.15, 0.05, '#f2e0c8', 1);
   } else if (hit.kind === 'keeper') {
     if (byPlayer) { hit.obj.robbedAt = elapsed; addCrime(1, 'shootPed'); }
   } else if (hit.kind === 'car') {
