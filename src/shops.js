@@ -113,19 +113,22 @@ const WALLC = { escape: '#3a3028', food: '#f2e6d2', icecream: '#fde9f2', cafe: '
 function roomFrame(sh) { // room coordinates: u along the shopfront, v inward, y up
   return (u, v, y) => [sh.ax + sh.ex * u + sh.ix * v, y, sh.az + sh.ez * u + sh.iz * v];
 }
-function quad4(B, a, b, c, d, colr, shade) {
-  const r = colr.r * shade, g = colr.g * shade, bl = colr.b * shade;
+// ao: per-corner shade (a, b, c, d), darker towards the floor so things look grounded
+function quad4(B, a, b, c, d, colr, shade, ao) {
   B.pos.push(...a, ...b, ...c, ...a, ...c, ...d);
-  for (let i = 0; i < 6; i++) B.col.push(r, g, bl);
+  const k = ao || [1, 1, 1, 1];
+  for (const i of [0, 1, 2, 0, 2, 3]) { const s = shade * k[i]; B.col.push(colr.r * s, colr.g * s, colr.b * s); }
 }
-function ibox(B, P, u0, u1, v0, v1, y0, y1, hex) {
-  const c = col(hex);
-  const p = (u, v, y) => P(u, v, y);
-  quad4(B, p(u0, v0, y1), p(u1, v0, y1), p(u1, v1, y1), p(u0, v1, y1), c, 1.0);       // top
-  quad4(B, p(u0, v0, y0), p(u1, v0, y0), p(u1, v0, y1), p(u0, v0, y1), c, 0.86);     // front (towards the door)
-  quad4(B, p(u0, v1, y0), p(u1, v1, y0), p(u1, v1, y1), p(u0, v1, y1), c, 0.8);
-  quad4(B, p(u0, v0, y0), p(u0, v1, y0), p(u0, v1, y1), p(u0, v0, y1), c, 0.72);
-  quad4(B, p(u1, v0, y0), p(u1, v1, y0), p(u1, v1, y1), p(u1, v0, y1), c, 0.72);
+const _ibc = new THREE.Color();
+// glow > 1 lifts the colour above white so the bloom picks it up (fridge lights, screens, neon)
+function ibox(B, P, u0, u1, v0, v1, y0, y1, hex, glow = 1) {
+  const c = _ibc.set(hex).multiplyScalar(glow), p = (u, v, y) => P(u, v, y);
+  const lo = glow > 1 ? 1 : 0.78 + 0.22 * Math.min(1, y0 / 2.2), hi = glow > 1 ? 1 : 0.78 + 0.22 * Math.min(1, y1 / 2.2), ao = [lo, lo, hi, hi];
+  quad4(B, p(u0, v0, y1), p(u1, v0, y1), p(u1, v1, y1), p(u0, v1, y1), c, 1.0);           // top
+  quad4(B, p(u0, v0, y0), p(u1, v0, y0), p(u1, v0, y1), p(u0, v0, y1), c, 0.86, ao);     // front (towards the door)
+  quad4(B, p(u0, v1, y0), p(u1, v1, y0), p(u1, v1, y1), p(u0, v1, y1), c, 0.8, ao);
+  quad4(B, p(u0, v0, y0), p(u0, v1, y0), p(u0, v1, y1), p(u0, v0, y1), c, 0.72, ao);
+  quad4(B, p(u1, v0, y0), p(u1, v1, y0), p(u1, v1, y1), p(u1, v0, y1), c, 0.72, ao);
 }
 const MENU_TEX = {};
 function menuTexture(kind) {
@@ -144,17 +147,10 @@ function menuTexture(kind) {
   const t = new THREE.CanvasTexture(c); t.encoding = THREE.sRGBEncoding; t.anisotropy = MAX_ANISO;
   return (MENU_TEX[kind] = new THREE.MeshBasicMaterial({ map: t, toneMapped: false }));
 }
-function furnish(B, sh, P) {
+// the attractions (Ripley's, arcades, fun parks) keep their own fit-out; everything else is in interiors.js
+function furnishSpecial(B, sh, P) {
   const W = sh.t1 - sh.t0, D = sh.depth, u0 = sh.t0, u1 = sh.t1, k = sh.kind;
   const cv = sh.counterV, cw = 0.7;
-  const counterCol = { bar: '#5a3a26', ripley: '#3b2a55', arcade: '#3a1d6e', bank: '#8a6a4a', hotel: '#6b4a32', cafe: '#6b4a32' }[k] || '#d9dde0';
-  const front = { food: '#d94e3a', icecream: '#f08ab8', convenience: '#2f7fb8', clothes: '#2b2b2b', pharmacy: '#2f9a5b', shop: '#c98a3a', service: '#2f5f8a', fun: '#7a3e9a' }[k] || counterCol;
-  if (k === 'bank') {
-    ibox(B, P, u0 + 0.2, u1 - 0.2, cv - cw / 2, cv + cw / 2, 0, 1.1, '#8a6a4a');
-    for (let u = u0 + 1.2; u < u1 - 0.8; u += 1.6) ibox(B, P, u - 0.03, u + 0.03, cv - 0.05, cv + 0.05, 1.1, 2.4, '#9aa2a6');
-    ibox(B, P, u0 + W / 2 - 0.9, u0 + W / 2 + 0.9, D - 0.08, D - 0.02, 0.4, 2.2, '#9aa2a6'); // vault door
-  } else ibox(B, P, u0 + 0.5, u1 - 0.5, cv - cw / 2, cv + cw / 2, 0, 1.05, front);
-  ibox(B, P, u0 + 0.45, u1 - 0.45, cv - cw / 2 - 0.05, cv + cw / 2 + 0.05, 1.05, 1.12, counterCol);
   const mid = (u0 + u1) / 2, space = cv - cw / 2 - 1.0; // floor between the door and the counter
   const rnd = mulberry32(Math.floor(sh.ax * 13 + sh.az * 7));
   const r = () => rnd();
@@ -202,22 +198,22 @@ function furnish(B, sh, P) {
 function buildInterior(B, G, boards, sh, segFn) {
   const { t0, t1, depth, kind } = sh;
   sh.counterV = depth < 4.6 ? depth - 1.5 : Math.min(depth * 0.58, depth - 1.6);
-  const P = roomFrame(sh), wc = col(WALLC[kind] || '#f0ebe0'), fc = col(FLOORS[kind] || '#d8cdbb'), H = 3.5;
-  quad4(B, P(t0, 0.02, 0.025), P(t1, 0.02, 0.025), P(t1, depth, 0.025), P(t0, depth, 0.025), fc, 0.95);
-  quad4(B, P(t0, 0, H), P(t1, 0, H), P(t1, depth, H), P(t0, depth, H), wc, 1.0);
-  quad4(B, P(t0, depth, 0), P(t1, depth, 0), P(t1, depth, H), P(t0, depth, H), wc, 0.9);
-  quad4(B, P(t0, 0, 0), P(t0, depth, 0), P(t0, depth, H), P(t0, 0, H), wc, 0.8);
-  quad4(B, P(t1, 0, 0), P(t1, depth, 0), P(t1, depth, H), P(t1, 0, H), wc, 0.8);
-  for (let u = t0 + 1; u < t1 - 0.6; u += 2.2) ibox(B, P, u, u + 1.2, depth * 0.3, depth * 0.3 + 0.5, H - 0.04, H - 0.01, '#ffffff'); // lights
+  const st = STYLE_ROOM[shopStyle(sh)], P = roomFrame(sh), wc = col(st ? st[1] : WALLC[kind] || '#f0ebe0'), fc = col(st ? st[0] : FLOORS[kind] || '#d8cdbb'), H = 3.5;
+  const aoW = [0.8, 0.8, 1, 1]; // walls a little darker at the floor
+  quad4(B, P(t0, 0.02, 0.025), P(t1, 0.02, 0.025), P(t1, depth, 0.025), P(t0, depth, 0.025), fc, 0.78, [1, 1, 0.85, 0.85]);
+  quad4(B, P(t0, 0, H), P(t1, 0, H), P(t1, depth, H), P(t0, depth, H), wc, 0.5); // the ceiling sits in shade; its light panels glow
+  quad4(B, P(t0, depth, 0), P(t1, depth, 0), P(t1, depth, H), P(t0, depth, H), wc, 0.68, aoW);
+  quad4(B, P(t0, 0, 0), P(t0, depth, 0), P(t0, depth, H), P(t0, 0, H), wc, 0.58, aoW);
+  quad4(B, P(t1, 0, 0), P(t1, depth, 0), P(t1, depth, H), P(t1, 0, H), wc, 0.58, aoW);
   // glass shopfront with a doorway in the middle
   const uc = (t0 + t1) / 2;
   for (const [a, b2] of [[t0, uc - 0.85], [uc + 0.85, t1]]) quad4(G, P(a, 0.03, 0), P(b2, 0.03, 0), P(b2, 0.03, 3.4), P(a, 0.03, 3.4), col('#ffffff'), 1);
   for (const u of [t0, uc - 0.85, uc + 0.85, t1]) ibox(B, P, u - 0.04, u + 0.04, -0.02, 0.06, 0, 3.6, '#2a2f33');
   ibox(B, P, t0, t1, -0.02, 0.06, 3.4, 3.6, '#2a2f33');
-  furnish(B, sh, P);
-  // walls and counter you bump into
+  // walls, counter and big fixtures you bump into
   const wp = (u, v) => P(u, v, 0);
   const seg = (p, q2, h) => segFn(p[0], p[2], q2[0], q2[2], h);
+  furnish(B, sh, P, (a, b, c, d, h) => { seg(wp(a, c), wp(b, c), h); seg(wp(b, c), wp(b, d), h); seg(wp(b, d), wp(a, d), h); seg(wp(a, d), wp(a, c), h); });
   seg(wp(t0, 0), wp(t0, depth), 3.5); seg(wp(t1, 0), wp(t1, depth), 3.5); seg(wp(t0, depth), wp(t1, depth), 3.5);
   seg(wp(t0 + 0.45, sh.counterV - 0.4), wp(t1 - 0.45, sh.counterV - 0.4), 1.1);
   seg(wp(t0 + 0.45, sh.counterV - 0.4), wp(t0 + 0.45, sh.counterV + 0.4), 1.1); seg(wp(t1 - 0.45, sh.counterV - 0.4), wp(t1 - 0.45, sh.counterV + 0.4), 1.1);
@@ -289,6 +285,7 @@ function updateShops(dt) {
     else { K.m.armR.rotation.x = Math.sin(K.t * 1.3) * 0.15 - 0.3; K.m.body.rotation.y = Math.sin(K.t * 0.4) * 0.2; }
   }
   for (const d of DEALERS) d.m.body.rotation.y = Math.sin(elapsed * 0.7) * 0.25;
+  updateShoppers(dt);
 }
 // where you are: inside a walk-in shop, at a counter or door, or at a dealer
 function shopAt(x, z) {

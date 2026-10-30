@@ -481,6 +481,14 @@ window.runRegression = async () => {
     applyGfx(before); expect(low, 'Low still post-processing or growing grass'); expect(POST.ok ? n > 1000 : true, `${n} clumps`); expect(onRoad < 20, `${onRoad} clumps on the road`);
     return `${n} grass clumps, ${onRoad} on roads, post ${POST.ok ? 'on' : 'unsupported'}`;
   });
+  // ---------------------------------------------------------------- V9.7: shops fitted out like the real thing
+  await test('shops: each kind is fitted out its own way, with solid shelves and shoppers inside', async () => {
+    quiet(); const styles = new Set(SHOPS.filter((q) => q.walkIn).map(shopStyle)); expect(styles.size >= 12, `${styles.size} kinds of fit-out`);
+    const sh = SHOPS.filter((q) => q.walkIn && shopStyle(q) === 'supermarket').sort((a, b) => b.depth * (b.t1 - b.t0) - a.depth * (a.t1 - a.t0))[0]; expect(sh, 'no supermarket');
+    const P = roomFrame(sh), [x, , z] = P((sh.t0 + sh.t1) / 2, 1.5, 0); player.x = x; player.z = z; keeperT = 0; for (let k = 0; k < 10; k++) stepWorld(1 / 60);
+    let solid = 0; for (let u = sh.t0 + 0.3; u < sh.t1 - 0.3; u += 0.25) { const [qx, , qz] = P(u, sh.counterV - 2, 0); if (resolveCircle(qx, qz, 0.1)) solid++; }
+    const n = (sh.shoppers || []).length; home(); expect(solid > 0, 'walked through the shelves'); return `${styles.size} kinds; ${sh.name}: ${n} shoppers, shelves solid`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

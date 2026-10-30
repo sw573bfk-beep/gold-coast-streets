@@ -21,7 +21,7 @@ const postMat = (fs, uniforms) => new THREE.ShaderMaterial({ vertexShader: POST_
 // bright parts only, with a soft knee so the glow fades in rather than snapping on
 const BRIGHT_MAT = postMat(`uniform sampler2D src; varying vec2 vUv;
   void main() { vec3 c = texture2D(src, vUv).rgb; float l = max(max(c.r, c.g), c.b);
-    float k = clamp(l - 0.6, 0.0, 0.8); k = k * k / 1.6; float w = max(k, l - 1.0) / max(l, 1e-4); // threshold 1.0, knee 0.4
+    float k = clamp(l - 1.0, 0.0, 0.8); k = k * k / 1.6; float w = max(k, l - 1.4) / max(l, 1e-4); // threshold 1.4, knee 0.4: pale walls don't haze
     gl_FragColor = vec4(c * w, 1.0); }`, { src: { value: null } });
 // one direction of a 9-tap gaussian
 const BLUR_MAT = postMat(`uniform sampler2D src; uniform vec2 step; varying vec2 vUv;

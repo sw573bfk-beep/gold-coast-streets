@@ -83,6 +83,7 @@ function leaveTower() {
 function disposeTowerLevel() {
   if (!TOWER || !TOWER.mesh) return;
   scene.remove(TOWER.mesh); TOWER.geo.dispose(); TOWER.mesh.material.dispose();
+  if (TOWER.furnMesh) { scene.remove(TOWER.furnMesh); TOWER.furnMesh.geometry.dispose(); TOWER.furnMesh = null; }
   if (TOWER.signMesh) { scene.remove(TOWER.signMesh); TOWER.signMesh.geometry.dispose(); TOWER.signMesh.material.map.dispose(); TOWER.signMesh.material.dispose(); }
   for (const L of TOWER.loot || []) if (L.mesh) scene.remove(L.mesh);
   for (const p of TOWER.people) disposePerson(p);
@@ -220,6 +221,7 @@ function buildTowerLevel(k) {
   // lighting baked into the colours, like the houses
   for (let q = 0; q < Bf.col.length; q += 3) { const sh = Bf.nor[q + 1] > 0.5 ? 0.92 : Bf.nor[q + 1] < -0.5 ? 1 : 0.76 + 0.14 * Math.abs(Bf.nor[q]) + 0.08 * Math.abs(Bf.nor[q + 2]); Bf.col[q] *= sh; Bf.col[q + 1] *= sh; Bf.col[q + 2] *= sh; }
   TOWER.geo = toGeometry(Bf); TOWER.mesh = new THREE.Mesh(TOWER.geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })); scene.add(TOWER.mesh);
+  if (TOWER.furnB && TOWER.furnB.pos.length) { TOWER.furnMesh = new THREE.Mesh(toGeometry(TOWER.furnB), INTERIOR_MAT); scene.add(TOWER.furnMesh); } TOWER.furnB = null; // shop fit-outs
   for (const L of loot) { const m = new THREE.Mesh(LOOT_GEO, lootMat(L.kind.col)); m.scale.set(L.kind.w, L.kind.h, L.kind.w * 0.7); m.position.set(L.x, L.y + L.kind.h / 2, L.z); scene.add(m); L.mesh = m; }
   TOWER.loot = loot; TOWER.lifts = lifts;
   TOWER.grid = makeGrid(segs, Math.min(...f.filter((_, i) => i % 2 === 0)) - 5, Math.min(...f.filter((_, i) => i % 2)) - 5, Math.max(...f.filter((_, i) => i % 2 === 0)) + 5, Math.max(...f.filter((_, i) => i % 2)) + 5);
@@ -288,6 +290,11 @@ function buildMallFromShops(M, here) {
     SHOPS.push(sh); shops.push(sh);
     const P = makePerson(); P.root.position.set(kx, y, kz); P.root.rotation.y = Math.atan2(sx - kx, sz - kz); scene.add(P.root); TOWER.people.push(P);
     addSignAt(p[3], fx + nx * 0.06, fz + nz * 0.06, nx, nz, y + 3.7, Math.min(UNIT - 0.6, 0.28 * p[3].length + 1.8));
+    // fitted out like the real shop: room coordinates from the shopfront, inward away from the walkway
+    const ex = eu * ux + ev * vx, ez = eu * uz + ev * vz, ix = -nx, iz = -nz;
+    const Pm = (a, b, yy) => [fx + ex * a + ix * b, y + yy, fz + ez * a + iz * b], seg = (a, b, c, d, h) => { const q = [[a, c], [b, c], [b, d], [a, d]].map(([m, n]) => Pm(m, n, 0)); for (let j = 0; j < 4; j++) M.segs.push(q[j][0], q[j][2], q[(j + 1) % 4][0], q[(j + 1) % 4][2], h); };
+    if (!TOWER.furnB) TOWER.furnB = newBuf();
+    furnish(TOWER.furnB, { name: p[3], kind: sh.kind, t0: -hs + 0.25, t1: hs - 0.25, depth: DEPTH - 0.15, counterV: hd + 2.5, x: fx, z: fz }, Pm, seg, { noCounter: true });
   }
   TOWER.shops = shops;
   if (TOWER.floors > 0 && segsC.length) { // escalators on the walkway nearest the middle
@@ -306,7 +313,7 @@ function addSignAt(name, x, z, nx, nz, yy, w) {
   quadInto(TOWER.signBuf, x, yy, z, nx, nz, w, w / 4, { u0: sx / 1024, u1: (sx + 256) / 1024, v0: 1 - (sy + 64) / 2048, v1: 1 - sy / 2048 });
 }
 function buildMallCorridor(M) {
-  const { box, wall, u0, u1, v0, v1, W, y, segs } = M;
+  const { box, wall, u0, u1, v0, v1, W, y, segs, ux, uz, vx, vz } = M;
   const names = [];
   for (const p of TOWER.pois || []) if (inRing(p[0], p[1], TOWER.f)) names.push(p);
   const fill = ['Coles', 'Woolworths', 'Kmart', 'Target', 'Big W', 'JB Hi-Fi', 'Cotton On', 'Priceline', 'Boost Juice', 'Myer', 'David Jones', 'Rebel', 'EB Games', 'Hoyts', 'Sushi Train', 'Gloria Jean\'s', 'Typo', 'Lowes', 'Best & Less', 'Officeworks'];
@@ -327,6 +334,11 @@ function buildMallCorridor(M) {
       SHOPS.push(sh); shops.push(sh);
       const P = makePerson(); P.root.position.set(kx, y, kz); P.root.rotation.y = Math.atan2(sx - kx, sz - kz); scene.add(P.root); TOWER.people.push(P);
       addMallSign(nm, W, u, side * (hw - 0.02), side, y);
+      // the fit-out behind the shopfront (room coordinates: along the corridor, then inward)
+      const [ox, oz] = W(u, side * hw), Pm = (a, b, yy) => [ox + ux * a + side * vx * b, y + yy, oz + uz * a + side * vz * b];
+      const seg = (a, b, c, d, h) => { const q = [[a, c], [b, c], [b, d], [a, d]].map(([m, n]) => Pm(m, n, 0)); for (let j = 0; j < 4; j++) segs.push(q[j][0], q[j][2], q[(j + 1) % 4][0], q[(j + 1) % 4][2], h); };
+      if (!TOWER.furnB) TOWER.furnB = newBuf();
+      furnish(TOWER.furnB, { name: nm, kind: sh.kind, t0: -unit / 2 + 0.3, t1: unit / 2 - 0.3, depth: Math.min(6, Math.abs(v1 - v0) + 2 - hw), counterV: 2.4, x: fx, z: fz }, Pm, seg, { noCounter: true });
     }
   }
   TOWER.shops = shops;

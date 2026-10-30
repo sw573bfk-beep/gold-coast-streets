@@ -180,7 +180,7 @@ function updateRobbery(dt) {
     for (const sh of SHOPS) {
       if (!sh.keeper || elapsed - sh.robbedAt < 300) continue;
       const dx = sh.kx - player.x, dz = sh.kz - player.z, d = Math.hypot(dx, dz);
-      if (d > (aiming ? 9 : 6)) continue;
+      if (d > (aiming ? 9 : 3.6)) continue; // without aiming you have to walk right up to the counter
       if (!armed) { if (d < 4.5) robHint = sh; continue; }
       const look = (dx * v.x + dz * v.z) / (d * Math.hypot(v.x, v.z) || 1), face = (dx * hx + dz * hz) / (d || 1);
       if ((aiming ? look > 0.9 : look > 0.6 || face > 0.6) && rayWalls(player.x, player.z, sh.kx, sh.kz, 1.5) >= 0.98) { target = sh; break; }
