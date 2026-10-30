@@ -557,6 +557,26 @@ window.runRegression = async () => {
     expect(sk[0] && !sk[1], 'duplicate pair not resolved to the taller'); expect(sk[2], 'hidden block kept'); expect(!sk[3], 'a normal building was removed'); expect(sk[4], 'building across the road kept');
     return 'duplicates, hidden blocks and road blockers removed';
   });
+  // ---------------------------------------------------------------- V10: crowds on the streets and inside the shopping centres
+  await test('crowds: Cavill Mall fills with people strolling the pedestrian street', async () => {
+    quiet(); player.x = 727; player.z = 305; // the middle of Cavill Mall
+    for (const p of peds.slice()) if (!p.cop) p.remove();
+    for (let k = 0; k < 60 * 12; k++) stepWorld(1 / 60);
+    const civ = peds.filter((p) => !p.cop), strollers = civ.filter((p) => p.path), near = civ.filter((p) => Math.hypot(p.x - player.x, p.z - player.z) < 80).length;
+    const r = `${civ.length} people, ${strollers.length} strolling, ${near} within 80 m`; home();
+    expect(civ.length >= 80, r); expect(strollers.length >= 30, r); expect(near >= 25, r); return r;
+  });
+  await test('Pacific Fair: the main centre opens up with shops, shoppers walking about and a food court', async () => {
+    quiet(); const i = SPAWN_PLACES.findIndex((q) => q[0].startsWith('Pacific Fair')); await goToSpawn(String(i));
+    const E = towerEntrance(60); expect(E && E.B.kind === 'mall' && E.B.area > 20000, `entrance is ${E && E.B.name} (${E && Math.round(E.B.area)} m²)`);
+    player.x = E.px - E.nx * 3; player.z = E.pz - E.nz * 3; enterTower(E); for (let k = 0; k < 60 * 2; k++) stepWorld(1 / 60);
+    const sh = TOWER.shoppers || [], b = sh.map((q) => [q.x, q.z]); for (let k = 0; k < 60 * 5; k++) stepWorld(1 / 60);
+    const moving = sh.filter((q, j) => Math.hypot(q.x - b[j][0], q.z - b[j][1]) > 1).length; let poke = 0;
+    for (let n = 0; n < 200; n++) { const x = E.B.x0 + rand() * (E.B.x1 - E.B.x0), z = E.B.z0 + rand() * (E.B.z1 - E.B.z0); if (inRing(x, z, E.B.f) && groundAt(x, z) > TOWER.y + 0.05) poke++; }
+    const r = `${TOWER.shops.length} shops, ${sh.length} shoppers (${moving} walking), ${TOWER.people.length - TOWER.shops.length} sitting`;
+    disposeTowerLevel(); TOWER = null; home();
+    expect(sh.length >= 40, r); expect(moving >= sh.length * 0.4, r); expect(poke === 0, `ground pokes through the floor at ${poke} spots`); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

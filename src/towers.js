@@ -8,7 +8,7 @@ let TOWER = null; // the building you're inside: { b, f, name, kind, floors, lev
 function towerKindOf(h, kind, area, name) {
   if (kind === 6) return area >= 100 ? 'school' : null; // buildings inside school grounds
   if (kind === 7) return area >= 150 ? 'hospital' : null;
-  if (/fair|town centre|shopping|plaza|marketplace|mall|harbour town|australia fair/i.test(name || '') || (kind === 2 && area > 7000 && h < 30)) return 'mall';
+  if ((/fair|town centre|shopping|plaza|marketplace|mall|harbour town|australia fair/i.test(name || '') && area >= 1500) || (kind === 2 && area > 7000 && h < 30)) return 'mall'; // a kiosk or sign sharing the name isn't the centre
   if (h < 14 || area < 250) return null;
   if (/hotel|resort|hilton|marriott|sofitel|novotel|star|crowne|meriton|peppers|qt |vibe|mantra|ibis|holiday inn|langham|jw /i.test(name || '')) return 'hotel';
   if (kind === 1) return 'apartments';
@@ -27,11 +27,18 @@ function bigBuildingsNear(x, z, r) {
       let bd = 220; for (const [lx, lz, ln] of REGION.landmarks) { const d = Math.hypot(lx - cx, lz - cz); if (d < bd && /fair|centre|plaza|shopping|marketplace|town/i.test(ln) && !/^[A-Z]{2,4} /.test(ln)) { bd = d; name = ln; } } // skip stores like "MBE Pacific Fair"
     }
     const bk = core && b[2] >= 6 ? 2 : b[2];
+    let marked = false; // a shopping-centre marker from the map inside or right beside a big low building: that's the centre
+    if (!name && area > 5000 && b[0] < 30 && bk === 2 && REGION && REGION.search) { // the big unnamed shop halls of a centre take the nearest centre's name
+      const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; let bd = 450;
+      for (const [nm, k2, sx, sz] of REGION.search) if (k2 === 5 && !/^[A-Z]{2,4} /.test(nm)) { const d = Math.hypot(sx - cx, sz - cz); if (d < bd) { bd = d; name = nm; marked = true; } }
+    }
+    if (!marked && area > 1200 && b[0] < 30 && bk !== 6 && bk !== 7 && REGION && REGION.search && (!name || !/fair|centre|plaza|shopping|mall|village|marketplace/i.test(name)))
+      for (const [nm, k2, sx, sz] of REGION.search) if (k2 === 5 && sx > x0 - 30 && sx < x1 + 30 && sz > z0 - 30 && sz < z1 + 30 && (sx > x0 && sx < x1 && sz > z0 && sz < z1 ? inRing(sx, sz, f) || area > 2500 : area > 2500)) { name = nm; marked = true; break; }
     if (!name && (bk === 6 || bk === 7) && REGION && REGION.search) { // a school or hospital building takes its campus name
       const cx = (x0 + x1) / 2, cz = (z0 + z1) / 2; let bd = 350;
       for (const [nm, k2, sx, sz] of REGION.search) if ((k2 === 1 && bk === 6) || (k2 === 4 && bk === 7)) { const d = Math.hypot(sx - cx, sz - cz); if (d < bd) { bd = d; name = nm; } }
     }
-    const kind = towerKindOf(b[0], bk, area, name);
+    const kind = marked ? 'mall' : towerKindOf(b[0], bk, area, name);
     if (kind) out.push({ b, f, name: name || '', kind, area, pois, x0, z0, x1, z1 });
   };
   if (inCore(x, z) || Math.abs(x) < 1600 && Math.abs(z) < 1900) MAP.buildings.forEach((b, bi) => consider(b, MAP.details && MAP.details.bnames && MAP.details.bnames[bi], CORE_POIS(), true));
@@ -65,7 +72,10 @@ const T_COLS = { marble: col('#e9e5dc'), carpet: col('#7b5d63'), carpet2: col('#
 
 function enterTower(E) {
   // Q1's height includes its spire: 77 floors with the roof deck at about 245 m
-  const B = E.B, gy = groundAt(E.px, E.pz), h = /^Q1\b/.test(B.name) ? 245 : B.b[0];
+  const B = E.B, h = /^Q1\b/.test(B.name) ? 245 : B.b[0];
+  let gy = groundAt(E.px, E.pz); // the floor sits on the highest ground inside the walls, so the hill outside never pokes up through it
+  for (let x = B.x0 + 4; x < B.x1; x += 8) for (let z = B.z0 + 4; z < B.z1; z += 8) if (inRing(x, z, B.f)) gy = Math.max(gy, groundAt(x, z));
+  gy = Math.min(gy, groundAt(E.px, E.pz) + 2.5); // ...within a big step up from the doors
   let mallLevels = null;
   if (B.kind === 'mall') { const lv = new Set(); for (const p of B.pois || []) if (inRing(p[0], p[1], B.f) && p[5] !== null && p[5] !== undefined) lv.add(p[5]); mallLevels = [...lv].sort((a, b) => a - b); if (!mallLevels.length) mallLevels = [0]; }
   const floors = B.kind === 'mall' ? mallLevels.length - 1 : B.kind === 'school' ? Math.max(0, Math.round((h - 3.4) / 3.4)) : /^Q1\b/.test(B.name) ? 77 : Math.max(1, Math.floor((h - 4.5) / 3.1));
@@ -87,6 +97,7 @@ function disposeTowerLevel() {
   if (TOWER.signMesh) { scene.remove(TOWER.signMesh); TOWER.signMesh.geometry.dispose(); TOWER.signMesh.material.map.dispose(); TOWER.signMesh.material.dispose(); }
   for (const L of TOWER.loot || []) if (L.mesh) scene.remove(L.mesh);
   for (const p of TOWER.people) disposePerson(p);
+  for (const S of TOWER.shoppers || []) disposePerson(S.m); TOWER.shoppers = null;
   for (const sh of TOWER.shops || []) { const k = SHOPS.indexOf(sh); if (k >= 0) SHOPS.splice(k, 1); }
   const gi = GRIDS.indexOf(TOWER.grid); if (gi >= 0) GRIDS.splice(gi, 1);
   TOWER.mesh = null; TOWER.people = []; TOWER.shops = []; TOWER.loot = []; TOWER.casino = null;
@@ -219,13 +230,53 @@ function buildTowerLevel(k) {
     }
   }
   // lighting baked into the colours, like the houses
-  for (let q = 0; q < Bf.col.length; q += 3) { const sh = Bf.nor[q + 1] > 0.5 ? 0.92 : Bf.nor[q + 1] < -0.5 ? 1 : 0.76 + 0.14 * Math.abs(Bf.nor[q]) + 0.08 * Math.abs(Bf.nor[q + 2]); Bf.col[q] *= sh; Bf.col[q + 1] *= sh; Bf.col[q + 2] *= sh; }
+  // (kept a notch below white: pale marble and plaster otherwise blow out to a haze under the filmic tone curve)
+  for (let q = 0; q < Bf.col.length; q += 3) { const sh = (Bf.nor[q + 1] > 0.5 ? 0.8 : Bf.nor[q + 1] < -0.5 ? 0.6 : 0.6 + 0.12 * Math.abs(Bf.nor[q]) + 0.07 * Math.abs(Bf.nor[q + 2])) * (Bf.pos[q + 1] < TOWER.y + 0.6 ? 0.85 : 1); Bf.col[q] *= sh; Bf.col[q + 1] *= sh; Bf.col[q + 2] *= sh; }
   TOWER.geo = toGeometry(Bf); TOWER.mesh = new THREE.Mesh(TOWER.geo, new THREE.MeshBasicMaterial({ vertexColors: true, side: THREE.DoubleSide })); scene.add(TOWER.mesh);
   if (TOWER.furnB && TOWER.furnB.pos.length) { TOWER.furnMesh = new THREE.Mesh(toGeometry(TOWER.furnB), INTERIOR_MAT); scene.add(TOWER.furnMesh); } TOWER.furnB = null; // shop fit-outs
   for (const L of loot) { const m = new THREE.Mesh(LOOT_GEO, lootMat(L.kind.col)); m.scale.set(L.kind.w, L.kind.h, L.kind.w * 0.7); m.position.set(L.x, L.y + L.kind.h / 2, L.z); scene.add(m); L.mesh = m; }
   TOWER.loot = loot; TOWER.lifts = lifts;
   TOWER.grid = makeGrid(segs, Math.min(...f.filter((_, i) => i % 2 === 0)) - 5, Math.min(...f.filter((_, i) => i % 2)) - 5, Math.max(...f.filter((_, i) => i % 2 === 0)) + 5, Math.max(...f.filter((_, i) => i % 2)) + 5);
   GRIDS.push(TOWER.grid);
+  if (TOWER.kind === 'mall') spawnMallShoppers();
+}
+// shoppers wandering the concourse: they walk to somewhere in sight, look in a window for a while, move on
+function spawnMallShoppers() {
+  TOWER.shoppers = [];
+  const f = TOWER.f; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
+  const want = clamp(Math.round(Math.abs(polyArea(f)) / 200), 12, 90);
+  for (let tries = 0; tries < want * 15 && TOWER.shoppers.length < want; tries++) {
+    const nearYou = tries % 2 === 0, a = rand() * TAU, r = 4 + rand() * 45; // half of them around where you came in
+    const x = nearYou ? player.x + Math.cos(a) * r : x0 + rand() * (x1 - x0), z = nearYou ? player.z + Math.sin(a) * r : z0 + rand() * (z1 - z0);
+    if (!inRing(x, z, f) || resolveCircle(x, z, 0.5)) continue;
+    const m = makePerson(); m.root.position.set(x, TOWER.y, z); scene.add(m.root);
+    TOWER.shoppers.push({ m, x, z, tx: x, tz: z, idle: rand() * 5, ph: rand() * TAU, h: rand() * TAU, bag: rand() < 0.4 });
+  }
+  TOWER.shopBox = [x0, z0, x1, z1];
+}
+function updateMallShoppers(dt) {
+  if (!TOWER || !TOWER.shoppers) return;
+  const [x0, z0, x1, z1] = TOWER.shopBox;
+  for (const S of TOWER.shoppers) {
+    const M = S.m;
+    if (S.idle > 0) {
+      S.idle -= dt; animatePerson(M, S.ph, 0);
+      if (S.idle <= 0) for (let k = 0; k < 8; k++) { // somewhere new within sight
+        const a = rand() * TAU, d = 4 + rand() * 16, tx = clamp(S.x + Math.cos(a) * d, x0, x1), tz = clamp(S.z + Math.sin(a) * d, z0, z1);
+        if (inRing(tx, tz, TOWER.f) && !resolveCircle(tx, tz, 0.45) && rayWalls(S.x, S.z, tx, tz, 1) >= 1) { S.tx = tx; S.tz = tz; break; }
+      }
+    } else {
+      const dx = S.tx - S.x, dz = S.tz - S.z, d = Math.hypot(dx, dz);
+      if (d < 0.3) S.idle = 2 + rand() * 7;
+      else {
+        const nx = S.x + dx / d * 1.1 * dt, nz = S.z + dz / d * 1.1 * dt;
+        if (resolveCircle(nx, nz, 0.35) || Math.hypot(nx - player.x, nz - player.z) < 0.6) { S.idle = 0.6 + rand(); continue; } // someone in the way: wait, then go another way
+        S.x = nx; S.z = nz; S.h += angDiff(S.h, Math.atan2(dx, dz)) * Math.min(1, dt * 6); S.ph += dt * 2.8; animatePerson(M, S.ph, 0.7);
+      }
+    }
+    if (S.bag) M.armR.rotation.x = 0.1;
+    M.root.position.set(S.x, TOWER.y, S.z); M.root.rotation.set(0, S.h, 0);
+  }
 }
 // a shopping centre: a concourse down the middle, shop units either side named after the shops really inside
 function buildMallConcourse(M) {
@@ -297,12 +348,33 @@ function buildMallFromShops(M, here) {
     furnish(TOWER.furnB, { name: p[3], kind: sh.kind, t0: -hs + 0.25, t1: hs - 0.25, depth: DEPTH - 0.15, counterV: hd + 2.5, x: fx, z: fz }, Pm, seg, { noCounter: true });
   }
   TOWER.shops = shops;
+  // the food court: tables either side of the walkway nearest the middle, with people sitting down to eat
+  let fc = null, fd = Infinity;
+  for (const S2 of segsC) { if (Math.hypot(S2[2] - S2[0], S2[3] - S2[1]) < 16) continue; const d = Math.hypot((S2[0] + S2[2]) / 2, (S2[1] + S2[3]) / 2); if (d < fd) { fd = d; fc = S2; } }
+  if (fc) foodCourt(M, (fc[0] + fc[2]) / 2, (fc[1] + fc[3]) / 2, Math.abs(fc[2] - fc[0]) > Math.abs(fc[3] - fc[1]), 2.6);
   if (TOWER.floors > 0 && segsC.length) { // escalators on the walkway nearest the middle
     let best = segsC[0], bd = Infinity;
     for (const S2 of segsC) { const mu = (S2[0] + S2[2]) / 2, mv = (S2[1] + S2[3]) / 2, d = Math.hypot(mu, mv); if (d < bd && Math.hypot(S2[2] - S2[0], S2[3] - S2[1]) > 12) { bd = d; best = S2; } }
     const mu = (best[0] + best[2]) / 2, mv = (best[1] + best[3]) / 2, alongU = Math.abs(best[2] - best[0]) > Math.abs(best[3] - best[1]);
     box(mu, mv, alongU ? 9 : 1.6, 1.1, alongU ? 1.6 : 9, col('#8e979e'), true);
     const [lx, lz] = W(mu + (alongU ? 0 : 2.2), mv + (alongU ? 2.2 : 0)); lifts.push({ x: lx, z: lz, h: Math.atan2(alongU ? vx : ux, alongU ? vz : uz) });
+  }
+}
+function foodCourt(M, mu, mv, alongU, off) {
+  const { box, W, y } = M;
+  for (let k = -2; k <= 2; k++) for (const sd of [-1, 1]) {
+    const tu = mu + (alongU ? k * 3.2 : sd * off), tv = mv + (alongU ? sd * off : k * 3.2), t = box(tu, tv, 1.0, 0.75, 1.0, col('#c9a77c'));
+    if (!t) continue;
+    for (const cs of [-1, 1]) {
+      const cu = tu + (alongU ? cs * 0.85 : 0), cv = tv + (alongU ? 0 : cs * 0.85);
+      box(cu, cv, 0.45, 0.45, 0.45, col('#3a3d40'), false);
+      if (rand() < 0.55) { // someone eating, facing the table
+        const [px, pz] = W(cu, cv), [tx, tz] = W(tu, tv), P = makePerson();
+        P.root.position.set(px, y - 0.42, pz); P.root.rotation.y = Math.atan2(tx - px, tz - pz);
+        P.legL.rotation.x = P.legR.rotation.x = -1.5; P.armL.rotation.x = P.armR.rotation.x = -0.9;
+        scene.add(P.root); TOWER.people.push(P);
+      }
+    }
   }
 }
 function addSignAt(name, x, z, nx, nz, yy, w) {
@@ -342,7 +414,8 @@ function buildMallCorridor(M) {
     }
   }
   TOWER.shops = shops;
-  for (let u = u0 + 6; u < u1 - 4; u += 14) { box(u, 0, 2.4, 0.5, 0.8, col('#5a6670')); box(u + 3, 0, 1.0, 1.4, 1.0, T_COLS.plant); }
+  for (let u = u0 + 6; u < u1 - 4; u += 14) { if (Math.abs(u - (u0 + u1) / 2) < 9) continue; box(u, 0, 2.4, 0.5, 0.8, col('#5a6670')); box(u + 3, 0, 1.0, 1.4, 1.0, T_COLS.plant); }
+  if (u1 - u0 > 30) foodCourt(M, (u0 + u1) / 2, 0, true, 1.6); // a few tables to sit at
   void segs;
 }
 function addMallSign(name, W, u, v, side, y) {
@@ -399,7 +472,7 @@ function rideLift(k) {
 }
 let towerHintT = 0;
 function updateTowers(dt) {
-  towerHintT -= dt;
+  towerHintT -= dt; updateMallShoppers(dt);
   if (TOWER && TOWER.signBuf) finishMallSigns();
   if (TOWER && player.state === 'foot' && !inTower(player.x, player.z) && TOWER.level === 0) { // walked out through the doors
     disposeTowerLevel(); TOWER = null;

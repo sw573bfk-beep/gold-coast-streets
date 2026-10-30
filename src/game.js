@@ -668,12 +668,21 @@ class Ped {
     } else if (this.state === 'flee') {
       this.flee -= dt; sp = this.home ? 3.4 : 4.8; mx = this.fx; mz = this.fz;
       if (this.home && this.calling > 0) { this.updateHome(dt); sp = 1.6; } // backing away with the phone out
-      if (this.flee <= 0 && this.home) this.state = 'walk';
+      if (this.flee <= 0 && (this.home || this.path)) this.state = 'walk';
       else if (this.flee <= 0) {
         const ne = nearestEdge(this.x, this.z);
         if (ne.e >= 0) { this.e = ne.e; this.dir = rand() < 0.5 ? 1 : -1; this.s = this.dir > 0 ? ne.s : EDGES[ne.e].len - ne.s; }
         this.state = 'walk';
       }
+    } else if (this.path) { // strolling a pedestrian street or footway: spread across it, turning back at the ends, stopping to look
+      const Pp = this.path;
+      if (this.wait > 0) { this.wait -= dt; animatePerson(P, this.phase, 0); R.position.set(this.x, this.feet(), this.z); R.rotation.set(0, this.h, 0); return; }
+      this.ps += this.pdir * sp * dt;
+      if (this.ps < 0 || this.ps > Pp.len) { this.pdir = -this.pdir; this.ps = clamp(this.ps, 0, Pp.len); }
+      if (rand() < dt * 0.05) this.wait = rr(2, 7);
+      const q = pathPoint(Pp, Math.min(Pp.len, this.ps + this.pdir * 1.2)), tx = q.x + q.nx * this.lat * spread(Pp) / 2, tz = q.z + q.nz * this.lat * spread(Pp) / 2;
+      const dx = tx - this.x, dz = tz - this.z, d = Math.hypot(dx, dz) || 1; mx = dx / d; mz = dz / d; sp *= 0.85;
+      if (d > 5) this.ps -= this.pdir * sp * dt * 0.8;
     } else if (this.home) {
       const m = this.updateHome(dt); if (m === 0) return;
       if (!m) { R.position.set(this.x, this.feet(), this.z); R.rotation.set(0, this.h, 0); return; }
@@ -690,7 +699,7 @@ class Ped {
       }
       const E2 = EDGES[this.e];
       edgePoint(E2, this.dir, Math.min(this.s + 1.5, E2.len), tmpA);
-      const off = (E2.width / 2 + 1.7) * this.side;
+      const off = PED_STREET.has(E2.type) && this.lat !== undefined ? this.lat * E2.width / 2 : (E2.width / 2 + 1.7) * this.side; // spread across a pedestrian street, on the footpath elsewhere
       const tx = tmpA.x + tmpA.tz * off, tz = tmpA.z - tmpA.tx * off;
       const dx = tx - this.x, dz = tz - this.z, d = Math.hypot(dx, dz) || 1;
       mx = dx / d; mz = dz / d;
@@ -877,17 +886,84 @@ function spawnEbikes(maxD) {
     const c = new Car('ebike', pick(['#2ac28a', '#ff8a2a', '#e23b2a', '#f2c230', '#2a7de2']), x, z, Math.atan2(tmpA.tx, tmpA.tz) + Math.PI / 2 * side); c.kind = 'parked'; cars.push(c); n++;
   }
 }
+// where people are: busier near shops and on pedestrian streets, and spread along a street's length (picking
+// streets one by one, short roundabout pieces got as many people as a whole block)
+const PED_STREET = new Set([RT.pedestrian, RT.footway, RT.living_street, RT.path]);
+let SHOP_GRID = null, shopGridT = 0;
+function busyAt(x, z) {
+  if (!SHOP_GRID || elapsed - shopGridT > 5) { SHOP_GRID = new Map(); shopGridT = elapsed; for (const sh of SHOPS) { const k = Math.floor(sh.x / 60) + ',' + Math.floor(sh.z / 60); SHOP_GRID.set(k, (SHOP_GRID.get(k) || 0) + 1); } }
+  let n = 0; const i = Math.floor(x / 60), j = Math.floor(z / 60);
+  for (let a = -1; a <= 1; a++) for (let b = -1; b <= 1; b++) n += SHOP_GRID.get((i + a) + ',' + (j + b)) || 0;
+  return n;
+}
+function edgeWeight(E) {
+  if (E.pw === undefined || elapsed - E.pwT > 30) { const mx = (E.p[0] + E.p[E.p.length - 2]) / 2, mz = (E.p[1] + E.p[E.p.length - 1]) / 2; E.pw = E.len * (1 + busyAt(mx, mz) / 4) * (PED_STREET.has(E.type) ? 3 : 1); E.pwT = elapsed; }
+  return E.pw;
+}
+// pedestrian streets and footways (they're not in the road network): Cavill Mall, the foreshore, park paths
+let CORE_PED_PATHS = null;
+function toPedPaths(roads) {
+  const out = [];
+  for (const r of roads) {
+    if ((r[0] !== RT.pedestrian && r[0] !== RT.footway) || r.length < 8) continue;
+    const p = r.slice(4), cum = [0]; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let i = 0; i < p.length; i += 2) { x0 = Math.min(x0, p[i]); x1 = Math.max(x1, p[i]); z0 = Math.min(z0, p[i + 1]); z1 = Math.max(z1, p[i + 1]); if (i) cum.push(cum[cum.length - 1] + Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1])); }
+    const len = cum[cum.length - 1]; if (len > 8) out.push({ p, cum, len, w: Math.max(r[1], 2.4), x0, z0, x1, z1, mx: (x0 + x1) / 2, mz: (z0 + z1) / 2 });
+  }
+  return out;
+}
+function pedPathsNear(x, z, r) {
+  if (!CORE_PED_PATHS) CORE_PED_PATHS = toPedPaths(MAP.roads);
+  const out = [], add = (list) => { for (const P of list) if (P.x0 < x + r && P.x1 > x - r && P.z0 < z + r && P.z1 > z - r) out.push(P); };
+  add(CORE_PED_PATHS);
+  for (const T of TILES.values()) { if (!T.pedPaths && T.roads) T.pedPaths = toPedPaths(T.roads); if (T.pedPaths) add(T.pedPaths); }
+  return out;
+}
+function pathPoint(P, s) {
+  let i = 1; while (i < P.cum.length - 1 && P.cum[i] < s) i++;
+  const a = P.cum[i - 1], L = Math.max(1e-3, P.cum[i] - a), t = clamp((s - a) / L, 0, 1), ax = P.p[2 * i - 2], az = P.p[2 * i - 1], bx = P.p[2 * i], bz = P.p[2 * i + 1];
+  const tx = (bx - ax) / L, tz = (bz - az) / L;
+  return { x: ax + (bx - ax) * t, z: az + (bz - az) * t, tx, tz, nx: tz, nz: -tx };
+}
+const spread = (P) => (P.w >= 6 ? Math.min(P.w * 1.7, 16) : P.w); // a wide mall fills right across, a footpath doesn't
+function spawnStroller(minD, maxD) {
+  const list = pedPathsNear(player.x, player.z, maxD); if (!list.length) return null;
+  for (let tries = 0; tries < 6; tries++) {
+    let P = null, tot = 0;
+    for (const Q of list) { if (Q.bw === undefined) Q.bw = Q.len * (1 + busyAt(Q.mx, Q.mz) / 4); const w = Q.bw * (1 + 6 * Math.max(0, 1 - Math.hypot(Q.mx - player.x, Q.mz - player.z) / 100)); tot += w; if (rand() * tot < w) P = Q; } // busier close to you
+    if (!P) continue;
+    let s = rr(0, P.len); if (P.len > 60 && rand() < 0.6) { let bs = s, bd = 1e9; for (let k = 0; k < 6; k++) { const t = rr(0, P.len), qq = pathPoint(P, t), dd = Math.abs(Math.hypot(qq.x - player.x, qq.z - player.z) - (minD + 20)); if (dd < bd) { bd = dd; bs = t; } } s = bs; } // the near stretch of a long street
+    const q = pathPoint(P, s), lat = rr(-0.85, 0.85), x = q.x + q.nx * lat * spread(P) / 2, z = q.z + q.nz * lat * spread(P) / 2, d = Math.hypot(x - player.x, z - player.z);
+    if (d < minD || d > maxD || !isLand(x, z) || resolveCircle(x, z, 0.35) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue;
+    const p = new Ped(x, z, -1, 1, 0, 1); p.path = P; p.ps = s; p.pdir = rand() < 0.5 ? 1 : -1; p.lat = lat; p.wait = rand() < 0.3 ? rr(0, 5) : 0; p.speed = rr(0.9, 1.4);
+    peds.push(p); return p;
+  }
+  return null;
+}
 function spawnPed(minD, maxD) {
-  for (let tries = 0; tries < 30; tries++) {
-    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
-    if (!E) continue;
-    const s = rr(0, E.len), side = rand() < 0.5 ? 1 : -1;
+  if (rand() < 0.55 && spawnStroller(minD, maxD)) return true; // about half the crowd on pedestrian streets where there are any
+  return spawnRoadPed(minD, maxD);
+}
+let NEAR_EDGES = [], nearEdgesT = -1;
+function nearEdges(r) { // the roads around you, refreshed a few times a second
+  if (elapsed - nearEdgesT < 0.5 && NEAR_EDGES.r === r) return NEAR_EDGES;
+  NEAR_EDGES = []; NEAR_EDGES.r = r; nearEdgesT = elapsed;
+  for (const ei of LIVE_EDGES) { const E = EDGES[ei]; if (!E) continue; const n = E.p.length; if (Math.min(Math.hypot(E.p[0] - player.x, E.p[1] - player.z), Math.hypot(E.p[n - 2] - player.x, E.p[n - 1] - player.z)) < r + E.len / 2) NEAR_EDGES.push(ei); }
+  return NEAR_EDGES;
+}
+function spawnRoadPed(minD, maxD) {
+  const near = nearEdges(maxD); if (!near.length) return null;
+  for (let tries = 0; tries < 6; tries++) {
+    let ei = -1, tot = 0; // weighted pick among a handful of streets near you
+    for (let k = 0; k < 16; k++) { const c = near[Math.floor(rand() * near.length)], E = EDGES[c]; if (!E) continue; const w = edgeWeight(E); tot += w; if (rand() * tot < w) ei = c; }
+    const E = EDGES[ei]; if (!E) continue;
+    const s = rr(0, E.len), side = rand() < 0.5 ? 1 : -1, open = PED_STREET.has(E.type), lat = rr(-0.85, 0.85);
     edgePoint(E, 1, s, tmpA);
-    const off = (E.width / 2 + 1.7) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
+    const off = open ? lat * E.width / 2 : (E.width / 2 + 1.7) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
     const d = Math.hypot(x - player.x, z - player.z);
-    if (d < minD || d > maxD || !isLand(x, z) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue;
+    if (d < minD || d > maxD || !isLand(x, z) || resolveCircle(x, z, 0.35) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue;
     const dir = rand() < 0.5 ? 1 : -1;
-    const p = new Ped(x, z, ei, dir, dir > 0 ? s : E.len - s, side * dir);
+    const p = new Ped(x, z, ei, dir, dir > 0 ? s : E.len - s, side * dir); p.lat = lat * dir;
     peds.push(p); return p;
   }
   return null;
@@ -905,7 +981,13 @@ function manageWorld(dt) {
   for (const p of peds.slice()) if (p.gone || Math.hypot(p.x - player.x, p.z - player.z) > (p.cop ? 160 : 190)) { if (p.cop && p.car) p.car.copOut = null; p.remove(); }
   if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
   spawnParked(190, 70); spawnEbikes(160);
-  if (peds.filter((p) => !p.cop).length < 46) { spawnPed(60, 150); spawnPed(60, 150); }
+  // crowds match the place: about 50 people around you in the suburbs, well over 100 on Cavill Ave
+  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140), civ = peds.filter((p) => !p.cop).length;
+  for (let k = 0; k < (civ < wantPeds * 0.7 ? 5 : 2) && civ + k < wantPeds; k++) spawnPed(busy > 40 ? 35 : 55, 150);
+  for (const p of peds) { // only people close by cast shadows (each one is several draw calls)
+    const near = Math.hypot(p.x - player.x, p.z - player.z) < 40;
+    if (p.near !== near) { p.near = near; p.m.body.castShadow = near; for (const L of [p.m.legL, p.m.legR, p.m.armL, p.m.armR]) L.children[0].castShadow = near; }
+  }
   const want = [0, 1, 2, 4, 6, 8][player.stars];
   if (cars.filter((c) => c.kind === 'police' && !c.dead).length < want) spawnTraffic(110, 240, 'police');
   for (const c of cars) if (c.kind === 'police') c.siren = player.stars > 0 && (c.driver === 'cop' || !!c.copOut);
@@ -2022,7 +2104,8 @@ async function goToSpawn(v) {
   for (const side of [1, -1]) { const x = player.x + fz * 6 * side, z = player.z - fx * 6 * side; if (isLand(x, z) && !resolveCircle(x, z, 0.5)) { player.x = x; player.z = z; break; } }
   // a landmark that is a building (a shopping centre, a hospital): start just outside its wall nearest the road
   const name = P[0].split(' — ')[0]; let bld = null;
-  for (const T of TILES.values()) (T.blds || []).forEach((b, bi) => { if (!bld && T.bnames && T.bnames[bi] === name) bld = b; });
+  for (const T of TILES.values()) (T.blds || []).forEach((b, bi) => { if (T.bnames && T.bnames[bi] === name && !b.skip && (!bld || Math.abs(polyArea(b.slice(3))) > Math.abs(polyArea(bld.slice(3))))) bld = b; }); // the biggest building of that name
+  for (const B of bigBuildingsNear(player.x, player.z, 600)) if (B.name === name && B.kind === 'mall' && (!bld || B.area > Math.abs(polyArea(bld.slice(3))))) bld = B.b; // a centre's main hall, if it's bigger
   if (bld) {
     const f = bld.slice(3), n = f.length / 2; let best = null, bd = 1e9;
     for (let q = 0; q < n; q++) {
@@ -2038,7 +2121,7 @@ async function goToSpawn(v) {
   playerSpot = { x: player.x, z: player.z };
   for (const c of cars.slice()) if (c !== player.car && c.kind !== 'abandoned' && Math.hypot(c.x - player.x, c.z - player.z) > 400) c.remove();
   for (let i = 0; i < 20; i++) spawnTraffic(30, 330, 'traffic');
-  for (let i = 0; i < 24; i++) spawnPed(4, 140);
+  for (let i = 0, n = clamp(30 + busyAt(player.x, player.z) * 1.6, 30, 100); i < n; i++) spawnPed(4, 140); // a crowd to match the place
   updateCamera(0.016); toast(P[0]);
   $('play').disabled = false; // the same button becomes Resume on the pause menu
 }
@@ -2140,7 +2223,7 @@ async function boot() {
     }
     for (let i = 0; i < 26; i++) spawnTraffic(30, 330, 'traffic');
     spawnParked(190, 0);
-    for (let i = 0; i < 36; i++) spawnPed(4, 140);
+    for (let i = 0, n = clamp(36 + busyAt(player.x, player.z) * 1.6, 36, 100); i < n; i++) spawnPed(4, 140);
     buildPickups();
     updateSky(0); refreshEnvironment();
     updateCamera(0.016);
