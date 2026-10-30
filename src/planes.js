@@ -4,9 +4,12 @@
 // Lift needs speed: too slow and the nose drops (a stall). Come down gently with the wings level to land.
 // Airliners also take off and land on their own.
 
-const PLANE_TYPES = {
-  cessna: { name: 'Cessna 172', len: 8.3, span: 11, fus: 1.4, gear: 1.1, maxV: 66, vr: 27, thrust: 7, color: '#f4f4f2', stripe: '#c62828', prop: true },
-  jet: { name: 'Airliner', len: 37, span: 34, fus: 4.0, gear: 2.6, maxV: 250, vr: 78, thrust: 13, color: '#ffffff', stripe: '#1d4e89', prop: false },
+const PLANE_TYPES = { // agile: how quickly it banks and pitches (1 = a Cessna)
+  cessna: { name: 'Cessna 172', len: 8.3, span: 11, fus: 1.4, gear: 1.1, maxV: 66, vr: 27, thrust: 7, color: '#f4f4f2', stripe: '#c62828', prop: true, agile: 1 },
+  twin: { name: 'Twin-prop King Air', len: 11, span: 15, fus: 1.6, gear: 1.2, maxV: 140, vr: 45, thrust: 9.5, color: '#f4f4f2', stripe: '#1d4e89', prop: true, twin: true, agile: 0.9 },
+  bizjet: { name: 'Private jet', len: 16, span: 14, fus: 1.9, gear: 1.3, maxV: 230, vr: 62, thrust: 15, color: '#f7f5ee', stripe: '#b8913a', prop: false, rearEngines: true, ttail: true, agile: 1.1 },
+  fighter: { name: 'Fighter jet', len: 17, span: 11.5, fus: 1.7, gear: 1.4, maxV: 340, vr: 72, thrust: 26, color: '#7d8790', stripe: '#4a535b', prop: false, fighter: true, agile: 2.2 },
+  jet: { name: 'Airliner', len: 37, span: 34, fus: 4.0, gear: 2.6, maxV: 250, vr: 78, thrust: 13, color: '#ffffff', stripe: '#1d4e89', prop: false, agile: 0.6 },
 };
 const PLANES = [];
 const PLANE_MATS = {};
@@ -19,11 +22,19 @@ function makePlaneModel(sp) {
   box(F * 0.8, F * 0.8, L * 0.12, 0, 0, L * 0.46, body);                 // nose
   box(F * 1.02, F * 0.25, L * 0.8, 0, -F * 0.05, 0, stripe);             // cheat line
   box(F * 0.9, F * 0.3, L * 0.08, 0, F * 0.28, L * 0.36, dark);          // cockpit windows
-  box(sp.span, F * 0.12, L * 0.16, 0, sp.prop ? F * 0.5 : -F * 0.25, L * 0.02, body); // wings
-  box(sp.span * 0.36, F * 0.1, L * 0.1, 0, F * 0.2, -L * 0.42, body);    // tailplane
-  box(F * 0.12, F * 1.4, L * 0.12, 0, F * 1.0, -L * 0.42, stripe);       // fin
-  if (sp.prop) { const p = box(F * 0.12, F * 1.3, 0.1, 0, 0, L * 0.53, dark); g.userData.prop = p; }
-  else for (const s of [-1, 1]) box(F * 0.55, F * 0.55, L * 0.12, s * sp.span * 0.22, -F * 0.7, L * 0.08, dark); // engines
+  if (sp.fighter) { // swept wings well back, twin canted fins, a big intake each side
+    for (const s of [-1, 1]) { box(sp.span / 2, F * 0.1, L * 0.3, s * sp.span / 4, 0, -L * 0.08, body).rotation.y = s * 0.35; box(F * 0.1, F * 1.2, L * 0.16, s * F * 0.6, F * 0.9, -L * 0.4, stripe).rotation.z = s * 0.3; box(F * 0.5, F * 0.6, L * 0.3, s * F * 0.6, -F * 0.1, L * 0.05, dark); }
+    box(sp.span * 0.45, F * 0.08, L * 0.12, 0, 0, -L * 0.44, body);
+    box(F * 0.6, F * 0.5, L * 0.18, 0, F * 0.55, L * 0.2, planeMat('#c9a227')); // gold-tinted canopy
+  } else {
+    box(sp.span, F * 0.12, L * 0.16, 0, sp.prop ? F * 0.5 : -F * 0.25, L * 0.02, body); // wings
+    box(sp.span * 0.36, F * 0.1, L * 0.1, 0, sp.ttail ? F * 1.65 : F * 0.2, -L * 0.42, body); // tailplane (on top of the fin for a T-tail)
+    box(F * 0.12, F * 1.4, L * 0.12, 0, F * 1.0, -L * 0.42, stripe);       // fin
+  }
+  if (sp.prop && sp.twin) { for (const s of [-1, 1]) { box(F * 0.45, F * 0.45, L * 0.25, s * sp.span * 0.2, F * 0.45, L * 0.1, body); const p = box(F * 0.08, F * 1.0, 0.08, s * sp.span * 0.2, F * 0.45, L * 0.24, dark); (g.userData.props = g.userData.props || []).push(p); } }
+  else if (sp.prop) { const p = box(F * 0.12, F * 1.3, 0.1, 0, 0, L * 0.53, dark); g.userData.prop = p; }
+  else if (sp.rearEngines) for (const s of [-1, 1]) box(F * 0.45, F * 0.45, L * 0.18, s * F * 0.8, F * 0.35, -L * 0.28, dark); // engines either side of the tail
+  else if (!sp.fighter) for (const s of [-1, 1]) box(F * 0.55, F * 0.55, L * 0.12, s * sp.span * 0.22, -F * 0.7, L * 0.08, dark); // engines under the wings
   for (const [x, z] of [[-F * 0.9, -L * 0.05], [F * 0.9, -L * 0.05], [0, L * 0.35]]) box(0.25, sp.gear, 0.25, x, -F * 0.5 - sp.gear / 2, z, dark); // landing gear
   g.userData.geos = geos; return g;
 }
@@ -52,12 +63,12 @@ class Plane {
       if (this.v > sp.vr && this.pitch > 0.08) { this.ground = false; if (!this.ai) toast('Airborne! Let go to level out · A/D to turn'); }
     } else {
       // bank to turn, and level out by itself when you let go
-      const rollT = this.stall ? 0 : inp.r * 0.7;
-      this.roll += clamp(rollT - this.roll, -1.6 * dt, 1.6 * dt);
+      const rollT = this.stall ? 0 : inp.r * (sp.fighter ? 1.2 : 0.7);
+      this.roll += clamp(rollT - this.roll, -1.6 * sp.agile * dt, 1.6 * sp.agile * dt);
       this.h += (g * Math.tan(this.roll) / Math.max(20, this.v)) * dt;
       const glide = !inp.p && this.throttle < 0.4 ? -0.09 * (1 - this.throttle / 0.4) : 0; // power off, hands off: a gentle glide down to land
       const pitchT = this.stall ? -0.22 : inp.p ? inp.p * 0.38 : glide;
-      this.pitch += clamp(pitchT - this.pitch, -0.9 * dt, 0.9 * dt);
+      this.pitch += clamp(pitchT - this.pitch, -0.9 * sp.agile * dt, 0.9 * sp.agile * dt);
       this.v = Math.max(0, this.v);
     }
     const fx = Math.sin(this.h) * Math.cos(this.pitch), fz = Math.cos(this.h) * Math.cos(this.pitch);
@@ -81,6 +92,8 @@ class Plane {
     if (this.ground) this.y = floor;
     this.x = clamp(this.x, WORLD.x0 - 3000, WORLD.x1 + 3000); this.z = clamp(this.z, WORLD.z0 - 3000, WORLD.z1 + 3000);
     if (this.model.userData.prop) this.model.userData.prop.rotation.z += this.throttle * 60 * dt;
+    for (const p of this.model.userData.props || []) p.rotation.z += this.throttle * 60 * dt;
+    if (this.sp.fighter && this.throttle > 0.9 && !this.dead) emit(this.x - Math.sin(this.h) * this.sp.len * 0.55, this.y, this.z - Math.cos(this.h) * this.sp.len * 0.55, 0, 0, 0, 0.12, 0.9, 0.3, '#ffb060', 1.0); // afterburner
     this.sync();
   }
   crash(why) {
@@ -133,7 +146,7 @@ function setupAirport() {
   const [x1, z1, x2, z2] = AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
   AIRPORT.rw = { x1, z1, x2, z2, h, ex, ez, nx, nz, len: Math.hypot(x2 - x1, z2 - z1) };
   // parked planes beside the runway near its start: two Cessnas and an airliner
-  AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['jet', 260, 95]];
+  AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['twin', 165, 72], ['bizjet', 200, 78], ['fighter', 240, 78], ['jet', 310, 95]];
 }
 function updatePlanes(dt) {
   if (AIRPORT && AIRPORT.rw) {

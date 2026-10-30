@@ -888,7 +888,7 @@ def search_kind(t):
     if sh == 'mall': return 5
     if to in ('hotel', 'motel', 'hostel', 'apartment', 'guest_house'): return 8
     if a == 'fuel': return 9
-    if to in ('attraction', 'museum', 'theme_park', 'zoo', 'viewpoint', 'gallery') or t.get('historic'): return 10
+    if to in ('attraction', 'museum', 'theme_park', 'zoo', 'viewpoint', 'gallery') or t.get('historic') or a in ('casino', 'gambling'): return 10
     if le in ('stadium', 'sports_centre', 'golf_course', 'pitch', 'swimming_pool', 'fitness_centre', 'marina') : return 11
     if a in ('restaurant', 'cafe', 'fast_food', 'pub', 'bar', 'ice_cream', 'food_court', 'nightclub'): return 12
     if a in ('bank', 'pharmacy', 'police', 'fire_station', 'library', 'post_office', 'place_of_worship', 'doctors', 'dentist', 'community_centre', 'townhall', 'courthouse', 'cinema', 'theatre'): return 13
@@ -896,12 +896,14 @@ def search_kind(t):
     if sh: return 6
     return None
 search, seen_s = [], {}
-def add_search(name, kind, x, z, spread):
+def add_search(name, kind, x, z, spread, tag=None):
     if not (RX0 <= x <= RX1 and RZ0 <= z <= RZ1): return
     key = (name.lower(), kind)
     for (px, pz) in seen_s.get(key, ()):
         if abs(px - x) < spread and abs(pz - z) < spread: return
-    seen_s.setdefault(key, []).append((x, z)); search.append([name, kind, round(x), round(z)])
+    seen_s.setdefault(key, []).append((x, z)); search.append([name, kind, round(x), round(z)] + ([tag] if tag else []))
+def place_tag(t):  # what the place is (cinema, casino, pub, supermarket...) so the map can search by kind
+    return t.get('amenity') or t.get('shop') or t.get('leisure') or t.get('tourism') or None
 for e in els:
     t = e.get('tags', {}); nm = t.get('name')
     if not nm: continue
@@ -914,9 +916,10 @@ for e in els:
         if p: add_search(nm, 7, p[0], p[1], 2000)
         continue
     k = search_kind(t)
+    if k is None and t.get('building') and re.search(r'casino|the star\b|jupiters', nm, re.I): k = 10; t = dict(t, amenity='casino')  # The Star is only mapped as a building
     if k is None: continue
     p = epos(e)
-    if p: add_search(nm, k, p[0], p[1], 150)
+    if p: add_search(nm, k, p[0], p[1], 150, place_tag(t))
 print('search entries', len(search), {SEARCH_KINDS[k]: sum(1 for s_ in search if s_[1] == k) for k in range(len(SEARCH_KINDS))})
 
 region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,

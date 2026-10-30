@@ -34,6 +34,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #street { font: 700 30px/1.05 var(--hud); letter-spacing: .03em; color: var(--paper); transition: opacity .6s; opacity: 0; text-transform: uppercase; }
 #district { font: 400 18px/1 var(--display); color: var(--surf); letter-spacing: .05em; transition: opacity .6s; opacity: 0; }
 #speedo { font: 400 46px/1 var(--display); color: var(--paper); font-variant-numeric: tabular-nums; }
+#speedo.braking { color: #ff4a4a; } #speedo.braking small { color: #ff4a4a; }
 #speedo small { font: 600 18px var(--hud); color: var(--gold); margin-left: 4px; }
 #prompt { left: 50%; bottom: 120px; transform: translateX(-50%); font: 600 22px/1 var(--hud); background: var(--dim); padding: 8px 14px; border-left: 4px solid var(--gold); opacity: 0; transition: opacity .2s; white-space: nowrap; }
 #prompt b { color: var(--gold); }
@@ -139,6 +140,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #mapq:focus { border-color: var(--gold); }
 #mapres { list-style: none; margin: 6px 0 0; padding: 0; max-height: 60vh; overflow: auto; }
 #mapres li { background: rgba(8,14,18,.94); border-left: 5px solid #fff; margin-bottom: 4px; padding: 7px 12px; cursor: pointer; border-radius: 6px; }
+#mapres li.mapres-head { background: rgba(246,196,69,.95); color: #111; font: 700 15px var(--hud); border-left-color: var(--gold); cursor: default; }
 #mapres li:hover { background: rgba(40,52,60,.96); }
 #mapres b { display: block; font: 700 17px var(--hud); color: #fff; }
 #mapres span { font: 500 14px var(--hud); color: #a9b6bb; }
@@ -227,7 +229,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 </div>
 <div id="bigmap" hidden>
   <canvas id="bigc"></canvas>
-  <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
+  <div id="mapsearch"><input id="mapq" type="search" placeholder="Search a place, or what you want: movies, casino, food, petrol…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
   <div id="mapzoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zme" aria-label="Centre on me">◎</button><button type="button" id="zclear" aria-label="Clear waypoint">✕</button></div>
   <div id="mappin" hidden><b id="pin-name"></b><span id="pin-sub"></span><div class="pin-btns"><button type="button" id="pin-go">Go ▶</button><button type="button" id="pin-taxi">🚕 Taxi</button><button type="button" id="pin-x" aria-label="Remove pin">✕</button></div></div>
   <p>Click anywhere to drop a pin, then press Go · double-click to go straight there · scroll to zoom · drag to move · M to close</p>
@@ -240,7 +242,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>W A S D</b> move / drive</div>
       <div><b>Mouse</b> look around</div>
       <div><b>Shift</b> sprint</div>
-      <div><b>Space</b> jump · climb fences · handbrake</div>
+      <div><b>Space</b> jump · climb fences · hard brake</div>
       <div><b>F / E</b> cars · shops · houses · lifts</div>
       <div><b>Click / Q</b> punch · shoot</div>
       <div><b>Right-click</b> aim a gun</div>
@@ -255,6 +257,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>X</b> cancel destination</div>
       <div><b>Weapon out</b> at a counter: rob it</div>
       <div><b>Plane</b> W/S power · A/D turn · ↑/Space climb</div>
+      <div><b>E on a beach</b> hire a surfboard</div>
       <div><b>P</b> phone</div>
       <div><b>Esc</b> pause</div>
     </div>

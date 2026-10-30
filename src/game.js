@@ -282,30 +282,34 @@ class Car {
     let Fdrive = 0, Fbrake = 0;
     // power-limited drive: big shove off the line, tapering through the 'gears'
     if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
-    if (brk > 0) { if (vf > 0.5) Fbrake = brk * m * 10; else Fdrive = -brk * m * sp.accel * 0.6 * Math.max(0, 1 + vf / 13); }
+    if (brk > 0) { if (vf > 0.5) Fbrake = brk * m * 12; else Fdrive = -brk * m * sp.accel * 0.6 * Math.max(0, 1 + vf / 13); }
+    // Space: hard brake on all four wheels; turn hard while holding it and the rear locks for a handbrake slide
+    const slideHb = hb && Math.abs(live ? inp.s : 0) > 0.5 && Math.abs(vf) > 6;
+    if (hb && !slideHb && Math.abs(vf) > 0.5) Fbrake = Math.max(Fbrake, m * 16);
     const share = sp.drive === 'rwd' ? 0 : sp.drive === 'fwd' ? 1 : 0.4;
     let Fxf = Fdrive * share, Fxr = Fdrive * (1 - share);
     const bs = Math.abs(vf) > 0.05 ? Math.sign(vf) : 0;
     Fxf -= Fbrake * 0.6 * bs; Fxr -= Fbrake * 0.4 * bs;
-    if (hb) Fxr -= m * 3.5 * bs;
+    if (slideHb) Fxr -= m * 3.5 * bs;
     const maxF = mu * Nf * 0.86, maxR = mu * Nr; // fronts give up first: understeer at the limit unless you provoke the rear
     let spinR = 0;
-    if (Math.abs(Fxr) > maxR * 0.9) { spinR = Math.min(1, (Math.abs(Fxr) - maxR * 0.9) / (maxR * 0.45)); Fxr = Math.sign(Fxr) * maxR * 0.9; }
-    Fxf = clamp(Fxf, -maxF * 0.95, maxF * 0.95);
+    if (Fbrake > 0 && !slideHb) Fxr = Math.sign(Fxr) * Math.min(Math.abs(Fxr), maxR * 0.97); // ABS: brake right at the limit without locking, so you can still steer
+    if (Math.abs(Fxr) > maxR * 0.9 && (Fbrake === 0 || slideHb)) { spinR = Math.min(1, (Math.abs(Fxr) - maxR * 0.9) / (maxR * 0.45)); Fxr = Math.sign(Fxr) * maxR * 0.9; }
+    Fxf = clamp(Fxf, -maxF * (Fbrake > 0 ? 1.0 : 0.95), maxF * (Fbrake > 0 ? 1.0 : 0.95));
     const vfa = Math.max(Math.abs(vf), 0.6), sgn = vf < -0.3 ? -1 : 1;
     const af = Math.atan2(vl + r * a, vfa) - d * sgn, ar = Math.atan2(vl - r * b, vfa);
     let latR = Math.sqrt(Math.max(0, maxR * maxR - Fxr * Fxr)) * (1 - spinR * 0.35);
-    if (!hb) latR = Math.max(latR, maxR * (spinR > 0.6 ? 0.45 : 0.62)); // rear lets go progressively, not all at once
-    if (hb) latR *= 0.3;
+    if (!slideHb) latR = Math.max(latR, maxR * (spinR > 0.6 ? 0.45 : 0.62)); // rear lets go progressively, not all at once
+    if (slideHb) latR *= 0.3;
     const latF = Math.sqrt(Math.max(0, maxF * maxF - Fxf * Fxf));
     // stiffer rear tyres = mild understeer at the limit; the rear only lets go under power or handbrake
     const Fyf = clamp(-maxF * 8 * af, -latF, latF), Fyr = clamp(-maxR * 11 * ar, -latR, latR);
     const coast = thr === 0 && brk === 0 ? m * 0.9 * Math.min(1, Math.abs(vf)) * bs : 0;
-    const drag = 0.42 * vf * Math.abs(vf) + m * 0.15 * bs + coast;
+    const drag = 0.42 * (sp.cdA || 1) * vf * Math.abs(vf) + m * 0.15 * bs + coast; // cdA: frontal area relative to a car
     const cd = Math.cos(d), sd = Math.sin(d);
     const Flong = Fxf * cd - Fyf * sd + Fxr - drag, Flat = Fyf * cd + Fxf * sd + Fyr;
     const I = m * (a * a + b * b) * 0.55, torque = a * (Fyf * cd + Fxf * sd) - b * Fyr;
-    const axl = Flong / m;
+    const axl = Flong / m - (hb && !slideHb && Math.abs(vf) > 0.5 ? 3.5 * bs : 0); // brake assist on a hard stop (downforce and big brakes)
     vf += (axl + r * vl) * dt;
     vl += (Flat / m - r * vf) * dt;
     r += (torque / I) * dt;
@@ -317,7 +321,7 @@ class Car {
     this.vx = s2 * vf + c2 * vl; this.vz = c2 * vf - s2 * vl;
     this.spinR = lerp(this.spinR, spinR, Math.min(1, dt * 10));
     this.slip = clamp((Math.abs(vl - r * b) - 1.8) / 5, 0, 1) * (speed > 3 ? 1 : 0) + this.spinR * (Math.abs(vf) > 1 ? 0.8 : 0.5) * (thr > 0 ? 1 : 0);
-    this.slip = clamp(this.slip + (hb && speed > 4 ? 0.3 : 0), 0, 1);
+    this.slip = clamp(this.slip + (slideHb ? 0.3 : hb && speed > 8 ? 0.12 : 0), 0, 1); // tyres squeal on a hard stop too
   }
   collideWorld() {
     const fx = Math.sin(this.h), fz = Math.cos(this.h);
@@ -372,7 +376,8 @@ class Car {
     const tp = this.air ? clamp(-Math.atan2(this.vy, Math.max(4, Math.abs(this.vf))), -0.5, 0.5) : -Math.atan(sx * fx + sz * fz), tr = this.air ? this.tr || 0 : Math.atan(sx * fz - sz * fx);
     const k = dt ? Math.min(1, dt * 10) : 1; this.tp = lerp(this.tp || 0, tp, k); this.tr = lerp(this.tr || 0, tr, k);
     M.root.position.set(this.x, alt + this.y, this.z); M.root.rotation.set(this.tp, this.h, this.tr, 'YXZ');
-    M.bodyG.rotation.set(this.pitch, 0, this.roll);
+    if (M.bike) { this.lean = lerp(this.lean || 0, clamp(-Math.atan(this.vf * this.yaw / 9.81), -0.7, 0.7), Math.min(1, dt * 8)); M.bodyG.rotation.set(this.pitch * 0.5, 0, this.lean); } // into the corner
+    else M.bodyG.rotation.set(this.pitch, 0, this.roll);
     for (const w of M.wheels) { w.m.rotation.x = this.spin; if (w.front) w.pivot.rotation.y = this.steer; }
     M.doors.forEach((d, i) => { d.open += clamp(this.doorTarget[i] - d.open, -dt * 4, dt * 4); d.hinge.rotation.y = -d.side * d.open * 1.1; });
     const braking = this.driver && ((this.input.b > 0 && this.vf > 0.5) || this.input.hb);
@@ -821,7 +826,7 @@ function buildParkSpots() {
 }
 function randomCarType() {
   const r = rand();
-  return r < 0.24 ? 'sedan' : r < 0.4 ? 'hatch' : r < 0.55 ? 'suv' : r < 0.69 ? 'ute' : r < 0.77 ? 'taxi' : r < 0.85 ? 'muscle' : r < 0.93 ? 'coupe' : 'sports';
+  return r < 0.22 ? 'sedan' : r < 0.37 ? 'hatch' : r < 0.51 ? 'suv' : r < 0.64 ? 'ute' : r < 0.72 ? 'taxi' : r < 0.8 ? 'muscle' : r < 0.87 ? 'coupe' : r < 0.94 ? 'sports' : 'motorbike';
 }
 function spawnTraffic(minD, maxD, kind) {
   for (let tries = 0; tries < 40; tries++) {
@@ -860,6 +865,17 @@ function spawnParked(maxD, minD) {
     c.kind = 'parked'; c.spot = sp; sp.used = true; cars.push(c); n++;
   }
 }
+// share e-bikes left on the footpath: hop on and ride
+function spawnEbikes(maxD) {
+  let n = cars.filter((c) => c.type === 'ebike' && c.kind === 'parked').length;
+  for (let tries = 0; tries < 12 && n < 6; tries++) {
+    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei]; if (!E || E.len < 8) continue;
+    edgePoint(E, 1, rr(2, E.len - 2), tmpA); const side = rand() < 0.5 ? 1 : -1, off = (E.width / 2 + 2.2) * side;
+    const x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off, d = Math.hypot(x - player.x, z - player.z);
+    if (d < 25 || d > maxD || !isLand(x, z) || resolveCircle(x, z, 0.6) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue;
+    const c = new Car('ebike', pick(['#2ac28a', '#ff8a2a', '#e23b2a', '#f2c230', '#2a7de2']), x, z, Math.atan2(tmpA.tx, tmpA.tz) + Math.PI / 2 * side); c.kind = 'parked'; cars.push(c); n++;
+  }
+}
 function spawnPed(minD, maxD) {
   for (let tries = 0; tries < 30; tries++) {
     const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
@@ -887,7 +903,7 @@ function manageWorld(dt) {
   }
   for (const p of peds.slice()) if (p.gone || Math.hypot(p.x - player.x, p.z - player.z) > (p.cop ? 160 : 190)) { if (p.cop && p.car) p.car.copOut = null; p.remove(); }
   if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
-  spawnParked(190, 70);
+  spawnParked(190, 70); spawnEbikes(160);
   if (peds.filter((p) => !p.cop).length < 46) { spawnPed(60, 150); spawnPed(60, 150); }
   const want = [0, 1, 2, 4, 6, 8][player.stars];
   if (cars.filter((c) => c.kind === 'police' && !c.dead).length < want) spawnTraffic(110, 240, 'police');
@@ -1254,12 +1270,14 @@ function useKey() {
   if (player.deadT > 0) return;
   if (player.state === 'plane') return leavePlane(false);
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
+  if (player.state === 'surf') { surfUse(); return; }
   if (player.state !== 'foot') return;
   if (towerUse() || houseUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
-  const c = nearestEnterableCar(); if (c) startEnter(c);
+  const c = nearestEnterableCar(); if (c) return startEnter(c);
+  surfUse(); // on a beach: hire a board
 }
 function updatePlayer(dt) {
   if (player.deadT > 0) {
@@ -1279,6 +1297,7 @@ function updatePlayer(dt) {
       return;
     }
     case 'plane': squeal = 0; return updatePlaneControls();
+    case 'surf': squeal = 0; return updateSurf(dt);
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
     case 'tackled': return updateTackled(dt);
@@ -1365,6 +1384,10 @@ function updateCamera(dt) {
     const p = player.plane; tx = p.x; ty = p.y + p.sp.fus; tz = p.z; dist = p.sp.len * 1.4 + 8;
     camYaw += angDiff(camYaw, p.h) * Math.min(1, dt * 2.5); camPitch = lerp(camPitch, 0.18 + p.pitch * 0.5, Math.min(1, dt * 2));
     camera.fov = lerp(camera.fov, 62 + Math.min(14, p.v * 0.08), Math.min(1, dt * 3));
+  } else if (player.state === 'surf') { // behind the board, a little above the water
+    tx = SURF.x; ty = 0.9 + (SURF.mode === 'ride' ? 0.6 : 0); tz = SURF.z; dist = SURF.mode === 'ride' ? 6.5 : 4.5;
+    if (elapsed - mouse.last > 1.0) camYaw += angDiff(camYaw, SURF.h) * Math.min(1, dt * (SURF.mode === 'ride' ? 3 : 1.5));
+    camPitch = lerp(camPitch, 0.22, Math.min(1, dt * 2)); camera.fov = lerp(camera.fov, 62, Math.min(1, dt * 3));
   } else if (player.state === 'car' && player.car) {
     const c = player.car;
     tx = c.x; ty = 1.6 + c.y + (c.alt || 0); tz = c.z; dist = CAM_CAR[camIdx];
@@ -1619,9 +1642,55 @@ function searchPlaces(q) {
   out.sort((p, q2) => p[0] - q2[0]);
   return out.slice(0, 9).map((o) => o[1]);
 }
+// search by what you want to do, not just by name: "movies" lists cinemas, "casino" lists casinos, and so on
+const SEARCH_TOPICS = [
+  { re: /^(movies?|cinemas?|films?|flicks|imax|hoyts|watch a movie)/, title: '🎬 Cinemas', tags: ['cinema'], name: /cinema|cineplex|hoyts|birch carroll|\bbcc\b|dendy|movies|imax/i, rename: [/^event$/i, 'Event Cinemas'] },
+  { re: /^(casinos?|gambl|pokies|blackjack|poker|slots|bet)/, title: '🎰 Casinos', tags: ['casino', 'gambling'], name: /casino|the star\b|jupiters/i, exclude: /court|beach|drive|village|caravan|taxi|street|road|avenue/i, rename: [/^the star event centre$/i, 'The Star Gold Coast (casino)'] },
+  { re: /^(food|hungry|eat|dinner|lunch|brekky|breakfast|restaurants?|takeaway)/, title: '🍔 Food', tags: ['restaurant', 'fast_food', 'food_court', 'cafe'] },
+  { re: /^(coffee|cafes?|caf)/, title: '☕ Cafés', tags: ['cafe'] },
+  { re: /^(maccas|mcdonald|kfc|hungry jack|subway|fast ?food)/, title: '🍟 Fast food', tags: ['fast_food'] },
+  { re: /^(petrol|fuel|servo|gas)/, title: '⛽ Petrol stations', kinds: [9] },
+  { re: /^(hospital|doctor|emergency|medical|clinic)/, title: '🏥 Hospitals and clinics', kinds: [4] },
+  { re: /^(police|cops)/, title: '🚓 Police stations', tags: ['police'] },
+  { re: /^(banks?|atm|money|cash)/, title: '🏦 Banks', tags: ['bank', 'atm'] },
+  { re: /^(beach|surf|swim)/, title: '🏖️ Beaches', kinds: [3] },
+  { re: /^(gyms?|fitness|workout)/, title: '💪 Gyms', tags: ['fitness_centre', 'sports_centre'], name: /gym|fitness|f45|crossfit/i },
+  { re: /^(bars?|pubs?|drinks?|beers?|taverns?)/, title: '🍺 Pubs and bars', tags: ['pub', 'bar', 'biergarten'] },
+  { re: /^(clubs?|nightclubs?|dance|dancing|party)/, title: '🪩 Nightclubs', tags: ['nightclub'], name: /nightclub|night club/i },
+  { re: /^(bottle|alcohol|liquor|grog|booze)/, title: '🍾 Bottle shops', tags: ['alcohol', 'wine', 'beverages'], name: /bws|dan murphy|liquor|bottle-?o|thirsty camel/i },
+  { re: /^(groceries|grocery|supermarkets?|woolies|woolworths|coles|aldi)/, title: '🛒 Supermarkets', tags: ['supermarket'] },
+  { re: /^(shopping|malls?|shops|shopping centres?)/, title: '🛍️ Shopping centres', kinds: [5] },
+  { re: /^(hotels?|motels?|stay|sleep|accommodation)/, title: '🏨 Hotels', kinds: [8] },
+  { re: /^(schools?)/, title: '🏫 Schools', kinds: [1] },
+  { re: /^(parks?|playgrounds?)/, title: '🌳 Parks', kinds: [2] },
+  { re: /^(theme parks?|rides|dreamworld|movie world|sea world|wet ?n ?wild|attractions?|things to do)/, title: '🎢 Attractions', kinds: [10] },
+  { re: /^(car dealer|cars|buy a car|dealership)/, title: '🚗 Car dealers', tags: ['car'] },
+  { re: /^(chemist|pharmacy|pharmacies)/, title: '💊 Pharmacies', tags: ['pharmacy', 'chemist'] },
+  { re: /^(clothes|clothing|fashion)/, title: '👕 Clothes shops', tags: ['clothes', 'boutique', 'shoes'] },
+  { re: /^(train|tram|bus|g:?link|station)/, title: '🚋 Stations', kinds: [14] },
+  { re: /^(airport|planes?|fly|flying|jets?)/, title: '✈️ Airport', airport: true },
+  { re: /^(guns?|weapons?|ammo|dealer)/, title: '🔫 Gun dealers', dealers: true },
+];
+function topicResults(q) {
+  q = q.trim().toLowerCase(); if (q.length < 3) return null;
+  const T = SEARCH_TOPICS.find((t) => t.re.test(q)); if (!T || !REGION) return null;
+  let list = [];
+  if (T.airport && AIRPORT && AIRPORT.rw) list.push(['Gold Coast Airport — the planes', 10, AIRPORT.rw.x1 + AIRPORT.rw.ex * 100 + AIRPORT.rw.nx * 55, AIRPORT.rw.z1 + AIRPORT.rw.ez * 100 + AIRPORT.rw.nz * 55]);
+  if (T.dealers) for (const d of DEALERS) list.push([d.name || 'Gun dealer', 13, d.x, d.z]);
+  for (const e of REGION.search) if ((T.kinds && T.kinds.includes(e[1])) || (T.tags && e[4] && T.tags.includes(e[4])) || (T.name && e[1] !== 0 && T.name.test(e[0]))) list.push(e);
+  if (T.exclude) list = list.filter((e) => !T.exclude.test(e[0]));
+  if (T.rename) list = list.map((e) => (T.rename[0].test(e[0]) ? [T.rename[1]].concat(e.slice(1)) : e));
+  const seen = new Set(); list = list.filter((e) => { const k = e[0] + Math.round(e[2] / 200) + ',' + Math.round(e[3] / 200); if (seen.has(k)) return false; seen.add(k); return true; });
+  list.sort((a, b) => Math.hypot(a[2] - player.x, a[3] - player.z) - Math.hypot(b[2] - player.x, b[3] - player.z));
+  return { title: T.title, list: list.slice(0, 10) };
+}
 function renderSearch() {
   const list = $('mapres'); list.innerHTML = '';
-  for (const e of searchPlaces($('mapq').value)) {
+  const topic = topicResults($('mapq').value);
+  if (topic) {
+    const h = document.createElement('li'); h.className = 'mapres-head'; h.textContent = topic.list.length ? `${topic.title} near you` : `${topic.title}: none on the map`; list.appendChild(h);
+  }
+  for (const e of (topic ? topic.list : []).concat(searchPlaces($('mapq').value).filter((e) => !topic || !topic.list.includes(e)))) {
     const li = document.createElement('li'), d = Math.hypot(e[2] - player.x, e[3] - player.z);
     const kind = REGION.searchKinds[e[1]], sub = REGION.suburbs.length ? suburbAt(e[2], e[3]) : '';
     li.innerHTML = '<b></b><span></span>'; li.firstChild.textContent = e[0];
@@ -1673,11 +1742,12 @@ function initBigMap() {
   $('pin-taxi').addEventListener('click', () => { if (!MAPV.pin) return; pinGo(); taxi(); });
   $('pin-x').addEventListener('click', () => { MAPV.pin = null; $('mappin').hidden = true; drawBigMap(); });
   $('mapq').addEventListener('input', renderSearch);
-  $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
+  $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const t = topicResults($('mapq').value), r = t && t.list.length ? t.list : searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
   $('zin').addEventListener('click', () => zoomMap(1.6)); $('zout').addEventListener('click', () => zoomMap(1 / 1.6));
   $('zme').addEventListener('click', () => { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); });
   $('zclear').addEventListener('click', () => { cancelDestination(); drawBigMap(); });
 }
+const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
   $('clock').textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
@@ -1685,7 +1755,11 @@ function updateHUD(dt) {
   const st = $('stars').children; for (let i = 0; i < 5; i++) st[i].className = i < player.stars ? 'on' : '';
   $('health').firstElementChild.style.width = player.health + '%';
   const sp = $('speedo');
-  if (player.state === 'car') { sp.hidden = false; sp.firstChild.nodeValue = Math.round(player.car.speed * 3.6); } else sp.hidden = true;
+  if (player.state === 'car') { // the speedo goes red while you brake
+    const c = player.car, brakingNow = (c.input.b > 0 && c.vf > 0.5) || c.input.hb;
+    sp.hidden = false; sp.firstChild.nodeValue = Math.round(c.speed * 3.6); sp.classList.toggle('braking', !!brakingNow);
+    if (!HUD_TIPS.car) { HUD_TIPS.car = true; toast('W gas · S brake (then reverse) · Space hard brake · A/D steer · Space + A/D to slide'); }
+  } else sp.hidden = true;
   streetT -= dt;
   if (streetT <= 0) {
     streetT = 0.5;

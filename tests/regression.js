@@ -489,6 +489,40 @@ window.runRegression = async () => {
     let solid = 0; for (let u = sh.t0 + 0.3; u < sh.t1 - 0.3; u += 0.25) { const [qx, , qz] = P(u, sh.counterV - 2, 0); if (resolveCircle(qx, qz, 0.1)) solid++; }
     const n = (sh.shoppers || []).length; home(); expect(solid > 0, 'walked through the shelves'); return `${styles.size} kinds; ${sh.name}: ${n} shoppers, shelves solid`;
   });
+  // ---------------------------------------------------------------- V9.8: brakes, smart search, bikes, planes, surfing
+  await test('brakes: S stops from 100 km/h in about 40 m, Space (hard brake) shorter, Space + A/D slides', () => {
+    const stop = (inp) => { const c = new Car('sedan', null, 0, 0, 0); c.setDriver('player'); c.vz = 27.8; let d = 0; for (let k = 0; k < 900 && c.speed > 0.3; k++) { c.input = Object.assign({ t: 0, b: 0, s: 0, hb: 0 }, inp); c.stepTyres(1 / 60); d += c.speed / 60; } const h = c.h; c.remove(); return [d, h]; };
+    const [dS] = stop({ b: 1 }), [dH] = stop({ hb: 1 }), [, hSlide] = stop({ hb: 1, s: 1 });
+    expect(dS < 48, `S took ${dS.toFixed(0)} m`); expect(dH < dS - 5, `Space ${dH.toFixed(0)} m vs S ${dS.toFixed(0)} m`); expect(Math.abs(hSlide) > 0.8, 'no slide');
+    return `S ${dS.toFixed(0)} m, Space ${dH.toFixed(0)} m`;
+  });
+  await test('search: "movies" finds cinemas, "casino" finds The Star, "petrol" finds servos', () => {
+    const m = topicResults('movies'), c = topicResults('casino'), p = topicResults('petrol');
+    expect(m && m.list.length >= 3, 'cinemas'); expect(c && c.list.some((e) => /star/i.test(e[0])), 'no Star'); expect(p && p.list.length >= 5, 'servos');
+    return `${m.list.length} cinemas, ${c.list[0][0]}, ${p.list.length} servos`;
+  });
+  await test('bikes: a motorbike is quick and leans into corners, an e-bike stays at bike speed', () => {
+    const run = (t, s) => { const c = new Car(t, null, 0, 0, 0); c.setDriver('player', player.look); let top = 0; for (let k = 0; k < 60 * 25; k++) { c.input = { t: 1, b: 0, s, hb: 0 }; c.stepTyres(1 / 60); c.sync(1 / 60); c.x = 0; c.z = 0; top = Math.max(top, c.speed); } const l = c.lean, rider = c.model.driver.visible; c.remove(); return [top * 3.6, l, rider]; };
+    const [mb, , rider] = run('motorbike', 0), [eb] = run('ebike', 0), [, lean] = run('motorbike', 1);
+    expect(mb > 170, `motorbike ${mb.toFixed(0)} km/h`); expect(eb < 50 && eb > 25, `e-bike ${eb.toFixed(0)} km/h`); expect(lean < -0.2, 'no lean'); expect(rider, 'no rider');
+    return `motorbike ${mb.toFixed(0)} km/h, e-bike ${eb.toFixed(0)} km/h`;
+  });
+  await test('airport: a private jet, a fighter and a twin-prop park beside the runway', async () => {
+    quiet(); const R = AIRPORT.rw; await goToTile(...toLL((R.x1 + R.x2) / 2, (R.z1 + R.z2) / 2));
+    for (const p of PLANES.slice()) p.remove(); AIRPORT.spawned = false; updatePlanes(0.016); const names = PLANES.map((p) => p.type);
+    expect(['bizjet', 'fighter', 'twin'].every((t) => names.includes(t)), names.join(',')); return names.join(', ');
+  });
+  await test('surfing: hire a board, paddle to the line-up, catch a wave and ride it in', async () => {
+    quiet(); const e = REGION.search.find((q) => q[0] === 'Surfers Paradise Beach'); player.x = e[2]; player.z = e[3]; player.money = 500;
+    expect(surfUse() && player.state === 'surf', 'no board');
+    SURF.h = Math.atan2(SURF.frame.nx, SURF.frame.nz);
+    for (let k = 0; k < 60 * 50 && toLocal(SURF.x, SURF.z)[1] < 85; k++) { keys.KeyW = true; const [s2, d2] = toLocal(SURF.x, SURF.z); if (waveAt(s2, d2)[1] > 0.2 && SURF.duck <= 0) keys.Space = true; stepWorld(1 / 60); }
+    SURF.h = Math.atan2(-SURF.frame.nx, -SURF.frame.nz); let rode = false;
+    for (let k = 0; k < 60 * 80 && !rode; k++) { keys.KeyW = SURF.waves.some((w) => { const dd = toLocal(SURF.x, SURF.z)[1] - w.d; return dd > -2 && dd < 6; }); stepWorld(1 / 60); rode = SURF.mode === 'ride'; }
+    let t = 0; for (let k = 0; k < 60 * 30 && SURF.mode === 'ride'; k++) { const W = SURF.ride.W, a = W.peel === null ? 1 : W.dir; keys.KeyA = a > 0; keys.KeyD = a < 0; stepWorld(1 / 60); if (SURF.ride) t = SURF.ride.t; }
+    for (const k of ['KeyW', 'KeyA', 'KeyD', 'Space']) keys[k] = false; endSurf(); home();
+    expect(rode, 'never caught a wave'); expect(t > 3, `ride only ${t.toFixed(1)} s`); return `rode ${t.toFixed(1)} s`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

@@ -35,6 +35,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #street { font: 700 30px/1.05 var(--hud); letter-spacing: .03em; color: var(--paper); transition: opacity .6s; opacity: 0; text-transform: uppercase; }
 #district { font: 400 18px/1 var(--display); color: var(--surf); letter-spacing: .05em; transition: opacity .6s; opacity: 0; }
 #speedo { font: 400 46px/1 var(--display); color: var(--paper); font-variant-numeric: tabular-nums; }
+#speedo.braking { color: #ff4a4a; } #speedo.braking small { color: #ff4a4a; }
 #speedo small { font: 600 18px var(--hud); color: var(--gold); margin-left: 4px; }
 #prompt { left: 50%; bottom: 120px; transform: translateX(-50%); font: 600 22px/1 var(--hud); background: var(--dim); padding: 8px 14px; border-left: 4px solid var(--gold); opacity: 0; transition: opacity .2s; white-space: nowrap; }
 #prompt b { color: var(--gold); }
@@ -140,6 +141,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 #mapq:focus { border-color: var(--gold); }
 #mapres { list-style: none; margin: 6px 0 0; padding: 0; max-height: 60vh; overflow: auto; }
 #mapres li { background: rgba(8,14,18,.94); border-left: 5px solid #fff; margin-bottom: 4px; padding: 7px 12px; cursor: pointer; border-radius: 6px; }
+#mapres li.mapres-head { background: rgba(246,196,69,.95); color: #111; font: 700 15px var(--hud); border-left-color: var(--gold); cursor: default; }
 #mapres li:hover { background: rgba(40,52,60,.96); }
 #mapres b { display: block; font: 700 17px var(--hud); color: #fff; }
 #mapres span { font: 500 14px var(--hud); color: #a9b6bb; }
@@ -228,7 +230,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 </div>
 <div id="bigmap" hidden>
   <canvas id="bigc"></canvas>
-  <div id="mapsearch"><input id="mapq" type="search" placeholder="Search streets, schools, parks, shops…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
+  <div id="mapsearch"><input id="mapq" type="search" placeholder="Search a place, or what you want: movies, casino, food, petrol…" autocomplete="off" spellcheck="false" aria-label="Search the map"><ul id="mapres"></ul></div>
   <div id="mapzoom"><button type="button" id="zin" aria-label="Zoom in">+</button><button type="button" id="zout" aria-label="Zoom out">−</button><button type="button" id="zme" aria-label="Centre on me">◎</button><button type="button" id="zclear" aria-label="Clear waypoint">✕</button></div>
   <div id="mappin" hidden><b id="pin-name"></b><span id="pin-sub"></span><div class="pin-btns"><button type="button" id="pin-go">Go ▶</button><button type="button" id="pin-taxi">🚕 Taxi</button><button type="button" id="pin-x" aria-label="Remove pin">✕</button></div></div>
   <p>Click anywhere to drop a pin, then press Go · double-click to go straight there · scroll to zoom · drag to move · M to close</p>
@@ -241,7 +243,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>W A S D</b> move / drive</div>
       <div><b>Mouse</b> look around</div>
       <div><b>Shift</b> sprint</div>
-      <div><b>Space</b> jump · climb fences · handbrake</div>
+      <div><b>Space</b> jump · climb fences · hard brake</div>
       <div><b>F / E</b> cars · shops · houses · lifts</div>
       <div><b>Click / Q</b> punch · shoot</div>
       <div><b>Right-click</b> aim a gun</div>
@@ -256,6 +258,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div><b>X</b> cancel destination</div>
       <div><b>Weapon out</b> at a counter: rob it</div>
       <div><b>Plane</b> W/S power · A/D turn · ↑/Space climb</div>
+      <div><b>E on a beach</b> hire a surfboard</div>
       <div><b>P</b> phone</div>
       <div><b>Esc</b> pause</div>
     </div>
@@ -1501,6 +1504,9 @@ const CAR_TYPES = {
   coupe: { L: 4.35, W: 1.76, wr: 0.32, wb: 2.52, bot: 0.26, bump: 0.56, hood: 0.78, trunk: 0.9, belt: 0.92, roof: 1.32, cr: -0.95, rr: -0.55, rf: 0.25, cf: 0.95, accel: 10, max: 58, grip: 7.6, mass: 1250, drive: 'rwd', mu: 0.96, frontBias: 0.52 },
   muscle: { L: 4.95, W: 1.9, wr: 0.36, wb: 2.9, bot: 0.3, bump: 0.64, hood: 0.92, trunk: 0.98, belt: 1.0, roof: 1.44, cr: -1.3, rr: -0.82, rf: 0.34, cf: 1.12, accel: 10.5, max: 60, grip: 7.0, mass: 1700, drive: 'rwd', mu: 0.98, frontBias: 0.55 },
 };
+// two wheels: a road bike and an e-bike (light, slow, quiet); they lean into corners and you can see the rider
+CAR_TYPES.motorbike = { L: 2.1, W: 0.8, wr: 0.32, wb: 1.42, bot: 0.3, accel: 10, max: 40, grip: 8, mass: 260, drive: 'rwd', mu: 1.15, frontBias: 0.5, bike: true, cdA: 0.2 };
+CAR_TYPES.ebike = { L: 1.8, W: 0.6, wr: 0.33, wb: 1.1, bot: 0.3, accel: 2.4, max: 7.2, grip: 7, mass: 110, drive: 'rwd', mu: 1.05, frontBias: 0.5, bike: true, ebike: true, cdA: 0.25 };
 CAR_TYPES.taxi = Object.assign({}, CAR_TYPES.sedan, { taxi: true });
 CAR_TYPES.police = Object.assign({}, CAR_TYPES.muscle, { police: true, accel: 11, max: 62, grip: 7.8, mu: 1.04 });
 // every car well up on real-world pace: about 80% higher top speed than the base specs and a much punchier launch
@@ -1533,8 +1539,32 @@ function wheelGeo(r) {
   const hub = new THREE.BoxGeometry(0.28, r * 0.25, r * 1.1); paintGeo(hub, '#7a7f84');
   return (wheelGeoCache[r] = mergeGeos([tire, rim, hub]));
 }
+function makeBikeModel(p, color) {
+  const root = new THREE.Group(), bodyG = new THREE.Group(); root.add(bodyG);
+  const paintMat = new THREE.MeshPhysicalMaterial({ color: col(color), metalness: 0.5, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.25 });
+  const hw = p.wb / 2, wr = p.wr, paintParts = [], trim = [];
+  if (p.ebike) { // step-through frame, battery on the down tube, a basket on the front
+    paintParts.push(new THREE.BoxGeometry(0.07, 0.07, p.wb * 0.8).rotateX(-0.45).translate(0, wr + 0.25, 0.05), new THREE.BoxGeometry(0.06, 0.62, 0.06).translate(0, wr + 0.32, -0.25), new THREE.BoxGeometry(0.06, 0.06, 0.62).translate(0, wr + 0.05, -0.25));
+    trim.push(box(0.14, 0.12, 0.42, 0, wr + 0.18, 0.12, '#1d1d1d'), box(0.22, 0.06, 0.26, 0, wr + 0.66, -0.32, '#2a2a2a'), box(0.05, 0.62, 0.05, 0, wr + 0.38, hw - 0.05, '#2a2a2a'), box(0.6, 0.04, 0.04, 0, wr + 0.7, hw - 0.12, '#2a2a2a'), box(0.32, 0.2, 0.26, 0, wr + 0.55, hw + 0.1, '#8a6a4a'));
+  } else { // tank, seat, fairing and exhaust
+    paintParts.push(new THREE.BoxGeometry(0.34, 0.26, 0.6).translate(0, wr + 0.5, 0.18), new THREE.BoxGeometry(0.42, 0.38, 0.4).translate(0, wr + 0.42, 0.62), new THREE.BoxGeometry(0.28, 0.12, 0.5).translate(0, wr + 0.5, -0.5));
+    trim.push(box(0.3, 0.1, 0.62, 0, wr + 0.62, -0.18, '#1d1d1d'), box(0.3, 0.32, 0.5, 0, wr + 0.18, 0.08, '#3a3d40'), box(0.1, 0.1, 0.7, 0.18, wr + 0.08, -0.35, '#9aa2a6'), box(0.06, 0.55, 0.06, 0, wr + 0.32, hw - 0.12, '#9aa2a6'), box(0.62, 0.04, 0.04, 0, wr + 0.62, hw - 0.28, '#1d1d1d'));
+  }
+  const paint = new THREE.Mesh(mergeGeos(paintParts.map((g) => paintGeo(g, '#ffffff'))), paintMat); paint.castShadow = true;
+  const trimM = new THREE.Mesh(mergeGeos(trim), trimMat); trimM.castShadow = true;
+  const lightM = new THREE.Mesh(mergeGeos([box(0.14, 0.1, 0.05, 0, wr + (p.ebike ? 0.62 : 0.52), hw + (p.ebike ? 0.25 : 0.36), '#fff6dc')]), lightMat);
+  const tailM = new THREE.Mesh(mergeGeos([box(0.14, 0.07, 0.04, 0, wr + (p.ebike ? 0.4 : 0.55), -hw - (p.ebike ? 0.12 : 0.18), '#ff2a2a')]), brakeMat.clone());
+  bodyG.add(paint, trimM, lightM, tailM);
+  const driver = new THREE.Group(); driver.position.set(0, wr + (p.ebike ? 0.62 : 0.62), p.ebike ? -0.25 : -0.12); driver.visible = false; bodyG.add(driver);
+  const wheels = [], wg = new THREE.CylinderGeometry(wr, wr, p.ebike ? 0.06 : 0.14, 18); wg.rotateZ(Math.PI / 2); paintGeo(wg, '#1b1b1b');
+  const rimG = new THREE.CylinderGeometry(wr * 0.7, wr * 0.7, p.ebike ? 0.065 : 0.145, 12); rimG.rotateZ(Math.PI / 2); paintGeo(rimG, p.ebike ? '#c9ced2' : '#3a3d40');
+  const wgeo = mergeGeos([wg, rimG]);
+  for (const [z, front] of [[hw, 1], [-hw, 0]]) { const pivot = new THREE.Group(); pivot.position.set(0, wr, z); const m = new THREE.Mesh(wgeo, wheelMat); pivot.add(m); bodyG.add(pivot); wheels.push({ pivot, m, front: !!front }); }
+  return { root, bodyG, wheels, paintMat, tailMat: tailM.material, siren: null, doors: [], driver, geos: [paint.geometry, trimM.geometry, lightM.geometry, tailM.geometry, wgeo], bike: true };
+}
 function makeCarModel(typeName, color) {
   const p = CAR_TYPES[typeName];
+  if (p.bike) return makeBikeModel(p, color);
   const L = p.L, W = p.W, hl = L / 2, sF = p.wb / 2, sR = -p.wb / 2, ar = p.wr + 0.07;
   const out = [[-hl, p.bot + 0.05], [-hl - 0.02, p.bump], [-hl + 0.1, p.trunk], [p.cr, p.belt], [p.cf, p.belt], [hl - 0.38, p.hood], [hl, p.bump - 0.02], [hl - 0.02, p.bot + 0.06], [sF + ar, p.bot]];
   for (let k = 0; k <= 8; k++) { const a = (k / 8) * Math.PI; out.push([sF + ar * Math.cos(a), Math.max(p.bot, p.wr + ar * Math.sin(a) * 0.95)]); }
@@ -1618,6 +1648,13 @@ function setDriverLook(M, look) {
   for (const o of M.driver.children) if (o.geometry) o.geometry.dispose();
   M.driver.clear();
   if (!look) { M.driver.visible = false; return; }
+  if (M.bike) { // the whole rider: leaning over the bars, knees in, helmet on a road bike
+    const helmet = look.helmet === false ? look.hair : '#1d1d1d', shorts = look.shorts || '#2b2b2b';
+    const g = mergeGeos([box(0.4, 0.5, 0.26, 0, 0.3, 0.08, look.shirt).rotateX(0.35), box(0.24, 0.26, 0.26, 0, 0.74, 0.3, look.skin), box(0.28, 0.16, 0.3, 0, 0.86, 0.29, helmet),
+      box(0.1, 0.42, 0.1, 0.2, 0.42, 0.42, look.skin).rotateX(-1.0), box(0.1, 0.42, 0.1, -0.2, 0.42, 0.42, look.skin).rotateX(-1.0),
+      box(0.14, 0.14, 0.5, 0.14, 0.02, 0.16, shorts), box(0.14, 0.14, 0.5, -0.14, 0.02, 0.16, shorts), box(0.12, 0.5, 0.12, 0.16, -0.22, 0.38, look.skin), box(0.12, 0.5, 0.12, -0.16, -0.22, 0.38, look.skin)]);
+    M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true; return;
+  }
   const g = mergeGeos([box(0.42, 0.5, 0.26, 0, 0.25, 0, look.shirt), box(0.22, 0.25, 0.24, 0, 0.66, 0, look.skin), box(0.24, 0.07, 0.26, 0, 0.81, -0.01, look.hair), box(0.11, 0.38, 0.12, 0.2, 0.25, 0.18, look.skin), box(0.11, 0.38, 0.12, -0.2, 0.25, 0.18, look.skin)]);
   M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true;
 }
@@ -3261,13 +3298,14 @@ function econPanel(title, sub, rows) {
 }
 
 // ---------------------------------------------------------------- car dealerships: buy, test drive, call your car
-const CAR_PRICES = { hatch: 7500, sedan: 9800, ute: 14500, suv: 16900, coupe: 24000, muscle: 31000, sports: 45000 };
-const CAR_LABEL = { hatch: 'City hatchback', sedan: 'Family sedan', ute: 'Tradie ute', suv: 'Seven-seat SUV', coupe: 'Drift coupe', muscle: 'V8 muscle car', sports: 'Sports car' };
+const CAR_PRICES = { ebike: 2200, hatch: 7500, sedan: 9800, motorbike: 12500, ute: 14500, suv: 16900, coupe: 24000, muscle: 31000, sports: 45000 };
+const CAR_LABEL = { ebike: 'E-bike', hatch: 'City hatchback', sedan: 'Family sedan', motorbike: 'Sports motorbike', ute: 'Tradie ute', suv: 'Seven-seat SUV', coupe: 'Drift coupe', muscle: 'V8 muscle car', sports: 'Sports car' };
 function dealerStock(sh) { // each dealership carries its own range
   const n = sh.name.toLowerCase(), all = Object.keys(CAR_PRICES);
-  if (/bmw|mercedes|audi|lexus|porsche|jaguar|tesla|prestige/.test(n)) return ['sedan', 'suv', 'coupe', 'sports'];
+  if (/yamaha|kawasaki|ducati|harley|triumph|ktm|motorcycle|motorbike|moto\b|bikes?\b|scooter/.test(n)) return ['motorbike', 'ebike'];
+  if (/bmw|mercedes|audi|lexus|porsche|jaguar|tesla|prestige/.test(n)) return ['sedan', 'suv', 'coupe', 'sports', 'motorbike'];
   if (/ford|holden|ram|chev/.test(n)) return ['ute', 'muscle', 'suv', 'sedan'];
-  if (/toyota|mazda|hyundai|kia|nissan|honda|mitsubishi|subaru|suzuki|volkswagen|mg|isuzu/.test(n)) return ['hatch', 'sedan', 'suv', 'ute'];
+  if (/toyota|mazda|hyundai|kia|nissan|honda|mitsubishi|subaru|suzuki|volkswagen|mg|isuzu/.test(n)) return /honda|suzuki/.test(n) ? ['hatch', 'sedan', 'motorbike', 'ebike'] : ['hatch', 'sedan', 'suv', 'ute'];
   let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0; return all.filter((_, i) => (h >> i) & 1).slice(0, 4).concat(['hatch']).slice(0, 4);
 }
 function openDealer(sh) {
@@ -3907,9 +3945,12 @@ function initCasinoUI() {
 // Lift needs speed: too slow and the nose drops (a stall). Come down gently with the wings level to land.
 // Airliners also take off and land on their own.
 
-const PLANE_TYPES = {
-  cessna: { name: 'Cessna 172', len: 8.3, span: 11, fus: 1.4, gear: 1.1, maxV: 66, vr: 27, thrust: 7, color: '#f4f4f2', stripe: '#c62828', prop: true },
-  jet: { name: 'Airliner', len: 37, span: 34, fus: 4.0, gear: 2.6, maxV: 250, vr: 78, thrust: 13, color: '#ffffff', stripe: '#1d4e89', prop: false },
+const PLANE_TYPES = { // agile: how quickly it banks and pitches (1 = a Cessna)
+  cessna: { name: 'Cessna 172', len: 8.3, span: 11, fus: 1.4, gear: 1.1, maxV: 66, vr: 27, thrust: 7, color: '#f4f4f2', stripe: '#c62828', prop: true, agile: 1 },
+  twin: { name: 'Twin-prop King Air', len: 11, span: 15, fus: 1.6, gear: 1.2, maxV: 140, vr: 45, thrust: 9.5, color: '#f4f4f2', stripe: '#1d4e89', prop: true, twin: true, agile: 0.9 },
+  bizjet: { name: 'Private jet', len: 16, span: 14, fus: 1.9, gear: 1.3, maxV: 230, vr: 62, thrust: 15, color: '#f7f5ee', stripe: '#b8913a', prop: false, rearEngines: true, ttail: true, agile: 1.1 },
+  fighter: { name: 'Fighter jet', len: 17, span: 11.5, fus: 1.7, gear: 1.4, maxV: 340, vr: 72, thrust: 26, color: '#7d8790', stripe: '#4a535b', prop: false, fighter: true, agile: 2.2 },
+  jet: { name: 'Airliner', len: 37, span: 34, fus: 4.0, gear: 2.6, maxV: 250, vr: 78, thrust: 13, color: '#ffffff', stripe: '#1d4e89', prop: false, agile: 0.6 },
 };
 const PLANES = [];
 const PLANE_MATS = {};
@@ -3922,11 +3963,19 @@ function makePlaneModel(sp) {
   box(F * 0.8, F * 0.8, L * 0.12, 0, 0, L * 0.46, body);                 // nose
   box(F * 1.02, F * 0.25, L * 0.8, 0, -F * 0.05, 0, stripe);             // cheat line
   box(F * 0.9, F * 0.3, L * 0.08, 0, F * 0.28, L * 0.36, dark);          // cockpit windows
-  box(sp.span, F * 0.12, L * 0.16, 0, sp.prop ? F * 0.5 : -F * 0.25, L * 0.02, body); // wings
-  box(sp.span * 0.36, F * 0.1, L * 0.1, 0, F * 0.2, -L * 0.42, body);    // tailplane
-  box(F * 0.12, F * 1.4, L * 0.12, 0, F * 1.0, -L * 0.42, stripe);       // fin
-  if (sp.prop) { const p = box(F * 0.12, F * 1.3, 0.1, 0, 0, L * 0.53, dark); g.userData.prop = p; }
-  else for (const s of [-1, 1]) box(F * 0.55, F * 0.55, L * 0.12, s * sp.span * 0.22, -F * 0.7, L * 0.08, dark); // engines
+  if (sp.fighter) { // swept wings well back, twin canted fins, a big intake each side
+    for (const s of [-1, 1]) { box(sp.span / 2, F * 0.1, L * 0.3, s * sp.span / 4, 0, -L * 0.08, body).rotation.y = s * 0.35; box(F * 0.1, F * 1.2, L * 0.16, s * F * 0.6, F * 0.9, -L * 0.4, stripe).rotation.z = s * 0.3; box(F * 0.5, F * 0.6, L * 0.3, s * F * 0.6, -F * 0.1, L * 0.05, dark); }
+    box(sp.span * 0.45, F * 0.08, L * 0.12, 0, 0, -L * 0.44, body);
+    box(F * 0.6, F * 0.5, L * 0.18, 0, F * 0.55, L * 0.2, planeMat('#c9a227')); // gold-tinted canopy
+  } else {
+    box(sp.span, F * 0.12, L * 0.16, 0, sp.prop ? F * 0.5 : -F * 0.25, L * 0.02, body); // wings
+    box(sp.span * 0.36, F * 0.1, L * 0.1, 0, sp.ttail ? F * 1.65 : F * 0.2, -L * 0.42, body); // tailplane (on top of the fin for a T-tail)
+    box(F * 0.12, F * 1.4, L * 0.12, 0, F * 1.0, -L * 0.42, stripe);       // fin
+  }
+  if (sp.prop && sp.twin) { for (const s of [-1, 1]) { box(F * 0.45, F * 0.45, L * 0.25, s * sp.span * 0.2, F * 0.45, L * 0.1, body); const p = box(F * 0.08, F * 1.0, 0.08, s * sp.span * 0.2, F * 0.45, L * 0.24, dark); (g.userData.props = g.userData.props || []).push(p); } }
+  else if (sp.prop) { const p = box(F * 0.12, F * 1.3, 0.1, 0, 0, L * 0.53, dark); g.userData.prop = p; }
+  else if (sp.rearEngines) for (const s of [-1, 1]) box(F * 0.45, F * 0.45, L * 0.18, s * F * 0.8, F * 0.35, -L * 0.28, dark); // engines either side of the tail
+  else if (!sp.fighter) for (const s of [-1, 1]) box(F * 0.55, F * 0.55, L * 0.12, s * sp.span * 0.22, -F * 0.7, L * 0.08, dark); // engines under the wings
   for (const [x, z] of [[-F * 0.9, -L * 0.05], [F * 0.9, -L * 0.05], [0, L * 0.35]]) box(0.25, sp.gear, 0.25, x, -F * 0.5 - sp.gear / 2, z, dark); // landing gear
   g.userData.geos = geos; return g;
 }
@@ -3955,12 +4004,12 @@ class Plane {
       if (this.v > sp.vr && this.pitch > 0.08) { this.ground = false; if (!this.ai) toast('Airborne! Let go to level out · A/D to turn'); }
     } else {
       // bank to turn, and level out by itself when you let go
-      const rollT = this.stall ? 0 : inp.r * 0.7;
-      this.roll += clamp(rollT - this.roll, -1.6 * dt, 1.6 * dt);
+      const rollT = this.stall ? 0 : inp.r * (sp.fighter ? 1.2 : 0.7);
+      this.roll += clamp(rollT - this.roll, -1.6 * sp.agile * dt, 1.6 * sp.agile * dt);
       this.h += (g * Math.tan(this.roll) / Math.max(20, this.v)) * dt;
       const glide = !inp.p && this.throttle < 0.4 ? -0.09 * (1 - this.throttle / 0.4) : 0; // power off, hands off: a gentle glide down to land
       const pitchT = this.stall ? -0.22 : inp.p ? inp.p * 0.38 : glide;
-      this.pitch += clamp(pitchT - this.pitch, -0.9 * dt, 0.9 * dt);
+      this.pitch += clamp(pitchT - this.pitch, -0.9 * sp.agile * dt, 0.9 * sp.agile * dt);
       this.v = Math.max(0, this.v);
     }
     const fx = Math.sin(this.h) * Math.cos(this.pitch), fz = Math.cos(this.h) * Math.cos(this.pitch);
@@ -3984,6 +4033,8 @@ class Plane {
     if (this.ground) this.y = floor;
     this.x = clamp(this.x, WORLD.x0 - 3000, WORLD.x1 + 3000); this.z = clamp(this.z, WORLD.z0 - 3000, WORLD.z1 + 3000);
     if (this.model.userData.prop) this.model.userData.prop.rotation.z += this.throttle * 60 * dt;
+    for (const p of this.model.userData.props || []) p.rotation.z += this.throttle * 60 * dt;
+    if (this.sp.fighter && this.throttle > 0.9 && !this.dead) emit(this.x - Math.sin(this.h) * this.sp.len * 0.55, this.y, this.z - Math.cos(this.h) * this.sp.len * 0.55, 0, 0, 0, 0.12, 0.9, 0.3, '#ffb060', 1.0); // afterburner
     this.sync();
   }
   crash(why) {
@@ -4036,7 +4087,7 @@ function setupAirport() {
   const [x1, z1, x2, z2] = AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
   AIRPORT.rw = { x1, z1, x2, z2, h, ex, ez, nx, nz, len: Math.hypot(x2 - x1, z2 - z1) };
   // parked planes beside the runway near its start: two Cessnas and an airliner
-  AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['jet', 260, 95]];
+  AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['twin', 165, 72], ['bizjet', 200, 78], ['fighter', 240, 78], ['jet', 310, 95]];
 }
 function updatePlanes(dt) {
   if (AIRPORT && AIRPORT.rw) {
@@ -4068,6 +4119,202 @@ function updatePlanes(dt) {
   }
   if (OVERVIEW_MESH) OVERVIEW_MESH.visible = flying > 60;
   scene.fog.near = lerp(scene.fog.near, flying > 60 ? 2500 : 480, 0.05); scene.fog.far = lerp(scene.fog.far, flying > 60 ? 9000 : 1350, 0.05);
+}
+
+// ============================================================================
+// Gold Coast Streets — surfing. On a beach (or swimming off one) press E to hire a board. Paddle out with W and
+// A/D, Space to duck-dive under white water. Sets of waves roll in parallel to the sand; turn to face the beach
+// and paddle as one reaches you to catch it. Then: A/D carve along the wave, W drops down the face for speed,
+// S climbs back up, Space near the lip for an air. Each wave breaks from one end (the peel): stay ahead of the
+// white water on the clean shoulder. Points for time, speed and tricks, paid out in cash when the ride ends.
+// ============================================================================
+const SURF = { on: false, mode: 'paddle', waves: [], frame: null, board: null, meshes: [], t: 0, nextWave: 3, set: 0, pts: 0, best: 0, ride: null, wipeT: 0, duck: 0, air: 0, h: 0, x: 0, z: 0, hint: 0 };
+const WAVE_C = 6.5, WAVE_START = 230, WAVE_HALF = 160, WAVE_SEGS = 64, WAVE_ROWS = 14;
+let SURF_SEGS = null;
+// every stretch of ocean shoreline, with the side the sea is on
+function surfSegments() {
+  if (SURF_SEGS) return SURF_SEGS;
+  SURF_SEGS = [];
+  const add = (ax, az, bx, bz) => {
+    const L = Math.hypot(bx - ax, bz - az); if (L < 1) return;
+    let nx = (bz - az) / L, nz = -(bx - ax) / L; const mx = (ax + bx) / 2, mz = (az + bz) / 2;
+    if (isLand(mx + nx * 25, mz + nz * 25) && !isLand(mx - nx * 25, mz - nz * 25)) { nx = -nx; nz = -nz; } // point the normal out to sea
+    SURF_SEGS.push([ax, az, bx, bz, nx, nz]);
+  };
+  for (const p of (REGION && REGION.coast) || []) for (let i = 0; i + 3 < p.length; i += 2) add(p[i], p[i + 1], p[i + 2], p[i + 3]);
+  for (let i = 0; i + 3 < coastPts.length; i += 2) if (Math.hypot(coastPts[i + 2] - coastPts[i], coastPts[i + 3] - coastPts[i + 1]) < 80) add(coastPts[i], coastPts[i + 1], coastPts[i + 2], coastPts[i + 3]);
+  return SURF_SEGS;
+}
+// the nearest beach: closest point on the shoreline, the way out to sea, and how far you are from it
+function nearestShore(x, z) {
+  let best = null, bd = 1e9;
+  for (const S of surfSegments()) {
+    const [ax, az, bx, bz] = S, ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez, t = clamp(((x - ax) * ex + (z - az) * ez) / L2, 0, 1);
+    const px = ax + ex * t, pz = az + ez * t, d = Math.hypot(x - px, z - pz);
+    if (d < bd) { bd = d; best = { px, pz, nx: S[4], nz: S[5], d }; }
+  }
+  if (best) { best.tx = -best.nz; best.tz = best.nx; best.off = (x - best.px) * best.nx + (z - best.pz) * best.nz; } // off: metres out to sea (negative = on land)
+  return best;
+}
+// local wave frame: s along the beach, d out to sea, from a fixed point on the shore
+function setSurfFrame(x, z) { const S = nearestShore(x, z); if (!S) return false; SURF.frame = { ox: S.px, oz: S.pz, nx: S.nx, nz: S.nz, tx: S.tx, tz: S.tz }; SURF.waves.length = 0; SURF.nextWave = 1; return true; }
+const toLocal = (x, z) => { const F = SURF.frame, rx = x - F.ox, rz = z - F.oz; return [rx * F.tx + rz * F.tz, rx * F.nx + rz * F.nz]; };
+const toWorld = (s, d) => { const F = SURF.frame; return [F.ox + F.tx * s + F.nx * d, F.oz + F.tz * s + F.nz * d]; };
+// sets: a few bigger waves together, then a lull; each wave peels from one end
+function spawnWave() {
+  if (SURF.set <= 0) SURF.set = 3 + Math.floor(rand() * 3);
+  const big = SURF.set >= 3 ? 1.1 : 0.85, h = (1.1 + rand() * 0.9) * big, dir = rand() < 0.5 ? 1 : -1;
+  SURF.waves.push({ d: WAVE_START, h, breakD: 55 + h * 22, peel: null, dir, peelV: 6 + rand() * 3 });
+  SURF.set--; SURF.nextWave = SURF.set > 0 ? 9 + rand() * 3 : 22 + rand() * 10;
+}
+// height of the sea at a point (s, d), and whether it's broken white water there
+function waveAt(s, d) {
+  let y = 0, foam = 0, face = null;
+  for (const W of SURF.waves) {
+    const k = d - W.d, broken = W.peel !== null && (s - W.peel) * W.dir < 0;
+    const amp = W.h * (broken ? 0.55 : 1) * clamp((WAVE_START - W.d) / 40, 0, 1) * clamp(W.d / 15, 0, 1);
+    let hgt;
+    if (k >= 0) hgt = amp * Math.exp(-(k * k) / (W.peel !== null || W.d < W.breakD + 20 ? 30 : 60)); // the back slopes gently
+    else hgt = amp * Math.exp(-(k * k) / (W.d < W.breakD + 20 ? 6 : 40)); // the face steepens as it nears breaking
+    if (hgt > y) { y = hgt; face = W; }
+    if (broken && k > -4 && k < 6) foam = Math.max(foam, 1 - Math.abs(k - 1) / 5);
+  }
+  return [y, foam, face];
+}
+const SURF_MAT = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.22, metalness: 0.05, envMapIntensity: 0.55, transparent: true, opacity: 0.96 }); // less sky in it than the flat sea, so the faces read
+const BOARD_MAT = new THREE.MeshStandardMaterial({ color: col('#f4f1ea'), roughness: 0.35 });
+function ensureWaveMeshes() {
+  if (SURF.meshes.length) return;
+  for (let k = 0; k < 5; k++) {
+    const g = new THREE.PlaneGeometry(1, 1, WAVE_SEGS, WAVE_ROWS); g.setAttribute('color', new THREE.Float32BufferAttribute(new Float32Array(g.attributes.position.count * 3), 3));
+    const m = new THREE.Mesh(g, SURF_MAT); m.frustumCulled = false; m.visible = false; m.receiveShadow = true; scene.add(m); SURF.meshes.push(m);
+  }
+  const b = new THREE.Mesh(new THREE.BoxGeometry(0.55, 0.08, 2.1), BOARD_MAT); b.castShadow = true; b.visible = false; scene.add(b); SURF.board = b;
+  const fin = new THREE.Mesh(new THREE.BoxGeometry(0.03, 0.18, 0.22), BOARD_MAT); fin.position.set(0, -0.12, -0.85); b.add(fin);
+  const stripe = new THREE.Mesh(new THREE.BoxGeometry(0.08, 0.085, 2.0), new THREE.MeshStandardMaterial({ color: col('#e23b2a') })); b.add(stripe);
+}
+// each wave as a strip along the beach; colour goes from deep blue to white foam where it has broken
+const _wc = new THREE.Color(), DEEP = col('#0b4a63'), FACE = col('#0f8a96'), FOAM = col('#ffffff');
+function drawWaves(ps) {
+  ensureWaveMeshes();
+  SURF.meshes.forEach((m, i) => {
+    const W = SURF.waves[i]; m.visible = !!W; if (!W) return;
+    const P = m.geometry.attributes.position, C = m.geometry.attributes.color, cols = WAVE_SEGS + 1;
+    for (let r = 0; r <= WAVE_ROWS; r++) for (let c = 0; c <= WAVE_SEGS; c++) {
+      const q = r * cols + c, s = ps + (c / WAVE_SEGS - 0.5) * 2 * WAVE_HALF, d = W.d - 9 + (r / WAVE_ROWS) * 26;
+      const [y, foam] = waveAt(s, d), [x, z] = toWorld(s, d);
+      P.setXYZ(q, x, -0.5 + y, z);
+      const steep = clamp(y / Math.max(0.3, W.h), 0, 1);
+      _wc.copy(DEEP).lerp(FACE, steep * 0.8).lerp(FOAM, clamp(foam * 1.2 + (steep > 0.85 && W.d < W.breakD + 6 ? (steep - 0.85) * 4 : 0), 0, 1));
+      const glow = 1 + clamp(foam, 0, 1) * 0.35; C.setXYZ(q, _wc.r * glow, _wc.g * glow, _wc.b * glow);
+    }
+    P.needsUpdate = true; C.needsUpdate = true; m.geometry.computeVertexNormals();
+  });
+}
+function updateWaves(dt) {
+  if (!SURF.frame) return;
+  SURF.nextWave -= dt; if (SURF.nextWave <= 0) spawnWave();
+  for (const W of SURF.waves) {
+    W.d -= WAVE_C * dt;
+    if (W.peel === null && W.d < W.breakD) W.peel = toLocal(player.x, player.z)[0] + (rand() * 60 - 30) - W.dir * 40; // starts breaking a little to one side of you
+    if (W.peel !== null) W.peel += W.dir * W.peelV * dt;
+  }
+  for (let i = SURF.waves.length - 1; i >= 0; i--) if (SURF.waves[i].d < 6) SURF.waves.splice(i, 1);
+  drawWaves(toLocal(player.x, player.z)[0]);
+}
+// ---------------------------------------------------------------- the surfer
+function surfUse() { // E: grab a board on the sand or in the water off a beach, or hand it back
+  if (SURF.on) { if (SURF.mode === 'paddle' && toLocal(player.x, player.z)[1] < 25) { endSurf(); toast('Board back — thanks for surfing'); } else toast('Paddle back in towards the beach to hand the board back'); return true; }
+  if (player.state !== 'foot' || !REGION) return false;
+  const S = nearestShore(player.x, player.z); if (!S || S.off < -60 || S.off > 120) return false;
+  if (!(onBeach(player.x, player.z) || onBeachSand(player.x, player.z) || !isLand(player.x, player.z))) return false;
+  if (!pay(10, 'board hire')) return true;
+  setSurfFrame(player.x, player.z); SURF.on = true; SURF.mode = 'paddle'; SURF.pts = 0; SURF.ride = null; SURF.h = Math.atan2(S.nx, S.nz); SURF.t = 0;
+  const [sx, sz] = toWorld(toLocal(player.x, player.z)[0], Math.max(6, S.off)); SURF.x = sx; SURF.z = sz;
+  player.state = 'surf'; ensureWaveMeshes(); SURF.board.visible = true; for (let k = 0; k < 3; k++) spawnWave(); SURF.waves.forEach((W, i) => { W.d = 120 + i * 60; });
+  toast('Board hired ($10). W paddle out · A/D turn · Space duck-dive · turn to the beach and paddle to catch a wave'); return true;
+}
+function endSurf() {
+  SURF.on = false; player.state = 'foot'; if (SURF.board) SURF.board.visible = false;
+  for (const m of SURF.meshes) m.visible = false; SURF.waves.length = 0; $('jobhud').hidden = true;
+  player.x = SURF.x; player.z = SURF.z; player.y = 0; player.model.root.rotation.set(0, player.h, 0, 'XYZ');
+}
+function finishRide(wiped) {
+  const R = SURF.ride; SURF.ride = null; SURF.mode = wiped ? 'wipe' : 'paddle'; SURF.wipeT = wiped ? 2.2 : 0;
+  if (!R) return;
+  const pts = Math.round(R.pts), cash = Math.round(pts / 25);
+  SURF.best = Math.max(SURF.best, pts);
+  if (wiped) { toast(`Wipeout! ${pts} pts${cash ? ` · +$${cash}` : ''}`); sfxNoise(0.6, 600, 0.4); }
+  else toast(`Nice ride — ${R.t.toFixed(1)} s · ${pts} pts · +$${cash}`);
+  player.money += cash; if (cash) saveGame();
+}
+function updateSurf(dt) {
+  const P = player.model, steer = (keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0);
+  let [s, d] = toLocal(SURF.x, SURF.z);
+  if (Math.abs(s) > 120) { setSurfFrame(SURF.x, SURF.z); [s, d] = toLocal(SURF.x, SURF.z); } // follow the coast round as you move along it
+  updateWaves(dt);
+  const [sea, foam, face] = waveAt(s, d), F = SURF.frame;
+  if (SURF.mode === 'wipe') { // tumbling under the white water, then back on the board
+    SURF.wipeT -= dt; SURF.duck = 0;
+    const [x, z] = toWorld(s, d - WAVE_C * 0.6 * dt); SURF.x = x; SURF.z = z;
+    P.root.position.set(x, -0.5 + sea - 0.6, z); P.root.rotation.set(elapsed * 6, SURF.h, elapsed * 4, 'YXZ');
+    if (SURF.wipeT <= 0) SURF.mode = 'paddle';
+  } else if (SURF.mode === 'paddle') {
+    SURF.h += steer * 1.7 * dt;
+    const fx = Math.sin(SURF.h), fz = Math.cos(SURF.h), sp = keys.KeyW || keys.ArrowUp ? (keys.ShiftLeft ? 2.6 : 1.9) : 0;
+    if (keys.Space && SURF.duck <= 0) { SURF.duck = 0.9; keys.Space = false; }
+    SURF.duck -= dt;
+    let x = SURF.x + fx * sp * dt, z = SURF.z + fz * sp * dt;
+    if (foam > 0.3 && SURF.duck <= 0) { x -= F.nx * WAVE_C * 0.55 * foam * dt; z -= F.nz * WAVE_C * 0.55 * foam * dt; } // white water shoves you back in unless you duck under it
+    const [s2, d2] = toLocal(x, z); if (d2 < 3) { [x, z] = toWorld(s2, 3); }
+    SURF.x = x; SURF.z = z;
+    // a wave about to pass under you, facing the beach and paddling: you're on it
+    const toBeach = -(fx * F.nx + fz * F.nz);
+    for (const W of SURF.waves) {
+      const k = d2 - W.d, broken = W.peel !== null && (s2 - W.peel) * W.dir < 0;
+      if (k > -1.5 && k < 4 && toBeach > 0.3 && sp > 0 && W.d < W.breakD + 30) { // white water can be caught too (a beginner's ride, fewer points)
+        SURF.mode = 'ride'; SURF.ride = { W, face: broken ? 2 : 3.5, vs: (fx * F.tx + fz * F.tz) * 4, t: 0, pts: 0, lastDir: 0 }; sfxNoise(0.4, 900, 0.25);
+        toast(broken ? 'Riding the white water — carve (A/D) along to the clean face for more points' : 'Up and riding! A/D carve · W drop down the face · S climb · Space near the lip for an air'); break;
+      }
+      if (k > 4 && k < 30 && SURF.hint <= 0 && W.d < W.breakD + 40) { SURF.hint = 6; toast(toBeach > 0.3 ? 'Wave coming — paddle (W) now!' : 'Wave coming — turn to face the beach and paddle'); }
+    }
+    SURF.hint -= dt;
+    const lineup = SURF.waves.length ? Math.round(Math.max(...SURF.waves.map((W) => W.breakD)) - 10) : 80;
+    $('jobhud').hidden = false; $('jobhud').textContent = d2 < lineup - 15 ? `Surfing · ${Math.round(d2)} m out · the waves break about ${lineup} m out — paddle out (W), Space to duck-dive` : `Surfing · in the line-up (${Math.round(d2)} m out) · face the beach and paddle as a wave reaches you · best ${SURF.best}`;
+    const bob = Math.sin(elapsed * 2.2) * 0.04, dy = SURF.duck > 0 ? -0.7 : 0;
+    P.root.position.set(SURF.x, -0.5 + sea + 0.18 + bob + dy, SURF.z); P.root.rotation.set(1.45, SURF.h, 0, 'YXZ'); // lying along the board, head to the nose
+    animatePerson(P, elapsed * (sp ? 3.2 : 0.8), sp ? 0.9 : 0.2, 'swim');
+    SURF.board.position.set(SURF.x, -0.5 + sea + 0.03 + bob + dy, SURF.z); SURF.board.rotation.set(0, SURF.h, 0);
+  } else { // riding
+    const R = SURF.ride, W = R.W; R.t += dt;
+    const carve = steer; // A: along +s (left as you face the beach), D: the other way
+    R.vs = clamp(R.vs + carve * 9 * dt, -11, 11); R.vs *= Math.exp(-0.25 * dt);
+    if (keys.KeyW || keys.ArrowUp) R.face = Math.min(7, R.face + 3 * dt); // drop down the face: faster, further from the lip
+    if (keys.KeyS || keys.ArrowDown) R.face = Math.max(0.4, R.face - 3 * dt); // climb towards the lip
+    const speedGain = (R.face - 2) * 0.35; R.vs += Math.sign(R.vs || 1) * speedGain * dt * (Math.abs(R.vs) < 11 ? 1 : 0);
+    const s2 = s + R.vs * dt, d2 = W.d - R.face, broken = W.peel !== null && (s2 - W.peel) * W.dir < 0;
+    const [x, z] = toWorld(s2, d2); SURF.x = x; SURF.z = z;
+    const speed = Math.hypot(R.vs, WAVE_C);
+    R.pts += speed * dt * (broken ? 1 : 3);
+    if (Math.sign(R.vs) !== R.lastDir && Math.abs(R.vs) > 4 && R.lastDir) { R.pts += 100; toast('Cutback! +100'); }
+    if (Math.abs(R.vs) > 2) R.lastDir = Math.sign(R.vs);
+    if (keys.Space && SURF.air <= 0 && R.face < 1.8 && speed > 8) { SURF.air = 0.9; R.pts += 250; keys.Space = false; toast('Air! +250'); sfxTone([660, 990], 0.15, 0.05); }
+    SURF.air -= dt;
+    const air = SURF.air > 0 ? Math.sin((SURF.air / 0.9) * Math.PI) * 1.6 : 0;
+    const heading = Math.atan2(F.tx * R.vs - F.nx * WAVE_C, F.tz * R.vs - F.nz * WAVE_C);
+    SURF.h = heading;
+    const [yy] = waveAt(s2, d2);
+    SURF.board.position.set(x, -0.5 + yy + 0.05 + air, z); SURF.board.rotation.set(0, heading, -carve * 0.35 + (air ? elapsed * 8 : 0) * 0);
+    P.root.position.set(x, -0.5 + yy + 0.12 + air, z); P.root.rotation.set(0, heading + Math.PI / 2, -carve * 0.25, 'YXZ'); // side-on, leaning into the turn
+    animatePerson(P, 0, 0); P.legL.rotation.x = 0.35; P.legR.rotation.x = -0.35; P.armL.rotation.z = 1.2; P.armR.rotation.z = -1.2;
+    $('jobhud').hidden = false; $('jobhud').textContent = `Surfing · ${R.t.toFixed(1)} s · ${Math.round(R.pts)} pts${broken ? ' · in the white water — carve ahead of it!' : ''} · best ${SURF.best}`;
+    // ends: over the falls at the lip as it breaks, buried in the white water, or a clean kick-out near the sand
+    if (R.face < 0.6 && W.d < W.breakD && !air) return finishRide(true);
+    R.foamT = broken ? (R.foamT || 0) + dt : 0; if (broken) R.vs *= Math.exp(-0.6 * dt); // the white water slows you down
+    if (broken && R.foamT > 2.5 && Math.abs(R.vs) < 2.5) return finishRide(true); // ...and buries you if you stall in it
+    if (W.d < 18) { finishRide(false); $('jobhud').hidden = true; }
+  }
+  player.x = SURF.x; player.z = SURF.z; player.h = SURF.h;
 }
 
 // ============================================================================
@@ -6741,30 +6988,34 @@ class Car {
     let Fdrive = 0, Fbrake = 0;
     // power-limited drive: big shove off the line, tapering through the 'gears'
     if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
-    if (brk > 0) { if (vf > 0.5) Fbrake = brk * m * 10; else Fdrive = -brk * m * sp.accel * 0.6 * Math.max(0, 1 + vf / 13); }
+    if (brk > 0) { if (vf > 0.5) Fbrake = brk * m * 12; else Fdrive = -brk * m * sp.accel * 0.6 * Math.max(0, 1 + vf / 13); }
+    // Space: hard brake on all four wheels; turn hard while holding it and the rear locks for a handbrake slide
+    const slideHb = hb && Math.abs(live ? inp.s : 0) > 0.5 && Math.abs(vf) > 6;
+    if (hb && !slideHb && Math.abs(vf) > 0.5) Fbrake = Math.max(Fbrake, m * 16);
     const share = sp.drive === 'rwd' ? 0 : sp.drive === 'fwd' ? 1 : 0.4;
     let Fxf = Fdrive * share, Fxr = Fdrive * (1 - share);
     const bs = Math.abs(vf) > 0.05 ? Math.sign(vf) : 0;
     Fxf -= Fbrake * 0.6 * bs; Fxr -= Fbrake * 0.4 * bs;
-    if (hb) Fxr -= m * 3.5 * bs;
+    if (slideHb) Fxr -= m * 3.5 * bs;
     const maxF = mu * Nf * 0.86, maxR = mu * Nr; // fronts give up first: understeer at the limit unless you provoke the rear
     let spinR = 0;
-    if (Math.abs(Fxr) > maxR * 0.9) { spinR = Math.min(1, (Math.abs(Fxr) - maxR * 0.9) / (maxR * 0.45)); Fxr = Math.sign(Fxr) * maxR * 0.9; }
-    Fxf = clamp(Fxf, -maxF * 0.95, maxF * 0.95);
+    if (Fbrake > 0 && !slideHb) Fxr = Math.sign(Fxr) * Math.min(Math.abs(Fxr), maxR * 0.97); // ABS: brake right at the limit without locking, so you can still steer
+    if (Math.abs(Fxr) > maxR * 0.9 && (Fbrake === 0 || slideHb)) { spinR = Math.min(1, (Math.abs(Fxr) - maxR * 0.9) / (maxR * 0.45)); Fxr = Math.sign(Fxr) * maxR * 0.9; }
+    Fxf = clamp(Fxf, -maxF * (Fbrake > 0 ? 1.0 : 0.95), maxF * (Fbrake > 0 ? 1.0 : 0.95));
     const vfa = Math.max(Math.abs(vf), 0.6), sgn = vf < -0.3 ? -1 : 1;
     const af = Math.atan2(vl + r * a, vfa) - d * sgn, ar = Math.atan2(vl - r * b, vfa);
     let latR = Math.sqrt(Math.max(0, maxR * maxR - Fxr * Fxr)) * (1 - spinR * 0.35);
-    if (!hb) latR = Math.max(latR, maxR * (spinR > 0.6 ? 0.45 : 0.62)); // rear lets go progressively, not all at once
-    if (hb) latR *= 0.3;
+    if (!slideHb) latR = Math.max(latR, maxR * (spinR > 0.6 ? 0.45 : 0.62)); // rear lets go progressively, not all at once
+    if (slideHb) latR *= 0.3;
     const latF = Math.sqrt(Math.max(0, maxF * maxF - Fxf * Fxf));
     // stiffer rear tyres = mild understeer at the limit; the rear only lets go under power or handbrake
     const Fyf = clamp(-maxF * 8 * af, -latF, latF), Fyr = clamp(-maxR * 11 * ar, -latR, latR);
     const coast = thr === 0 && brk === 0 ? m * 0.9 * Math.min(1, Math.abs(vf)) * bs : 0;
-    const drag = 0.42 * vf * Math.abs(vf) + m * 0.15 * bs + coast;
+    const drag = 0.42 * (sp.cdA || 1) * vf * Math.abs(vf) + m * 0.15 * bs + coast; // cdA: frontal area relative to a car
     const cd = Math.cos(d), sd = Math.sin(d);
     const Flong = Fxf * cd - Fyf * sd + Fxr - drag, Flat = Fyf * cd + Fxf * sd + Fyr;
     const I = m * (a * a + b * b) * 0.55, torque = a * (Fyf * cd + Fxf * sd) - b * Fyr;
-    const axl = Flong / m;
+    const axl = Flong / m - (hb && !slideHb && Math.abs(vf) > 0.5 ? 3.5 * bs : 0); // brake assist on a hard stop (downforce and big brakes)
     vf += (axl + r * vl) * dt;
     vl += (Flat / m - r * vf) * dt;
     r += (torque / I) * dt;
@@ -6776,7 +7027,7 @@ class Car {
     this.vx = s2 * vf + c2 * vl; this.vz = c2 * vf - s2 * vl;
     this.spinR = lerp(this.spinR, spinR, Math.min(1, dt * 10));
     this.slip = clamp((Math.abs(vl - r * b) - 1.8) / 5, 0, 1) * (speed > 3 ? 1 : 0) + this.spinR * (Math.abs(vf) > 1 ? 0.8 : 0.5) * (thr > 0 ? 1 : 0);
-    this.slip = clamp(this.slip + (hb && speed > 4 ? 0.3 : 0), 0, 1);
+    this.slip = clamp(this.slip + (slideHb ? 0.3 : hb && speed > 8 ? 0.12 : 0), 0, 1); // tyres squeal on a hard stop too
   }
   collideWorld() {
     const fx = Math.sin(this.h), fz = Math.cos(this.h);
@@ -6831,7 +7082,8 @@ class Car {
     const tp = this.air ? clamp(-Math.atan2(this.vy, Math.max(4, Math.abs(this.vf))), -0.5, 0.5) : -Math.atan(sx * fx + sz * fz), tr = this.air ? this.tr || 0 : Math.atan(sx * fz - sz * fx);
     const k = dt ? Math.min(1, dt * 10) : 1; this.tp = lerp(this.tp || 0, tp, k); this.tr = lerp(this.tr || 0, tr, k);
     M.root.position.set(this.x, alt + this.y, this.z); M.root.rotation.set(this.tp, this.h, this.tr, 'YXZ');
-    M.bodyG.rotation.set(this.pitch, 0, this.roll);
+    if (M.bike) { this.lean = lerp(this.lean || 0, clamp(-Math.atan(this.vf * this.yaw / 9.81), -0.7, 0.7), Math.min(1, dt * 8)); M.bodyG.rotation.set(this.pitch * 0.5, 0, this.lean); } // into the corner
+    else M.bodyG.rotation.set(this.pitch, 0, this.roll);
     for (const w of M.wheels) { w.m.rotation.x = this.spin; if (w.front) w.pivot.rotation.y = this.steer; }
     M.doors.forEach((d, i) => { d.open += clamp(this.doorTarget[i] - d.open, -dt * 4, dt * 4); d.hinge.rotation.y = -d.side * d.open * 1.1; });
     const braking = this.driver && ((this.input.b > 0 && this.vf > 0.5) || this.input.hb);
@@ -7280,7 +7532,7 @@ function buildParkSpots() {
 }
 function randomCarType() {
   const r = rand();
-  return r < 0.24 ? 'sedan' : r < 0.4 ? 'hatch' : r < 0.55 ? 'suv' : r < 0.69 ? 'ute' : r < 0.77 ? 'taxi' : r < 0.85 ? 'muscle' : r < 0.93 ? 'coupe' : 'sports';
+  return r < 0.22 ? 'sedan' : r < 0.37 ? 'hatch' : r < 0.51 ? 'suv' : r < 0.64 ? 'ute' : r < 0.72 ? 'taxi' : r < 0.8 ? 'muscle' : r < 0.87 ? 'coupe' : r < 0.94 ? 'sports' : 'motorbike';
 }
 function spawnTraffic(minD, maxD, kind) {
   for (let tries = 0; tries < 40; tries++) {
@@ -7319,6 +7571,17 @@ function spawnParked(maxD, minD) {
     c.kind = 'parked'; c.spot = sp; sp.used = true; cars.push(c); n++;
   }
 }
+// share e-bikes left on the footpath: hop on and ride
+function spawnEbikes(maxD) {
+  let n = cars.filter((c) => c.type === 'ebike' && c.kind === 'parked').length;
+  for (let tries = 0; tries < 12 && n < 6; tries++) {
+    const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei]; if (!E || E.len < 8) continue;
+    edgePoint(E, 1, rr(2, E.len - 2), tmpA); const side = rand() < 0.5 ? 1 : -1, off = (E.width / 2 + 2.2) * side;
+    const x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off, d = Math.hypot(x - player.x, z - player.z);
+    if (d < 25 || d > maxD || !isLand(x, z) || resolveCircle(x, z, 0.6) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue;
+    const c = new Car('ebike', pick(['#2ac28a', '#ff8a2a', '#e23b2a', '#f2c230', '#2a7de2']), x, z, Math.atan2(tmpA.tx, tmpA.tz) + Math.PI / 2 * side); c.kind = 'parked'; cars.push(c); n++;
+  }
+}
 function spawnPed(minD, maxD) {
   for (let tries = 0; tries < 30; tries++) {
     const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
@@ -7346,7 +7609,7 @@ function manageWorld(dt) {
   }
   for (const p of peds.slice()) if (p.gone || Math.hypot(p.x - player.x, p.z - player.z) > (p.cop ? 160 : 190)) { if (p.cop && p.car) p.car.copOut = null; p.remove(); }
   if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
-  spawnParked(190, 70);
+  spawnParked(190, 70); spawnEbikes(160);
   if (peds.filter((p) => !p.cop).length < 46) { spawnPed(60, 150); spawnPed(60, 150); }
   const want = [0, 1, 2, 4, 6, 8][player.stars];
   if (cars.filter((c) => c.kind === 'police' && !c.dead).length < want) spawnTraffic(110, 240, 'police');
@@ -7713,12 +7976,14 @@ function useKey() {
   if (player.deadT > 0) return;
   if (player.state === 'plane') return leavePlane(false);
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
+  if (player.state === 'surf') { surfUse(); return; }
   if (player.state !== 'foot') return;
   if (towerUse() || houseUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
-  const c = nearestEnterableCar(); if (c) startEnter(c);
+  const c = nearestEnterableCar(); if (c) return startEnter(c);
+  surfUse(); // on a beach: hire a board
 }
 function updatePlayer(dt) {
   if (player.deadT > 0) {
@@ -7738,6 +8003,7 @@ function updatePlayer(dt) {
       return;
     }
     case 'plane': squeal = 0; return updatePlaneControls();
+    case 'surf': squeal = 0; return updateSurf(dt);
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
     case 'tackled': return updateTackled(dt);
@@ -7824,6 +8090,10 @@ function updateCamera(dt) {
     const p = player.plane; tx = p.x; ty = p.y + p.sp.fus; tz = p.z; dist = p.sp.len * 1.4 + 8;
     camYaw += angDiff(camYaw, p.h) * Math.min(1, dt * 2.5); camPitch = lerp(camPitch, 0.18 + p.pitch * 0.5, Math.min(1, dt * 2));
     camera.fov = lerp(camera.fov, 62 + Math.min(14, p.v * 0.08), Math.min(1, dt * 3));
+  } else if (player.state === 'surf') { // behind the board, a little above the water
+    tx = SURF.x; ty = 0.9 + (SURF.mode === 'ride' ? 0.6 : 0); tz = SURF.z; dist = SURF.mode === 'ride' ? 6.5 : 4.5;
+    if (elapsed - mouse.last > 1.0) camYaw += angDiff(camYaw, SURF.h) * Math.min(1, dt * (SURF.mode === 'ride' ? 3 : 1.5));
+    camPitch = lerp(camPitch, 0.22, Math.min(1, dt * 2)); camera.fov = lerp(camera.fov, 62, Math.min(1, dt * 3));
   } else if (player.state === 'car' && player.car) {
     const c = player.car;
     tx = c.x; ty = 1.6 + c.y + (c.alt || 0); tz = c.z; dist = CAM_CAR[camIdx];
@@ -8078,9 +8348,55 @@ function searchPlaces(q) {
   out.sort((p, q2) => p[0] - q2[0]);
   return out.slice(0, 9).map((o) => o[1]);
 }
+// search by what you want to do, not just by name: "movies" lists cinemas, "casino" lists casinos, and so on
+const SEARCH_TOPICS = [
+  { re: /^(movies?|cinemas?|films?|flicks|imax|hoyts|watch a movie)/, title: '🎬 Cinemas', tags: ['cinema'], name: /cinema|cineplex|hoyts|birch carroll|\bbcc\b|dendy|movies|imax/i, rename: [/^event$/i, 'Event Cinemas'] },
+  { re: /^(casinos?|gambl|pokies|blackjack|poker|slots|bet)/, title: '🎰 Casinos', tags: ['casino', 'gambling'], name: /casino|the star\b|jupiters/i, exclude: /court|beach|drive|village|caravan|taxi|street|road|avenue/i, rename: [/^the star event centre$/i, 'The Star Gold Coast (casino)'] },
+  { re: /^(food|hungry|eat|dinner|lunch|brekky|breakfast|restaurants?|takeaway)/, title: '🍔 Food', tags: ['restaurant', 'fast_food', 'food_court', 'cafe'] },
+  { re: /^(coffee|cafes?|caf)/, title: '☕ Cafés', tags: ['cafe'] },
+  { re: /^(maccas|mcdonald|kfc|hungry jack|subway|fast ?food)/, title: '🍟 Fast food', tags: ['fast_food'] },
+  { re: /^(petrol|fuel|servo|gas)/, title: '⛽ Petrol stations', kinds: [9] },
+  { re: /^(hospital|doctor|emergency|medical|clinic)/, title: '🏥 Hospitals and clinics', kinds: [4] },
+  { re: /^(police|cops)/, title: '🚓 Police stations', tags: ['police'] },
+  { re: /^(banks?|atm|money|cash)/, title: '🏦 Banks', tags: ['bank', 'atm'] },
+  { re: /^(beach|surf|swim)/, title: '🏖️ Beaches', kinds: [3] },
+  { re: /^(gyms?|fitness|workout)/, title: '💪 Gyms', tags: ['fitness_centre', 'sports_centre'], name: /gym|fitness|f45|crossfit/i },
+  { re: /^(bars?|pubs?|drinks?|beers?|taverns?)/, title: '🍺 Pubs and bars', tags: ['pub', 'bar', 'biergarten'] },
+  { re: /^(clubs?|nightclubs?|dance|dancing|party)/, title: '🪩 Nightclubs', tags: ['nightclub'], name: /nightclub|night club/i },
+  { re: /^(bottle|alcohol|liquor|grog|booze)/, title: '🍾 Bottle shops', tags: ['alcohol', 'wine', 'beverages'], name: /bws|dan murphy|liquor|bottle-?o|thirsty camel/i },
+  { re: /^(groceries|grocery|supermarkets?|woolies|woolworths|coles|aldi)/, title: '🛒 Supermarkets', tags: ['supermarket'] },
+  { re: /^(shopping|malls?|shops|shopping centres?)/, title: '🛍️ Shopping centres', kinds: [5] },
+  { re: /^(hotels?|motels?|stay|sleep|accommodation)/, title: '🏨 Hotels', kinds: [8] },
+  { re: /^(schools?)/, title: '🏫 Schools', kinds: [1] },
+  { re: /^(parks?|playgrounds?)/, title: '🌳 Parks', kinds: [2] },
+  { re: /^(theme parks?|rides|dreamworld|movie world|sea world|wet ?n ?wild|attractions?|things to do)/, title: '🎢 Attractions', kinds: [10] },
+  { re: /^(car dealer|cars|buy a car|dealership)/, title: '🚗 Car dealers', tags: ['car'] },
+  { re: /^(chemist|pharmacy|pharmacies)/, title: '💊 Pharmacies', tags: ['pharmacy', 'chemist'] },
+  { re: /^(clothes|clothing|fashion)/, title: '👕 Clothes shops', tags: ['clothes', 'boutique', 'shoes'] },
+  { re: /^(train|tram|bus|g:?link|station)/, title: '🚋 Stations', kinds: [14] },
+  { re: /^(airport|planes?|fly|flying|jets?)/, title: '✈️ Airport', airport: true },
+  { re: /^(guns?|weapons?|ammo|dealer)/, title: '🔫 Gun dealers', dealers: true },
+];
+function topicResults(q) {
+  q = q.trim().toLowerCase(); if (q.length < 3) return null;
+  const T = SEARCH_TOPICS.find((t) => t.re.test(q)); if (!T || !REGION) return null;
+  let list = [];
+  if (T.airport && AIRPORT && AIRPORT.rw) list.push(['Gold Coast Airport — the planes', 10, AIRPORT.rw.x1 + AIRPORT.rw.ex * 100 + AIRPORT.rw.nx * 55, AIRPORT.rw.z1 + AIRPORT.rw.ez * 100 + AIRPORT.rw.nz * 55]);
+  if (T.dealers) for (const d of DEALERS) list.push([d.name || 'Gun dealer', 13, d.x, d.z]);
+  for (const e of REGION.search) if ((T.kinds && T.kinds.includes(e[1])) || (T.tags && e[4] && T.tags.includes(e[4])) || (T.name && e[1] !== 0 && T.name.test(e[0]))) list.push(e);
+  if (T.exclude) list = list.filter((e) => !T.exclude.test(e[0]));
+  if (T.rename) list = list.map((e) => (T.rename[0].test(e[0]) ? [T.rename[1]].concat(e.slice(1)) : e));
+  const seen = new Set(); list = list.filter((e) => { const k = e[0] + Math.round(e[2] / 200) + ',' + Math.round(e[3] / 200); if (seen.has(k)) return false; seen.add(k); return true; });
+  list.sort((a, b) => Math.hypot(a[2] - player.x, a[3] - player.z) - Math.hypot(b[2] - player.x, b[3] - player.z));
+  return { title: T.title, list: list.slice(0, 10) };
+}
 function renderSearch() {
   const list = $('mapres'); list.innerHTML = '';
-  for (const e of searchPlaces($('mapq').value)) {
+  const topic = topicResults($('mapq').value);
+  if (topic) {
+    const h = document.createElement('li'); h.className = 'mapres-head'; h.textContent = topic.list.length ? `${topic.title} near you` : `${topic.title}: none on the map`; list.appendChild(h);
+  }
+  for (const e of (topic ? topic.list : []).concat(searchPlaces($('mapq').value).filter((e) => !topic || !topic.list.includes(e)))) {
     const li = document.createElement('li'), d = Math.hypot(e[2] - player.x, e[3] - player.z);
     const kind = REGION.searchKinds[e[1]], sub = REGION.suburbs.length ? suburbAt(e[2], e[3]) : '';
     li.innerHTML = '<b></b><span></span>'; li.firstChild.textContent = e[0];
@@ -8132,11 +8448,12 @@ function initBigMap() {
   $('pin-taxi').addEventListener('click', () => { if (!MAPV.pin) return; pinGo(); taxi(); });
   $('pin-x').addEventListener('click', () => { MAPV.pin = null; $('mappin').hidden = true; drawBigMap(); });
   $('mapq').addEventListener('input', renderSearch);
-  $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const r = searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
+  $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const t = topicResults($('mapq').value), r = t && t.list.length ? t.list : searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });
   $('zin').addEventListener('click', () => zoomMap(1.6)); $('zout').addEventListener('click', () => zoomMap(1 / 1.6));
   $('zme').addEventListener('click', () => { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); });
   $('zclear').addEventListener('click', () => { cancelDestination(); drawBigMap(); });
 }
+const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
   $('clock').textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
@@ -8144,7 +8461,11 @@ function updateHUD(dt) {
   const st = $('stars').children; for (let i = 0; i < 5; i++) st[i].className = i < player.stars ? 'on' : '';
   $('health').firstElementChild.style.width = player.health + '%';
   const sp = $('speedo');
-  if (player.state === 'car') { sp.hidden = false; sp.firstChild.nodeValue = Math.round(player.car.speed * 3.6); } else sp.hidden = true;
+  if (player.state === 'car') { // the speedo goes red while you brake
+    const c = player.car, brakingNow = (c.input.b > 0 && c.vf > 0.5) || c.input.hb;
+    sp.hidden = false; sp.firstChild.nodeValue = Math.round(c.speed * 3.6); sp.classList.toggle('braking', !!brakingNow);
+    if (!HUD_TIPS.car) { HUD_TIPS.car = true; toast('W gas · S brake (then reverse) · Space hard brake · A/D steer · Space + A/D to slide'); }
+  } else sp.hidden = true;
   streetT -= dt;
   if (streetT <= 0) {
     streetT = 0.5;

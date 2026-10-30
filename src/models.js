@@ -91,6 +91,9 @@ const CAR_TYPES = {
   coupe: { L: 4.35, W: 1.76, wr: 0.32, wb: 2.52, bot: 0.26, bump: 0.56, hood: 0.78, trunk: 0.9, belt: 0.92, roof: 1.32, cr: -0.95, rr: -0.55, rf: 0.25, cf: 0.95, accel: 10, max: 58, grip: 7.6, mass: 1250, drive: 'rwd', mu: 0.96, frontBias: 0.52 },
   muscle: { L: 4.95, W: 1.9, wr: 0.36, wb: 2.9, bot: 0.3, bump: 0.64, hood: 0.92, trunk: 0.98, belt: 1.0, roof: 1.44, cr: -1.3, rr: -0.82, rf: 0.34, cf: 1.12, accel: 10.5, max: 60, grip: 7.0, mass: 1700, drive: 'rwd', mu: 0.98, frontBias: 0.55 },
 };
+// two wheels: a road bike and an e-bike (light, slow, quiet); they lean into corners and you can see the rider
+CAR_TYPES.motorbike = { L: 2.1, W: 0.8, wr: 0.32, wb: 1.42, bot: 0.3, accel: 10, max: 40, grip: 8, mass: 260, drive: 'rwd', mu: 1.15, frontBias: 0.5, bike: true, cdA: 0.2 };
+CAR_TYPES.ebike = { L: 1.8, W: 0.6, wr: 0.33, wb: 1.1, bot: 0.3, accel: 2.4, max: 7.2, grip: 7, mass: 110, drive: 'rwd', mu: 1.05, frontBias: 0.5, bike: true, ebike: true, cdA: 0.25 };
 CAR_TYPES.taxi = Object.assign({}, CAR_TYPES.sedan, { taxi: true });
 CAR_TYPES.police = Object.assign({}, CAR_TYPES.muscle, { police: true, accel: 11, max: 62, grip: 7.8, mu: 1.04 });
 // every car well up on real-world pace: about 80% higher top speed than the base specs and a much punchier launch
@@ -123,8 +126,32 @@ function wheelGeo(r) {
   const hub = new THREE.BoxGeometry(0.28, r * 0.25, r * 1.1); paintGeo(hub, '#7a7f84');
   return (wheelGeoCache[r] = mergeGeos([tire, rim, hub]));
 }
+function makeBikeModel(p, color) {
+  const root = new THREE.Group(), bodyG = new THREE.Group(); root.add(bodyG);
+  const paintMat = new THREE.MeshPhysicalMaterial({ color: col(color), metalness: 0.5, roughness: 0.35, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.25 });
+  const hw = p.wb / 2, wr = p.wr, paintParts = [], trim = [];
+  if (p.ebike) { // step-through frame, battery on the down tube, a basket on the front
+    paintParts.push(new THREE.BoxGeometry(0.07, 0.07, p.wb * 0.8).rotateX(-0.45).translate(0, wr + 0.25, 0.05), new THREE.BoxGeometry(0.06, 0.62, 0.06).translate(0, wr + 0.32, -0.25), new THREE.BoxGeometry(0.06, 0.06, 0.62).translate(0, wr + 0.05, -0.25));
+    trim.push(box(0.14, 0.12, 0.42, 0, wr + 0.18, 0.12, '#1d1d1d'), box(0.22, 0.06, 0.26, 0, wr + 0.66, -0.32, '#2a2a2a'), box(0.05, 0.62, 0.05, 0, wr + 0.38, hw - 0.05, '#2a2a2a'), box(0.6, 0.04, 0.04, 0, wr + 0.7, hw - 0.12, '#2a2a2a'), box(0.32, 0.2, 0.26, 0, wr + 0.55, hw + 0.1, '#8a6a4a'));
+  } else { // tank, seat, fairing and exhaust
+    paintParts.push(new THREE.BoxGeometry(0.34, 0.26, 0.6).translate(0, wr + 0.5, 0.18), new THREE.BoxGeometry(0.42, 0.38, 0.4).translate(0, wr + 0.42, 0.62), new THREE.BoxGeometry(0.28, 0.12, 0.5).translate(0, wr + 0.5, -0.5));
+    trim.push(box(0.3, 0.1, 0.62, 0, wr + 0.62, -0.18, '#1d1d1d'), box(0.3, 0.32, 0.5, 0, wr + 0.18, 0.08, '#3a3d40'), box(0.1, 0.1, 0.7, 0.18, wr + 0.08, -0.35, '#9aa2a6'), box(0.06, 0.55, 0.06, 0, wr + 0.32, hw - 0.12, '#9aa2a6'), box(0.62, 0.04, 0.04, 0, wr + 0.62, hw - 0.28, '#1d1d1d'));
+  }
+  const paint = new THREE.Mesh(mergeGeos(paintParts.map((g) => paintGeo(g, '#ffffff'))), paintMat); paint.castShadow = true;
+  const trimM = new THREE.Mesh(mergeGeos(trim), trimMat); trimM.castShadow = true;
+  const lightM = new THREE.Mesh(mergeGeos([box(0.14, 0.1, 0.05, 0, wr + (p.ebike ? 0.62 : 0.52), hw + (p.ebike ? 0.25 : 0.36), '#fff6dc')]), lightMat);
+  const tailM = new THREE.Mesh(mergeGeos([box(0.14, 0.07, 0.04, 0, wr + (p.ebike ? 0.4 : 0.55), -hw - (p.ebike ? 0.12 : 0.18), '#ff2a2a')]), brakeMat.clone());
+  bodyG.add(paint, trimM, lightM, tailM);
+  const driver = new THREE.Group(); driver.position.set(0, wr + (p.ebike ? 0.62 : 0.62), p.ebike ? -0.25 : -0.12); driver.visible = false; bodyG.add(driver);
+  const wheels = [], wg = new THREE.CylinderGeometry(wr, wr, p.ebike ? 0.06 : 0.14, 18); wg.rotateZ(Math.PI / 2); paintGeo(wg, '#1b1b1b');
+  const rimG = new THREE.CylinderGeometry(wr * 0.7, wr * 0.7, p.ebike ? 0.065 : 0.145, 12); rimG.rotateZ(Math.PI / 2); paintGeo(rimG, p.ebike ? '#c9ced2' : '#3a3d40');
+  const wgeo = mergeGeos([wg, rimG]);
+  for (const [z, front] of [[hw, 1], [-hw, 0]]) { const pivot = new THREE.Group(); pivot.position.set(0, wr, z); const m = new THREE.Mesh(wgeo, wheelMat); pivot.add(m); bodyG.add(pivot); wheels.push({ pivot, m, front: !!front }); }
+  return { root, bodyG, wheels, paintMat, tailMat: tailM.material, siren: null, doors: [], driver, geos: [paint.geometry, trimM.geometry, lightM.geometry, tailM.geometry, wgeo], bike: true };
+}
 function makeCarModel(typeName, color) {
   const p = CAR_TYPES[typeName];
+  if (p.bike) return makeBikeModel(p, color);
   const L = p.L, W = p.W, hl = L / 2, sF = p.wb / 2, sR = -p.wb / 2, ar = p.wr + 0.07;
   const out = [[-hl, p.bot + 0.05], [-hl - 0.02, p.bump], [-hl + 0.1, p.trunk], [p.cr, p.belt], [p.cf, p.belt], [hl - 0.38, p.hood], [hl, p.bump - 0.02], [hl - 0.02, p.bot + 0.06], [sF + ar, p.bot]];
   for (let k = 0; k <= 8; k++) { const a = (k / 8) * Math.PI; out.push([sF + ar * Math.cos(a), Math.max(p.bot, p.wr + ar * Math.sin(a) * 0.95)]); }
@@ -208,6 +235,13 @@ function setDriverLook(M, look) {
   for (const o of M.driver.children) if (o.geometry) o.geometry.dispose();
   M.driver.clear();
   if (!look) { M.driver.visible = false; return; }
+  if (M.bike) { // the whole rider: leaning over the bars, knees in, helmet on a road bike
+    const helmet = look.helmet === false ? look.hair : '#1d1d1d', shorts = look.shorts || '#2b2b2b';
+    const g = mergeGeos([box(0.4, 0.5, 0.26, 0, 0.3, 0.08, look.shirt).rotateX(0.35), box(0.24, 0.26, 0.26, 0, 0.74, 0.3, look.skin), box(0.28, 0.16, 0.3, 0, 0.86, 0.29, helmet),
+      box(0.1, 0.42, 0.1, 0.2, 0.42, 0.42, look.skin).rotateX(-1.0), box(0.1, 0.42, 0.1, -0.2, 0.42, 0.42, look.skin).rotateX(-1.0),
+      box(0.14, 0.14, 0.5, 0.14, 0.02, 0.16, shorts), box(0.14, 0.14, 0.5, -0.14, 0.02, 0.16, shorts), box(0.12, 0.5, 0.12, 0.16, -0.22, 0.38, look.skin), box(0.12, 0.5, 0.12, -0.16, -0.22, 0.38, look.skin)]);
+    M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true; return;
+  }
   const g = mergeGeos([box(0.42, 0.5, 0.26, 0, 0.25, 0, look.shirt), box(0.22, 0.25, 0.24, 0, 0.66, 0, look.skin), box(0.24, 0.07, 0.26, 0, 0.81, -0.01, look.hair), box(0.11, 0.38, 0.12, 0.2, 0.25, 0.18, look.skin), box(0.11, 0.38, 0.12, -0.2, 0.25, 0.18, look.skin)]);
   M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true;
 }
