@@ -163,7 +163,7 @@ function makeCarModel(typeName, color) {
   const tails = [];
   for (const s of [-1, 1]) tails.push(box(0.34, 0.12, 0.05, s * (W / 2 - 0.3), p.trunk - 0.14, -hl - 0.02, '#ff2a2a'));
 
-  const paintMat = new THREE.MeshStandardMaterial({ color: col(p.police ? '#f4f4f2' : p.taxi ? '#f6f2e8' : color), metalness: 0.45, roughness: 0.3, envMapIntensity: 1.1 });
+  const paintMat = new THREE.MeshPhysicalMaterial({ color: col(p.police ? '#f4f4f2' : p.taxi ? '#f6f2e8' : color), metalness: 0.5, roughness: 0.38, clearcoat: 1, clearcoatRoughness: 0.05, envMapIntensity: 1.25 }); // glossy clear-coated paint
   const root = new THREE.Group(), bodyG = new THREE.Group();
   root.add(bodyG);
   const paint = new THREE.Mesh(mergeGeos(paintParts.map((g) => paintGeo(g, '#ffffff'))), paintMat);

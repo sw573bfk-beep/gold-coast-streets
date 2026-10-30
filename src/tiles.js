@@ -218,6 +218,7 @@ function tileGround(T, data) {
   const houses = data.buildings.filter((b) => b[2] === 0).length;
   const pal = houses > data.buildings.length * 0.5 && houses > 40 ? Object.assign({}, GROUND_PAL, { base: '#86965f' }) : GROUND_PAL;
   drawTileLayers(x, T, data, pal, false);
+  tileGrassMask(T, data, c);
   const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = MAX_ANISO;
   const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }));
   const seg = T.hgt ? HGT_N - 1 : 1, g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);

@@ -471,6 +471,16 @@ window.runRegression = async () => {
     for (let k = 0; k < 60 * 2; k++) updateUnstuck(1 / 60);
     const out = !insideSolid(player.x, player.z, solidBuildingsNear(player.x, player.z, 2)); home(); expect(out, 'still inside'); return 'moved out';
   });
+  // ---------------------------------------------------------------- V9.6: graphics levels, post-processing, grass
+  await test('graphics: Low draws direct, High and Ultra post-process and grow grass on lawns', async () => {
+    quiet(); const before = GFX.level; await goToTile(-28.077, 153.392);
+    applyGfx('low'); for (let k = 0; k < 5; k++) stepWorld(1 / 60); renderFrame(); const low = !POST.rt && !(GRASS.meshes || []).some((m) => m.visible);
+    applyGfx('high'); for (let k = 0; k < 60; k++) stepWorld(1 / 60); renderFrame(); const n = GRASS.mesh ? GRASS.mesh.count : 0;
+    let onRoad = 0; const m4 = new THREE.Matrix4(), v = new THREE.Vector3(); const T = tileAt(player.x, player.z);
+    for (let k = 0; k < Math.min(n, 2000); k++) { GRASS.mesh.getMatrixAt(k, m4); v.setFromMatrixPosition(m4); if (onCarriageway(T.roads, v.x, v.z, -1)) onRoad++; }
+    applyGfx(before); expect(low, 'Low still post-processing or growing grass'); expect(POST.ok ? n > 1000 : true, `${n} clumps`); expect(onRoad < 20, `${onRoad} clumps on the road`);
+    return `${n} grass clumps, ${onRoad} on roads, post ${POST.ok ? 'on' : 'unsupported'}`;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

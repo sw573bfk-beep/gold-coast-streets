@@ -1868,6 +1868,7 @@ function initSetup() {
       box.appendChild(b);
     }
   }
+  $('pick-gfx').value = GFX.level; $('pick-gfx').onchange = () => applyGfx($('pick-gfx').value);
   // the north and south ends of every suburb, plus the big landmarks, each snapped onto a real street
   if (!REGION || SPAWN_PLACES.length) return;
   const sel = $('pick-spawn');
@@ -1967,7 +1968,7 @@ async function goToSpawn(v) {
   $('play').disabled = false; // the same button becomes Resume on the pause menu
 }
 window.addEventListener('resize', () => {
-  renderer.setSize(window.innerWidth, window.innerHeight);
+  renderer.setSize(window.innerWidth, window.innerHeight); postTargets();
   camera.aspect = window.innerWidth / window.innerHeight; camera.updateProjectionMatrix();
 });
 
@@ -1988,7 +1989,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
@@ -2011,11 +2012,11 @@ function frame(now) {
   if (!started || paused || bigMapOpen || uiOpen) {
     if (!started) { camYaw += dt * 0.05; elapsed += dt; updateCamera(dt); updateSky(0); }
     if (uiOpen) { elapsed += dt; updateCamera(dt); if (MG.active) mgUpdate(dt); }
-    renderer.render(scene, camera);
+    renderFrame();
     return;
   }
   stepWorld(dt);
-  renderer.render(scene, camera);
+  renderFrame();
 }
 
 // ---------------------------------------------------------------- boot

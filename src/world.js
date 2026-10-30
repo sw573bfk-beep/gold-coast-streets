@@ -100,7 +100,8 @@ const skyMat = new THREE.ShaderMaterial({
         vec2 uv = d.xz / (h + 0.12) * 1.6 + vec2(time * 0.006, time * 0.002);
         float n = cN(uv) * 0.5 + cN(uv * 2.1) * 0.27 + cN(uv * 4.3) * 0.15 + cN(uv * 9.0) * 0.08;
         float k = smoothstep(0.52, 0.78, n) * smoothstep(0.01, 0.2, h) * cloud;
-        vec3 lit = mix(horizon * 1.05, vec3(1.0), 0.75) * (0.75 + 0.35 * max(dot(normalize(sunDir), vec3(0.0, 1.0, 0.0)), 0.0)) + sunCol * pow(s, 6.0) * 0.4;
+        float sunUp = normalize(sunDir).y; // clouds take the light of the sky they're in: white by day, dim grey at night
+        vec3 lit = mix(horizon * 1.05, vec3(1.0), 0.75 * clamp(sunUp * 4.0 + 0.3, 0.0, 1.0)) * clamp(0.75 + 0.35 * sunUp, 0.0, 1.1) * clamp(sunUp * 3.0 + 0.35, 0.18, 1.0) + sunCol * pow(s, 6.0) * 0.4;
         c = mix(c, mix(lit * 0.82, lit, smoothstep(0.55, 0.9, n)), k * 0.9);
       }
       gl_FragColor = vec4(c, 1.0);
@@ -239,7 +240,8 @@ function makeWaveNormals() {
   return t;
 }
 function buildWater() {
-  waterMat = new THREE.MeshStandardMaterial({ color: col('#1c8fb2'), roughness: 0.08, metalness: 0.1, normalMap: makeWaveNormals(), normalScale: new THREE.Vector2(0.35, 0.35), envMapIntensity: 1.1 });
+  // a glassy surface: deep blue-green with sky reflections that brighten towards the horizon and glints of sun
+  waterMat = new THREE.MeshPhysicalMaterial({ color: col('#147fa3'), roughness: 0.06, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, normalMap: makeWaveNormals(), normalScale: new THREE.Vector2(0.4, 0.4), clearcoatNormalMap: null, envMapIntensity: 1.35 });
   const w = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), waterMat);
   w.rotation.x = -Math.PI / 2; w.position.set((MINX + MAXX) / 2, -0.55, (MINZ + MAXZ) / 2);
   w.receiveShadow = true;

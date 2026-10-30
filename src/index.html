@@ -132,7 +132,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 .swatches { display: flex; gap: 6px; flex-wrap: wrap; }
 .swatches button { width: 30px; height: 30px; border-radius: 50%; border: 2px solid rgba(0,0,0,.6); padding: 0; cursor: pointer; box-shadow: 0 0 0 1px rgba(255,255,255,.25); }
 .swatches button[aria-pressed="true"] { box-shadow: 0 0 0 3px var(--gold); }
-#pick-spawn { font: 600 17px var(--hud); padding: 7px 10px; border-radius: 8px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; max-width: 100%; }
+#pick-spawn, #pick-gfx { font: 600 17px var(--hud); padding: 7px 10px; border-radius: 8px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; max-width: 100%; }
 #bigmap canvas { position: fixed; inset: 0; cursor: grab; touch-action: none; }
 #mapsearch { position: fixed; top: 16px; left: 16px; width: min(380px, calc(100vw - 96px)); z-index: 2; }
 #mapq { width: 100%; box-sizing: border-box; font: 600 18px var(--hud); padding: 10px 14px; border-radius: 10px; border: 2px solid rgba(246,196,69,.7); background: rgba(8,14,18,.92); color: #fff; outline: none; }
@@ -264,6 +264,7 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
       <div class="pick"><span>Top</span><div class="swatches" id="pick-shirt"></div></div>
       <div class="pick"><span>Shorts</span><div class="swatches" id="pick-shorts"></div></div>
       <div class="pick"><span>Start at</span><select id="pick-spawn" aria-label="Where to start"><option value="">Cavill Mall, Surfers Paradise</option></select></div>
+      <div class="pick"><span>Graphics</span><select id="pick-gfx" aria-label="Graphics quality"><option value="low">Low — fastest, for older laptops</option><option value="high">High — glow, colour grading, grass</option><option value="ultra">Ultra — sharpest, more grass, best shadows</option></select></div>
     </div>
     <button id="play" disabled>Loading…</button>
     <div id="load">Building Surfers Paradise…</div>
