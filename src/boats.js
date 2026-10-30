@@ -5,6 +5,8 @@
 // ============================================================================
 const BOAT_TYPES = {
   jetski: { name: 'Jet ski', L: 2.9, W: 1.1, max: 24, accel: 10, turn: 2.4, color: ['#e23b2a', '#f2c230', '#2a7de2', '#1d1d1d'] },
+  kayak: { name: 'Kayak', L: 3.4, W: 0.7, max: 4.4, accel: 2.6, turn: 1.7, paddle: true, color: ['#ff9a3c', '#f2c230', '#33d17a'] },
+  sup: { name: 'Paddleboard', L: 3.2, W: 0.8, max: 3.4, accel: 2.1, turn: 1.4, paddle: true, stand: true, color: ['#2a7de2', '#f4f4f2', '#e85a9a'] },
   speedboat: { name: 'Speedboat', L: 6.6, W: 2.3, max: 27, accel: 7, turn: 1.25, color: ['#f4f4f2', '#1d3b6b', '#c43a2a'] },
 };
 const BOATS = [];
@@ -13,6 +15,7 @@ function makeBoatModel(sp, hue) {
   const g = new THREE.Group(), hull = new THREE.MeshStandardMaterial({ color: col(hue), roughness: 0.3, metalness: 0.2 }), white = new THREE.MeshStandardMaterial({ color: col('#f4f4f2'), roughness: 0.35 }), dark = new THREE.MeshStandardMaterial({ color: col('#1d1d1d'), roughness: 0.6 });
   const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
   const L = sp.L, W = sp.W;
+  if (sp.paddle) { add(new THREE.BoxGeometry(W, sp.stand ? 0.12 : 0.3, L), hull, 0, 0.1, 0); const rider = new THREE.Group(); rider.position.set(0, sp.stand ? 0.2 : 0.25, 0); g.add(rider); scene.add(g); return { g, rider }; } // a hull and a seat (or a deck to stand on)
   add(new THREE.BoxGeometry(W, 0.55, L * 0.75), hull, 0, 0.1, -L * 0.1); // hull
   add(new THREE.CylinderGeometry(0.01, W / 2, L * 0.3, 4, 1).rotateX(Math.PI / 2).rotateZ(Math.PI / 4).scale(1, 0.55, 1), hull, 0, 0.1, L * 0.38); // pointed bow
   if (sp === BOAT_TYPES.jetski) { add(new THREE.BoxGeometry(0.42, 0.22, 1.1), dark, 0, 0.48, -0.25); add(new THREE.BoxGeometry(0.7, 0.06, 0.06), dark, 0, 0.72, 0.45); add(new THREE.BoxGeometry(W * 0.95, 0.12, L * 0.5), white, 0, 0.38, -0.1); }
@@ -71,7 +74,7 @@ function spawnBoats(dt) {
 function nearestBoat(maxD) { let best = null, bd = maxD; for (const b of BOATS) { const d = Math.hypot(b.x - player.x, b.z - player.z) - b.sp.L * 0.3; if (d < bd && !b.driven) { bd = d; best = b; } } return best; }
 function boardBoat(b) {
   player.boat = b; player.state = 'boat'; player.mode = 'car'; b.driven = true; player.model.root.visible = false;
-  const R = makePerson(player.look); R.legL.rotation.x = R.legR.rotation.x = -1.3; R.armL.rotation.x = R.armR.rotation.x = -1.2; R.root.position.y = -0.55; b.riderG.add(R.root); b.rider = R;
+  const R = makePerson(player.look); if (!b.sp.stand) { R.legL.rotation.x = R.legR.rotation.x = -1.3; R.root.position.y = -0.55; } R.armL.rotation.x = R.armR.rotation.x = -1.2; b.riderG.add(R.root); b.rider = R;
   toast(`${b.sp.name}: W throttle · A/D steer · S slow/reverse · E to hop off`); addCrime(1, 'jack');
 }
 function leaveBoat() {

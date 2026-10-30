@@ -1359,7 +1359,7 @@ function useKey() {
   if (player.state === 'boat') { leaveBoat(); return; }
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
-  if (towerUse() || houseUse() || propertyUse()) return;
+  if (towerUse() || houseUse() || propertyUse() || actUseKey()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const bt = nearestBoat(4); if (bt) return boardBoat(bt);
@@ -1701,6 +1701,7 @@ function drawBigMap() {
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
   for (const P of ECON.props) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#ff9f43'); }
   for (const P of NET.peers.values()) if (P.s) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#5ee0c8'); label(P.name, P.x, P.z - 18 / S, 13, '#5ee0c8'); }
+  if (MAPV.zoom > 2) for (const a of ACTS) { if (a.anywhere || a.cat === 'job') continue; const w = actWhere(a); if (w) { dot(w.x, w.z, 7, '#000'); dot(w.x, w.z, 5, '#f6c445'); if (MAPV.zoom > 5) label(a.icon + ' ' + a.name, w.x, w.z - 14 / S, 12, '#f6c445'); } } // activities
   if (hasGear('scanner')) for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 5, '#3b7bff'); // the scanner app
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
@@ -1890,7 +1891,7 @@ function updateHUD(dt) {
     const shop = nearShop();
     if (shop) prompt = `Press <b>F</b> to try on clothes at ${shop.name}`;
     else if (player.items.rod > 0 && fishSpot()) prompt = 'Press <b>E</b> to cast a line';
-    else { const c = nearestEnterableCar(); if (c) prompt = c.driver ? `Press <b>F</b> to carjack` : `Press <b>F</b> to get in`; }
+    else { const a = actNear(8), c = !a && nearestEnterableCar(); if (a) prompt = `Press <b>E</b> to start ${a.icon} ${a.name}`; else if (c) prompt = c.driver ? `Press <b>F</b> to carjack` : `Press <b>F</b> to get in`; }
   } else if (player.state === 'car' && player.car.speed < 0.5) prompt = 'Press <b>F</b> to get out';
   const pe = $('prompt'); if (pe.innerHTML !== prompt) pe.innerHTML = prompt; pe.style.opacity = prompt ? 1 : 0;
   drawMinimap();
@@ -1963,6 +1964,7 @@ function keyCode(e) {
 function punch() { if (player.state === 'foot' && player.punchT <= 0 && player.deadT === 0) { player.punchT = 0.32; player.punchArm = 1 - player.punchArm; } }
 canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
 canvasEl.addEventListener('mousedown', (e) => {
+  if (document.body.classList.contains('photo')) { snapPhoto(); return; } // the camera: a click takes the photo
   if (!started || paused || uiOpen) return;
   if (!mouse.locked) lockPointer();
   mouse.dragging = true;
@@ -1987,7 +1989,7 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[code] = true;
   if (!started) return;
-  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') document.body.classList.remove('photo'); return; }
+  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') { document.body.classList.remove('photo'); camera.fov = 62; } else if (code === 'Space') snapPhoto(); return; } // the camera: Space takes the photo
   if (uiOpen) {
     if (PHONE.open) { if (code === 'Escape' || code === 'KeyP') closePhone(); return; }
     if (!$('casino').hidden) { if (code === 'Escape') closeCasino(); return; }
@@ -2172,7 +2174,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

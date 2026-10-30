@@ -51,7 +51,7 @@ function startFishing(S) {
     if ($('shop').hidden) { FISH.on = false; return; } // walked away (closed the panel)
     const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
     if (phase === 'wait') { info.textContent = '🎣 ' + '~'.repeat(1 + Math.floor(t * 2) % 4) + ' the float bobs…'; if (t > biteAt) { phase = 'bite'; t = 0; btn.disabled = false; btn.textContent = 'STRIKE!'; info.textContent = '❗ Something’s on — strike now!'; sfxTone([880, 1100], 0.15, 0.06, 'square'); } }
-    else if (phase === 'bite') { if (t > 1.1) return done('Too slow — it spat the hook. Cast again?'); }
+    else if (phase === 'bite') { if (t > 1.1 + (catLevel('water') - 1) * 0.1) return done('Too slow — it spat the hook. Cast again?'); } // your water level buys a little time
     else if (phase === 'reel') {
       const pull = (Math.sin(t * 2.3) * 0.5 + Math.sin(t * 5.1) * 0.5 + 0.6) * 38 * fish.fight; // the fish runs and rests
       tension += ((hold ? 70 : -55) + pull - 25) * dt; tension = clamp(tension, 0, 100);
@@ -65,7 +65,7 @@ function startFishing(S) {
       if (progress >= 100) {
         if (!fish.kg) { sfxNoise(0.2, 500, 0.2); return done(`You reeled in… a ${fish.name.toLowerCase()}. Classic.`); }
         const kg = Math.round(fish.kg * 100) / 100, cash = Math.max(1, Math.round(kg * fish.price)); player.money += cash; saveGame();
-        sfxTone([523, 659, 784], 0.35, 0.06, 'triangle'); submitRecord('fish', kg, fish.name);
+        sfxTone([523, 659, 784], 0.35, 0.06, 'triangle'); submitRecord('fish', kg, fish.name); stat('fish'); collect('fish', fish.name); actHook('fishing', { score: kg, msg: `${fish.name}, ${kg.toFixed(2)} kg` });
         return done(`🐟 ${fish.name}, ${kg.toFixed(2)} kg! The fish market paid $${cash}.`);
       }
     }

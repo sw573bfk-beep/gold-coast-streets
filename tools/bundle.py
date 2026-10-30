@@ -12,7 +12,7 @@ src = lambda *p: open(os.path.join(ROOT, *p), encoding='utf-8').read()
 PACK = 3  # tiles per pack side for the Claude-hosted page (it allows 511 files)
 page = src('src', 'index.html')
 map_js = '<script>window.MAP=' + src('data', 'map.json') + ';window.TRAM_DATA=' + src('data', 'tram.json') + ';</script>'
-game_js = '<script>\n' + '\n'.join(src('src', f) for f in ('world.js', 'post.js', 'weather.js', 'models.js', 'details.js', 'shops.js', 'interiors.js', 'economy.js', 'gps.js', 'phone.js', 'casino.js', 'planes.js', 'surf.js', 'police.js', 'radio.js', 'boats.js', 'transit.js', 'property.js', 'services.js', 'story.js', 'touch.js', 'online.js', 'accounts.js', 'fishing.js', 'weapons.js', 'arcade.js', 'devtools.js', 'tiles.js', 'grass.js', 'houses.js', 'towers.js', 'game.js')) + '\n</script>'
+game_js = '<script>\n' + '\n'.join(src('src', f) for f in ('world.js', 'post.js', 'weather.js', 'models.js', 'details.js', 'shops.js', 'interiors.js', 'economy.js', 'gps.js', 'phone.js', 'casino.js', 'planes.js', 'surf.js', 'police.js', 'radio.js', 'boats.js', 'transit.js', 'property.js', 'services.js', 'story.js', 'touch.js', 'online.js', 'accounts.js', 'fishing.js', 'activities.js', 'actgames.js', 'actworld.js', 'weapons.js', 'arcade.js', 'devtools.js', 'tiles.js', 'grass.js', 'houses.js', 'towers.js', 'game.js')) + '\n</script>'
 body = page.replace('<!--MAP-->', map_js).replace('<!--GAME-->', game_js)
 
 os.makedirs(os.path.join(ROOT, 'dist'), exist_ok=True)
@@ -24,7 +24,7 @@ with open(os.path.join(ROOT, 'dist', 'index.html'), 'w', encoding='utf-8') as f:
             '</head><body>\n' + body + '\n</body></html>\n')
 import shutil
 os.makedirs(os.path.join(ROOT, 'dist', 'tests'), exist_ok=True)
-shutil.copy(os.path.join(ROOT, 'tests', 'regression.js'), os.path.join(ROOT, 'dist', 'tests', 'regression.js'))  # local test page only; never published
+for t in ('regression.js', 'activities_test.js'): shutil.copy(os.path.join(ROOT, 'tests', t), os.path.join(ROOT, 'dist', 'tests', t))  # local test page only; never published
 # the public site: the full page and every map tile (no tests)
 site = os.path.join(ROOT, 'docs')
 os.makedirs(os.path.join(site, 'tiles'), exist_ok=True)

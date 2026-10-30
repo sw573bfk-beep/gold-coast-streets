@@ -3507,6 +3507,7 @@ function startWorkout(sh, day) {
       cancelAnimationFrame(raf);
       const gain = hits >= 5 && ECON.gymDay !== day && ECON.fitness < 10;
       if (gain) { ECON.fitness++; ECON.gymDay = day; }
+      if (hits >= 5) actHook('gym');
       saveGame(); toast(hits >= 5 ? (gain ? `Set done! Fitness ${ECON.fitness}/10` : 'Set done (fitness already trained this session)') : 'Too many missed reps — try again');
       openGym(sh);
     }
@@ -3526,9 +3527,17 @@ function bookRoom(sh) {
 const JOBS = {
   barista: { name: 'Barista', at: ['cafe'], pay: 16, desc: 'Make each order: tap the right items, then Serve. 5 orders a shift.' },
   stocker: { name: 'Shelf stacker', at: ['convenience', 'shop'], pay: 6, desc: 'Put each delivery item in the right aisle. 8 items a shift.' },
-  delivery: { name: 'Delivery driver', at: ['food'], pay: 22, desc: 'Take 3 orders to the addresses on your map before time runs out (walk or drive).' },
+  delivery: { name: 'Delivery driver', at: ['food'], pay: 22, desc: 'Take 3 orders to the addresses on your map before time runs out (walk or drive).', where: 'any takeaway' },
+  retail: { name: 'Retail assistant', at: ['clothes'], pay: 14, desc: 'Work the checkout: give 5 customers the right change.', where: 'clothes shops' },
+  grocer: { name: 'Supermarket worker', at: [], style: 'supermarket', pay: 10, desc: 'Restock shelves and point customers to the right aisle. 8 tasks a shift.', where: 'supermarkets' },
+  reception: { name: 'Hotel receptionist', at: ['hotel'], pay: 15, desc: 'Check 5 guests in to the right rooms.', where: 'hotels' },
+  mechanic: { name: 'Mechanic', at: [], venue: /Automotive Services|Smash Repairs|Tyre and Brake/i, pay: 30, desc: 'Diagnose 4 cars and fix them (pick the fault, then torque it up).', where: 'Mudgeeraba Automotive Services / West Burleigh Smash Repairs' },
+  taxi: { name: 'Taxi driver', at: [], pay: 6, desc: 'Pick up 3 passengers and drive them where they’re going (bring any car). Paid by distance; quick trips get tips.', where: 'anywhere (you need a car)' },
+  guide: { name: 'Tour guide', at: [], pay: 35, desc: 'Lead a tour group to 3 landmarks, each against the clock.', where: 'anywhere' },
+  lifeguard: { name: 'Lifeguard', at: [], venue: /Lifeguard Centre|Surf Club|Surf Life/i, pay: 45, desc: 'Patrol from the lifeguard centre: swim out to 3 swimmers in trouble and bring them in.', where: 'Surfers Paradise and Broadbeach lifeguard centres', needs: () => (ECON.fitness >= 2 ? null : 'Fitness 2 — train at a gym first') },
+  photographer: { name: 'Photographer', at: [], pay: 40, desc: 'Three commissions: photograph the landmark each client asks for (phone → Camera).', where: 'anywhere' },
 };
-function jobFor(sh) { return Object.keys(JOBS).find((k) => JOBS[k].at.includes(sh.kind)); }
+function jobFor(sh) { if (shopStyle(sh) === 'supermarket') return 'grocer'; return Object.keys(JOBS).find((k) => JOBS[k].at.includes(sh.kind)); }
 function jobState(k) { return ECON.jobs[k] || (ECON.jobs[k] = { shifts: 0, earned: 0, ready: 0 }); }
 function jobRate(k) { return Math.round(JOBS[k].pay * (1 + Math.min(4, Math.floor(jobState(k).shifts / 5)) * 0.15)); } // a raise every 5 shifts
 function jobRowFor(sh, body) {
@@ -3540,12 +3549,13 @@ function jobRowFor(sh, body) {
   b.addEventListener('click', () => startShift(k, sh)); row.append(l, b); body.appendChild(row);
 }
 function startShift(k, sh) {
-  ECON.shift = { job: k, shop: sh, done: 0, good: 0, earned: 0 };
+  ECON.shift = { job: k, shop: sh, done: 0, good: 0, earned: 0 }; jobState(k).hired = true;
   if (k === 'delivery') { closeShop(); nextDelivery(); } else nextTask();
 }
 function endShift(msg) {
   const S = ECON.shift; if (!S) return; const st = jobState(S.job);
-  st.shifts++; st.earned += S.earned; st.ready = elapsed + 60; ECON.shift = null; WAYPOINT = null; $('jobhud').hidden = true; saveGame();
+  st.shifts++; st.earned += S.earned; st.ready = elapsed + 60; ECON.shift = null; WAYPOINT = null; $('jobhud').hidden = true;
+  const A = actData(); A.jobLog.unshift({ job: S.job, earned: S.earned, good: S.good, done: S.done, t: Date.now() }); A.jobLog.length = Math.min(A.jobLog.length, 15); stat('shifts'); stat('earned', S.earned); if (S.done) actHook(JOB_ACT[S.job]); dropPax(); saveGame();
   toast(`${msg} Shift paid $${S.earned}.`);
   if (!$('shop').hidden) closeShop();
 }
@@ -3572,6 +3582,10 @@ function nextTask() {
       nextTask();
     }]));
   }
+  else if (S.job === 'retail') { if (S.done >= 5) return endShift(`Shift over: ${S.good}/5 customers given the right change.`); retailTask(S); }
+  else if (S.job === 'reception') { if (S.done >= 5) return endShift(`Shift over: ${S.good}/5 guests in the right rooms.`); receptionTask(S); }
+  else if (S.job === 'grocer') { if (S.done >= 8) return endShift(`Shift over: ${S.good}/8 right.`); grocerTask(S); }
+  else if (S.job === 'mechanic') { if (S.done >= 4) return endShift(`Shift over: ${S.good}/4 cars fixed.`); mechanicTask(S); }
   void J;
 }
 function nextDelivery() {
@@ -3608,7 +3622,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -3618,6 +3632,7 @@ function economyLoad(s) {
   if (typeof s.aim === 'number') ECON.aim = clamp(s.aim, 0, 5);
   if (typeof s.rangeBest === 'number') ECON.rangeBest = s.rangeBest;
   storyLoad(s.story);
+  if (s.act && typeof s.act === 'object') ECON.act = s.act;
   if (s.jobs) ECON.jobs = s.jobs;
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);
@@ -3712,9 +3727,16 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
+    head('Things to do'); grid = null;
+    tile('🎯', 'Activities', () => phoneApp('acts'), ACT_CUR ? '!' : '');
+    tile('💼', 'Jobs', () => phoneApp('jobs'), ECON.shift ? '!' : '');
+    tile('🏅', 'Missions', () => phoneApp('missions'), String(['daily', 'weekly'].reduce((n, k) => n + challengeRows(k).filter((r) => !r.done).length, 0) || ''));
+    tile('📊', 'Stats', () => phoneApp('stats'));
+    tile('📷', 'Camera', cameraMode);
+    tile('🔔', 'Alerts', () => phoneApp('notes'), unreadNotes() ? String(unreadNotes()) : '');
     head('Getting around'); grid = null;
     tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
     tile('🗺️', 'Map', () => { closePhone(); toggleMap(); });
@@ -3727,7 +3749,6 @@ function phoneApp(app) {
     tile('🏁', 'Street race', startRace);
     tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
     head('Money & life'); grid = null;
-    tile('💼', 'Jobs', () => phoneApp('jobs'));
     tile('📸', 'Tour', startTour);
     tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
     tile('🏆', 'Records', () => phoneApp('records'));
@@ -3735,7 +3756,6 @@ function phoneApp(app) {
     tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
     tile('📱', 'TikTak', () => phoneApp('clips'));
-    if (hasGear('prophone')) tile('📷', 'Camera', photoMode);
     const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}`; body.appendChild(foot);
   } else if (app === 'travel') {
     back();
@@ -3759,13 +3779,14 @@ function phoneApp(app) {
       .sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z)).slice(0, 8);
     if (!list.length) btn('Nothing nearby', 'try somewhere busier', () => {}, false);
     for (const q of list) btn(q.name, `${km(q.x, q.z)} · $150–450 in the till · 2 stars`, () => directions(q.name, q.x, q.z));
-  } else if (app === 'jobs') {
-    back(); head('Legit work: walk in and press F at the counter');
-    for (const [k, J] of Object.entries(JOBS)) {
-      const at = nearest(SHOPS.filter((q) => J.at.includes(q.kind)));
-      btn(`${J.name} · $${jobRate(k)} a task`, at ? `${at.name} · ${km(at.x, at.z)} · ${jobState(k).shifts} shifts done` : 'no workplace nearby', () => at && directions(at.name, at.x, at.z), !!at);
-    }
-  } else if (app === 'clips') { back(); showClip(); }
+  } else if (app === 'jobs') { back(); jobsApp(btn, head); }
+  else if (app === 'job') { jobApp(btn, head); }
+  else if (app === 'acts') { back(); actsApp(btn, head); }
+  else if (app === 'act') { actApp(btn, head); }
+  else if (app === 'missions') { back(); missionsApp(btn, head); }
+  else if (app === 'stats') { back(); statsApp(btn, head); }
+  else if (app === 'notes') { back(); notesApp(btn, head); }
+  else if (app === 'clips') { back(); showClip(); }
   else if (app === 'records') { back(); recordsApp(btn, head); }
   else if (app === 'board') { btn('← Records', '', () => phoneApp('records')); boardApp(btn, head); }
   else if (app === 'trials') { back(); trialsApp(btn, head); }
@@ -3788,6 +3809,8 @@ function activeCard(body) {
   } else if (MISSION) {
     const T = MISSION.targets[0]; title = MISSION.title; sub = `${T[0]} · ${Math.max(0, Math.ceil(MISSION.t))}s left`; where = { name: T[0], x: T[2], z: T[3] };
     quit = () => { endMission(false, 'Mission abandoned.'); phoneApp('home'); };
+  } else if (ACT_CUR) {
+    const a = ACT_BY[ACT_CUR.id]; title = `${a.icon} ${a.name}`; sub = $('jobhud').hidden ? 'in progress' : $('jobhud').textContent; where = WAYPOINT; quit = () => { quitAct(); phoneApp('home'); };
   } else if (WAYPOINT) { title = 'Destination'; sub = `${WAYPOINT.name} · ${km(WAYPOINT.x, WAYPOINT.z)}`; quit = () => { cancelDestination(); phoneApp('home'); }; }
   if (!title) return;
   const card = document.createElement('div'); card.className = 'pcard'; card.innerHTML = '<b></b><span></span><div></div>';
@@ -3823,6 +3846,7 @@ function foodDelivery() {
 let MISSION = null; // { kind, title, t, targets, reward }
 function endMission(won, msg) {
   if (!MISSION) return; const M = MISSION; MISSION = null; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true;
+  if (won && M.kind === 'tour') actHook('sightsee');
   if (won) { player.money += M.reward; saveGame(); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); toast(`${msg} +$${M.reward}`); } else toast(msg);
 }
 function pickPlaces(kinds, minD, maxD) { return (REGION && REGION.search ? REGION.search : []).filter((e) => kinds.includes(e[1]) && Math.hypot(e[2] - player.x, e[3] - player.z) > minD && Math.hypot(e[2] - player.x, e[3] - player.z) < maxD); }
@@ -4389,7 +4413,7 @@ function finishRide(wiped) {
   const R = SURF.ride; SURF.ride = null; SURF.mode = wiped ? 'wipe' : 'paddle'; SURF.wipeT = wiped ? 2.2 : 0;
   if (!R) return;
   const pts = Math.round(R.pts), cash = Math.round(pts / 25);
-  SURF.best = Math.max(SURF.best, pts); if (pts > 0) submitRecord('wave', pts, wiped ? 'wiped out' : `${R.t.toFixed(1)} s ride`);
+  SURF.best = Math.max(SURF.best, pts); stat('waves'); surfContest(pts); if (pts > 0) submitRecord('wave', pts, wiped ? 'wiped out' : `${R.t.toFixed(1)} s ride`);
   if (wiped) { toast(`Wipeout! ${pts} pts${cash ? ` · +$${cash}` : ''}`); sfxNoise(0.6, 600, 0.4); }
   else toast(`Nice ride — ${R.t.toFixed(1)} s · ${pts} pts · +$${cash}`);
   player.money += cash; if (cash) saveGame();
@@ -4664,6 +4688,8 @@ function updateRadio(dt) {
 // ============================================================================
 const BOAT_TYPES = {
   jetski: { name: 'Jet ski', L: 2.9, W: 1.1, max: 24, accel: 10, turn: 2.4, color: ['#e23b2a', '#f2c230', '#2a7de2', '#1d1d1d'] },
+  kayak: { name: 'Kayak', L: 3.4, W: 0.7, max: 4.4, accel: 2.6, turn: 1.7, paddle: true, color: ['#ff9a3c', '#f2c230', '#33d17a'] },
+  sup: { name: 'Paddleboard', L: 3.2, W: 0.8, max: 3.4, accel: 2.1, turn: 1.4, paddle: true, stand: true, color: ['#2a7de2', '#f4f4f2', '#e85a9a'] },
   speedboat: { name: 'Speedboat', L: 6.6, W: 2.3, max: 27, accel: 7, turn: 1.25, color: ['#f4f4f2', '#1d3b6b', '#c43a2a'] },
 };
 const BOATS = [];
@@ -4672,6 +4698,7 @@ function makeBoatModel(sp, hue) {
   const g = new THREE.Group(), hull = new THREE.MeshStandardMaterial({ color: col(hue), roughness: 0.3, metalness: 0.2 }), white = new THREE.MeshStandardMaterial({ color: col('#f4f4f2'), roughness: 0.35 }), dark = new THREE.MeshStandardMaterial({ color: col('#1d1d1d'), roughness: 0.6 });
   const add = (geo, m, x, y, z) => { const o = new THREE.Mesh(geo, m); o.position.set(x, y, z); o.castShadow = true; g.add(o); return o; };
   const L = sp.L, W = sp.W;
+  if (sp.paddle) { add(new THREE.BoxGeometry(W, sp.stand ? 0.12 : 0.3, L), hull, 0, 0.1, 0); const rider = new THREE.Group(); rider.position.set(0, sp.stand ? 0.2 : 0.25, 0); g.add(rider); scene.add(g); return { g, rider }; } // a hull and a seat (or a deck to stand on)
   add(new THREE.BoxGeometry(W, 0.55, L * 0.75), hull, 0, 0.1, -L * 0.1); // hull
   add(new THREE.CylinderGeometry(0.01, W / 2, L * 0.3, 4, 1).rotateX(Math.PI / 2).rotateZ(Math.PI / 4).scale(1, 0.55, 1), hull, 0, 0.1, L * 0.38); // pointed bow
   if (sp === BOAT_TYPES.jetski) { add(new THREE.BoxGeometry(0.42, 0.22, 1.1), dark, 0, 0.48, -0.25); add(new THREE.BoxGeometry(0.7, 0.06, 0.06), dark, 0, 0.72, 0.45); add(new THREE.BoxGeometry(W * 0.95, 0.12, L * 0.5), white, 0, 0.38, -0.1); }
@@ -4730,7 +4757,7 @@ function spawnBoats(dt) {
 function nearestBoat(maxD) { let best = null, bd = maxD; for (const b of BOATS) { const d = Math.hypot(b.x - player.x, b.z - player.z) - b.sp.L * 0.3; if (d < bd && !b.driven) { bd = d; best = b; } } return best; }
 function boardBoat(b) {
   player.boat = b; player.state = 'boat'; player.mode = 'car'; b.driven = true; player.model.root.visible = false;
-  const R = makePerson(player.look); R.legL.rotation.x = R.legR.rotation.x = -1.3; R.armL.rotation.x = R.armR.rotation.x = -1.2; R.root.position.y = -0.55; b.riderG.add(R.root); b.rider = R;
+  const R = makePerson(player.look); if (!b.sp.stand) { R.legL.rotation.x = R.legR.rotation.x = -1.3; R.root.position.y = -0.55; } R.armL.rotation.x = R.armR.rotation.x = -1.2; b.riderG.add(R.root); b.rider = R;
   toast(`${b.sp.name}: W throttle · A/D steer · S slow/reverse · E to hop off`); addCrime(1, 'jack');
 }
 function leaveBoat() {
@@ -5665,7 +5692,7 @@ function startFishing(S) {
     if ($('shop').hidden) { FISH.on = false; return; } // walked away (closed the panel)
     const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
     if (phase === 'wait') { info.textContent = '🎣 ' + '~'.repeat(1 + Math.floor(t * 2) % 4) + ' the float bobs…'; if (t > biteAt) { phase = 'bite'; t = 0; btn.disabled = false; btn.textContent = 'STRIKE!'; info.textContent = '❗ Something’s on — strike now!'; sfxTone([880, 1100], 0.15, 0.06, 'square'); } }
-    else if (phase === 'bite') { if (t > 1.1) return done('Too slow — it spat the hook. Cast again?'); }
+    else if (phase === 'bite') { if (t > 1.1 + (catLevel('water') - 1) * 0.1) return done('Too slow — it spat the hook. Cast again?'); } // your water level buys a little time
     else if (phase === 'reel') {
       const pull = (Math.sin(t * 2.3) * 0.5 + Math.sin(t * 5.1) * 0.5 + 0.6) * 38 * fish.fight; // the fish runs and rests
       tension += ((hold ? 70 : -55) + pull - 25) * dt; tension = clamp(tension, 0, 100);
@@ -5679,13 +5706,978 @@ function startFishing(S) {
       if (progress >= 100) {
         if (!fish.kg) { sfxNoise(0.2, 500, 0.2); return done(`You reeled in… a ${fish.name.toLowerCase()}. Classic.`); }
         const kg = Math.round(fish.kg * 100) / 100, cash = Math.max(1, Math.round(kg * fish.price)); player.money += cash; saveGame();
-        sfxTone([523, 659, 784], 0.35, 0.06, 'triangle'); submitRecord('fish', kg, fish.name);
+        sfxTone([523, 659, 784], 0.35, 0.06, 'triangle'); submitRecord('fish', kg, fish.name); stat('fish'); collect('fish', fish.name); actHook('fishing', { score: kg, msg: `${fish.name}, ${kg.toFixed(2)} kg` });
         return done(`🐟 ${fish.name}, ${kg.toFixed(2)} kg! The fish market paid $${cash}.`);
       }
     }
     raf = requestAnimationFrame(tick);
   };
   raf = requestAnimationFrame(tick);
+}
+
+// ============================================================================
+// Gold Coast Streets — activities: one list of everything there is to do (phone → Activities), each with a real
+// place, an objective, a finish and a reward. They share a few engines (actgames.js: mini-games in the shop panel;
+// actworld.js: checkpoint courses, photography, wildlife, collectibles and the jobs out in the world), and one record
+// of progress kept in the existing save (ECON.act): times done, personal bests, category levels, collections, stats,
+// daily and weekly challenges and phone notifications. Money goes through the same wallet as everything else.
+// ============================================================================
+const ACTS = [], ACT_BY = {};
+const ACT_CATS = { water: '🌊 Beach & water', sport: '⚽ Sports & fitness', explore: '🧭 Adventure', fun: '🎟️ Entertainment', job: '💼 Jobs' };
+let ACT_CUR = null; // the activity running now: { id, t, ... }
+function actData() {
+  const A = ECON.act || (ECON.act = {});
+  for (const k of ['done', 'best', 'xp', 'coll', 'stats']) A[k] = A[k] || {};
+  A.notes = A.notes || []; A.jobLog = A.jobLog || []; A.found = A.found || [];
+  return A;
+}
+function defAct(o) { o.diff = o.diff || 1; ACTS.push(o); ACT_BY[o.id] = o; }
+// a real place from the map data (by name), or the fallback position
+const VENUES = {};
+function venue(name, re, x, z) {
+  if (VENUES[name]) return VENUES[name];
+  const e = REGION && REGION.search && REGION.search.find((q) => re.test(q[0]));
+  return (VENUES[name] = e ? { name: e[0], x: e[2], z: e[3] } : { name, x, z });
+}
+function actWhere(a) { return typeof a.at === 'function' ? a.at() : a.at; }
+// ---------------------------------------------------------------- progress, rewards, levels
+const catLevel = (cat) => Math.floor(Math.sqrt((actData().xp[cat] || 0) / 60)) + 1;
+function stat(key, n = 1) { const S = actData().stats; S[key] = (S[key] || 0) + n; checkChallenges(); }
+function actBest(id, v) { // returns true for a new personal best
+  const a = ACT_BY[id], B = actData().best; if (!a || !a.unit || !Number.isFinite(v)) return false;
+  const better = B[id] === undefined || (a.low ? v < B[id] : v > B[id]); if (better) B[id] = v; return better;
+}
+function actComplete(id, r = {}) {
+  const a = ACT_BY[id], A = actData(); if (!a) return;
+  if (ACT_CUR && ACT_CUR.id === id) ACT_CUR = null;
+  A.done[id] = (A.done[id] || 0) + 1; A.xp[a.cat] = (A.xp[a.cat] || 0) + 10 * a.diff + (r.xp || 0);
+  const money = Math.round(r.money || 0); if (money > 0) { player.money += money; stat('earned', money); }
+  const pb = r.score !== undefined && actBest(id, r.score);
+  stat('activities'); if (a.stat) stat(a.stat);
+  if (A.done[id] === 1) actNote(`✅ First time: ${a.name}`, true);
+  toast(`${a.icon || '✅'} ${r.msg || a.name + ' complete'}${money ? ` · +$${money}` : ''}${pb ? ' · new personal best!' : ''}`);
+  sfxTone([523, 659, 784], 0.35, 0.06, 'triangle'); saveGame();
+}
+function actFail(id, msg) { if (ACT_CUR && ACT_CUR.id === id) ACT_CUR = null; toast(msg || 'Activity over'); }
+function collect(set, key, label) { // collections: fish, photos, wildlife, birds, caches, treasure
+  const C = actData().coll; C[set] = C[set] || []; if (C[set].includes(key)) return false;
+  C[set].push(key); stat('collectibles'); actNote(`📒 New in your ${set} collection: ${label || key}`); saveGame(); return true;
+}
+const collCount = (set) => (actData().coll[set] || []).length;
+// ---------------------------------------------------------------- notifications (kept quiet: only things worth knowing)
+function actNote(text, quiet) {
+  const A = actData(); A.notes.unshift({ text, t: Date.now(), read: false }); A.notes.length = Math.min(A.notes.length, 30);
+  if (!quiet) toast(text);
+}
+const unreadNotes = () => actData().notes.filter((n) => !n.read).length;
+// ---------------------------------------------------------------- daily and weekly challenges (the same for everyone on a day)
+const CHALLENGES = [
+  ['activities', 3, 'Do any 3 activities', 150], ['fish', 3, 'Catch 3 fish', 120], ['waves', 3, 'Ride 3 waves', 120], ['courses', 2, 'Finish 2 timed courses', 160],
+  ['shifts', 1, 'Work a job shift', 120], ['photos', 2, 'Take 2 activity photos', 100], ['sportWins', 2, 'Win 2 sports games', 160], ['collectibles', 2, 'Find 2 collectibles', 140],
+  ['km', 5, 'Travel 5 km', 100], ['minigames', 3, 'Play 3 mini-games', 100],
+];
+const WEEKLY = [['activities', 20, 'Do 20 activities', 1200], ['shifts', 6, 'Work 6 shifts', 900], ['collectibles', 10, 'Find 10 collectibles', 1000], ['sportWins', 10, 'Win 10 sports games', 1000], ['km', 40, 'Travel 40 km', 800]];
+function seededPick(list, n, seed) { const out = [], L = list.slice(); let s = seed; while (out.length < n && L.length) { s = (s * 9301 + 49297) % 233280; out.push(L.splice(s % L.length, 1)[0]); } return out; }
+function challengeSet(kind) {
+  const A = actData(), day = Math.floor(Date.now() / 86400000), week = Math.floor((day + 3) / 7), key = kind === 'daily' ? day : week;
+  let C = A[kind];
+  if (!C || C.key !== key) { // a new day (or week): fresh challenges, counted from now
+    const pool = kind === 'daily' ? CHALLENGES : WEEKLY, picks = seededPick(pool, 3, key * (kind === 'daily' ? 7 : 13));
+    C = A[kind] = { key, base: {}, done: [], list: picks.map((p) => p[0]) };
+    for (const p of picks) C.base[p[0]] = A.stats[p[0]] || 0;
+    if (kind === 'daily' && ACTS.length) actNote('🗓️ New daily challenges are up (phone → Missions)', true);
+  }
+  return C;
+}
+function challengeRows(kind) {
+  const C = challengeSet(kind), A = actData(), pool = kind === 'daily' ? CHALLENGES : WEEKLY;
+  return C.list.map((k) => { const p = pool.find((q) => q[0] === k), have = (A.stats[k] || 0) - (C.base[k] || 0); return { k, text: p[2], n: p[1], have: Math.min(p[1], have), reward: p[3], done: C.done.includes(k) }; });
+}
+function checkChallenges() {
+  if (!ECON.act) return;
+  for (const kind of ['daily', 'weekly']) for (const r of challengeRows(kind)) if (!r.done && r.have >= r.n) {
+    challengeSet(kind).done.push(r.k); player.money += r.reward; actData().stats.earned = (actData().stats.earned || 0) + r.reward;
+    actNote(`🏅 ${kind === 'daily' ? 'Daily' : 'Weekly'} challenge done: ${r.text} · +$${r.reward}`); sfxTone([784, 1046], 0.3, 0.05);
+  }
+}
+// ---------------------------------------------------------------- distance and places discovered
+let actDistT = 0, actLast = null;
+function updateActStats(dt) {
+  if (!started || !ECON.act) actData();
+  const p = { x: player.x, z: player.z };
+  if (actLast) { const d = Math.hypot(p.x - actLast.x, p.z - actLast.z); if (d < 60) { ECON.act.stats.m = (ECON.act.stats.m || 0) + d; if (ECON.act.stats.m - (ECON.act.stats.km || 0) * 1000 >= 1000) stat('km'); } } // teleports (taxi) don't count
+  actLast = p;
+  actDistT -= dt; if (actDistT > 0) return; actDistT = 3;
+  const place = district(player.x, player.z);
+  if (place && !actData().found.includes(place)) { actData().found.push(place); stat('places'); if (player.state === 'car' && player.car && player.car.spec.bike) stat('bikePlaces'); }
+}
+// ---------------------------------------------------------------- the activity markers out in the world (E to start)
+const ACT_SPRITES = new Map();
+function actIcon(a) {
+  if (ACT_SPRITES.has(a.id)) return ACT_SPRITES.get(a.id);
+  const c = document.createElement('canvas'); c.width = c.height = 96; const g = c.getContext('2d');
+  g.fillStyle = 'rgba(8,14,18,.8)'; g.beginPath(); g.arc(48, 48, 44, 0, TAU); g.fill(); g.strokeStyle = '#f6c445'; g.lineWidth = 5; g.stroke();
+  g.font = '50px sans-serif'; g.textAlign = 'center'; g.textBaseline = 'middle'; g.fillText(a.icon || '⭐', 48, 52);
+  const s = new THREE.Sprite(new THREE.SpriteMaterial({ map: new THREE.CanvasTexture(c), depthTest: true, toneMapped: false })); s.scale.set(2.2, 2.2, 1); s.visible = false; scene.add(s);
+  ACT_SPRITES.set(a.id, s); return s;
+}
+let actMarkT = 0;
+function updateActMarkers(dt) {
+  actMarkT -= dt; if (actMarkT > 0) return; actMarkT = 0.5;
+  for (const a of ACTS) {
+    if (a.anywhere || a.cat === 'job') continue;
+    const w = actWhere(a); if (!w) continue; const d = Math.hypot(w.x - player.x, w.z - player.z);
+    if (d < 260) { const s = actIcon(a); s.visible = !ACT_CUR; s.position.set(w.x, standAt(w.x, w.z) + 3.2 + Math.sin(elapsed * 2) * 0.15, w.z); }
+    else if (ACT_SPRITES.has(a.id)) ACT_SPRITES.get(a.id).visible = false;
+  }
+}
+function actNear(r = 12) { if (ACT_CUR || player.state !== 'foot') return null; let best = null, bd = r; for (const a of ACTS) { if (a.anywhere || a.cat === 'job') continue; const w = actWhere(a); if (!w) continue; const d = Math.hypot(w.x - player.x, w.z - player.z); if (d < bd) { bd = d; best = a; } } return best; }
+function actUse() { const a = actNear(8); if (!a) return false; startAct(a.id); return true; }
+// ---------------------------------------------------------------- starting one
+function actReady(a) { // null when it can start here, otherwise why not
+  if (a.req) { const why = a.req(); if (why) return why; }
+  if (ACT_CUR) return `You’re in the middle of ${ACT_BY[ACT_CUR.id].name}`;
+  if (STORY.M || MISSION || HEIST.stage || TRIAL || ECON.shift) return 'Finish what you’re doing first';
+  if (a.anywhere) return null;
+  const w = actWhere(a); if (w && Math.hypot(w.x - player.x, w.z - player.z) > (a.range || 60)) return `Head to ${w.name} first`;
+  return null;
+}
+function startAct(id) {
+  const a = ACT_BY[id], why = actReady(a);
+  if (why) { toast(why); if (/^Head to/.test(why)) { const w = actWhere(a); directions(w.name, w.x, w.z); } return false; }
+  if (PHONE.open) closePhone();
+  ACT_CUR = { id, t: 0 }; stat('started');
+  a.start(ACT_CUR); return true;
+}
+function quitAct() { if (!ACT_CUR) return; const a = ACT_BY[ACT_CUR.id]; if (a.quit) a.quit(ACT_CUR); ACT_CUR = null; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true; toast(`${a.name}: stopped`); }
+function updateActivities(dt) {
+  updateActStats(dt); updateActMarkers(dt);
+  if (ACT_CUR) { ACT_CUR.t += dt; const a = ACT_BY[ACT_CUR.id]; if (a.tick) a.tick(ACT_CUR, dt); if (player.deadT > 0 && ACT_CUR) actFail(ACT_CUR.id, `${a.name}: over`); }
+}
+// ---------------------------------------------------------------- phone apps: Activities, Missions, Statistics, Notifications
+function actsApp(btn, head) {
+  const body = $('phone-body'), A = actData();
+  const q = document.createElement('input'); q.className = 'pinput'; q.placeholder = '🔍 Search activities'; q.value = PHONE.actQ || ''; body.appendChild(q);
+  const chips = document.createElement('div'); chips.className = 'psays';
+  for (const [k, label] of [['all', 'All'], ...Object.entries(ACT_CATS), ['done', '✅ Done']]) { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if ((PHONE.actCat || 'all') === k) b.style.background = '#f6c445', b.style.color = '#111'; b.addEventListener('click', () => { PHONE.actCat = k; phoneApp('acts'); }); chips.appendChild(b); }
+  body.appendChild(chips);
+  const listEl = document.createElement('div'); body.appendChild(listEl);
+  const render = () => {
+    listEl.innerHTML = ''; const term = q.value.trim().toLowerCase(), cat = PHONE.actCat || 'all';
+    const rows = ACTS.filter((a) => (cat === 'all' || (cat === 'done' ? A.done[a.id] : a.cat === cat)) && (!term || (a.name + ' ' + a.desc + ' ' + (actWhere(a) || {}).name).toLowerCase().includes(term)));
+    const sorted = rows.map((a) => { const w = a.anywhere ? null : actWhere(a); return { a, w, d: w ? Math.hypot(w.x - player.x, w.z - player.z) : 0 }; }).sort((x, y) => x.d - y.d);
+    for (const { a, w } of sorted) {
+      const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.innerHTML = '<b></b><span></span>';
+      b.firstChild.textContent = `${a.icon || '⭐'} ${a.name}${A.done[a.id] ? '  ✅' : ''}`;
+      b.lastChild.textContent = `${'★'.repeat(a.diff)} · ${a.anywhere ? 'anywhere' : `${w.name} · ${km(w.x, w.z)}`}`;
+      b.addEventListener('click', () => { PHONE.act = a.id; PHONE.actQ = q.value; phoneApp('act'); }); listEl.appendChild(b);
+    }
+    if (!sorted.length) listEl.textContent = 'Nothing matches.';
+  };
+  q.addEventListener('input', render); render();
+  head(`${Object.keys(A.done).length} of ${ACTS.length} activities tried`);
+}
+function actApp(btn, head) {
+  const a = ACT_BY[PHONE.act]; if (!a) return; const A = actData(), w = a.anywhere ? null : actWhere(a), why = actReady(a);
+  head(`${a.icon || ''} ${a.name}`);
+  btn(ACT_CATS[a.cat], a.desc, () => {}, false);
+  btn(a.anywhere ? 'Where: anywhere' : `Where: ${w.name}`, a.anywhere ? (a.where || '') : `${km(w.x, w.z)} away${a.note ? ' · ' + a.note : ''}`, () => {}, false);
+  btn(`Difficulty ${'★'.repeat(a.diff)}${'☆'.repeat(3 - a.diff)} · Reward: ${a.reward}`, a.needs ? 'Needs: ' + a.needs : 'No requirements', () => {}, false);
+  btn(`Done ${A.done[a.id] || 0}×${A.best[a.id] !== undefined ? ` · best ${a.fmt ? a.fmt(A.best[a.id]) : A.best[a.id]}` : ''}`, `${ACT_CATS[a.cat].slice(2)} level ${catLevel(a.cat)}${a.progress ? ' · ' + a.progress() : ''}`, () => {}, false);
+  if (ACT_CUR && ACT_CUR.id === a.id) btn('Stop this activity', '', () => { quitAct(); phoneApp('act'); });
+  else {
+    btn(why ? (/^Head to/.test(why) ? '📍 Take me there' : why) : '▶ Start', why && /^Head to/.test(why) ? 'sets your GPS; press E at the marker or Start here when you arrive' : '', () => startAct(a.id), !why || /^Head to/.test(why)).classList.add('go');
+  }
+  btn('← All activities', '', () => phoneApp('acts'));
+}
+function missionsApp(btn, head) {
+  head('Right now');
+  const cur = [];
+  if (ACT_CUR) cur.push([`${ACT_BY[ACT_CUR.id].icon} ${ACT_BY[ACT_CUR.id].name}`, () => { PHONE.act = ACT_CUR.id; phoneApp('act'); }]);
+  if (STORY.M) cur.push([`😎 ${CHAPTERS[STORY.M.i].title}`, () => phoneApp('rocco')]);
+  if (ECON.shift) cur.push([`💼 ${JOBS[ECON.shift.job].name} shift`, () => phoneApp('jobs')]);
+  if (TRIAL) cur.push([`⏱ ${TRIAL.R.name}`, () => phoneApp('trials')]);
+  if (MISSION) cur.push([`🏁 ${MISSION.title}`, () => phoneApp('home')]);
+  if (!cur.length) btn('Nothing on right now', 'pick something from Activities', () => phoneApp('acts'));
+  for (const [t, fn] of cur) btn(t, 'tap to see it', fn);
+  for (const [kind, label] of [['daily', 'Daily challenges'], ['weekly', 'Weekly challenges']]) {
+    head(label);
+    for (const r of challengeRows(kind)) btn(`${r.done ? '✅' : '◻️'} ${r.text}`, `${r.have}/${r.n} · reward $${r.reward}`, () => {}, false);
+  }
+  head('Special events');
+  const F = festivalToday(); btn(`🎪 ${F.name}`, `today at ${F.w.name} · ${km(F.w.x, F.w.z)}`, () => { PHONE.act = 'festival'; phoneApp('act'); });
+  head(`Completed: ${Object.values(actData().done).reduce((a, b) => a + b, 0)} activities · ${(STORY.done || 0)} story jobs`);
+}
+function statsApp(btn, head) {
+  const S = actData().stats, A = actData();
+  head('Your Gold Coast');
+  const rows = [
+    ['Activities completed', S.activities || 0], ['Distance travelled', ((S.m || 0) / 1000).toFixed(1) + ' km'], ['Places discovered', (A.found || []).length],
+    ['Money earned from activities and jobs', '$' + Math.round(S.earned || 0).toLocaleString()], ['Job shifts worked', Object.values(ECON.jobs).reduce((a, j) => a + (j.shifts || 0), 0)],
+    ['Fish caught', S.fish || 0], ['Fish species', collCount('fish') + ' / ' + (FISH_OCEAN.length + FISH_INSHORE.length - 3)], ['Waves ridden', S.waves || 0], ['Best wave', (SURF.best || 0) + ' pts'],
+    ['Sports wins', S.sportWins || 0], ['Timed courses finished', S.courses || 0], ['Photos taken', S.photos || 0], ['Landmarks photographed', collCount('photos') + ' / ' + LANDMARKS.length],
+    ['Wildlife spotted', collCount('wildlife') + ' / ' + WILDLIFE.filter((w) => !w.bird).length], ['Birds spotted', collCount('birds') + ' / ' + WILDLIFE.filter((w) => w.bird).length],
+    ['Geocaches found', collCount('caches') + ' / ' + CACHES().length], ['Treasure found', collCount('treasure')], ['Collectibles', S.collectibles || 0],
+  ];
+  for (const [k, v] of rows) btn(k, String(v), () => {}, false);
+  head('Levels');
+  for (const [c, label] of Object.entries(ACT_CATS)) btn(`${label}: level ${catLevel(c)}`, `${actData().xp[c] || 0} xp`, () => {}, false);
+  head('Personal records');
+  const recs = ACTS.filter((a) => A.best[a.id] !== undefined);
+  if (!recs.length) btn('No records yet', 'timed and scored activities keep your best', () => {}, false);
+  for (const a of recs) btn(`${a.icon} ${a.name}`, a.fmt ? a.fmt(A.best[a.id]) : String(A.best[a.id]), () => {}, false);
+}
+function notesApp(btn, head) {
+  const N = actData().notes; head(N.length ? 'Latest first' : 'No notifications');
+  for (const n of N) { btn(n.text, new Date(n.t).toLocaleString(), () => {}, false); n.read = true; }
+}
+
+// ============================================================================
+// Gold Coast Streets — the activity mini-games. They run in the shop panel (like the gym and the shooting range),
+// with mouse, keyboard or touch, and report back through actComplete. A few small building blocks are shared
+// (a timing bar, a reaction button, a canvas with a game loop) but each sport plays its own way.
+// ============================================================================
+function agOpen(title, sub) {
+  uiOpen = true; if (document.pointerLockElement) document.exitPointerLock();
+  $('shop').hidden = false; $('shop-title').textContent = title; $('shop-sub').textContent = sub || ''; $('shop-money').textContent = '$' + player.money.toLocaleString();
+  const b = $('shop-body'); b.innerHTML = ''; AG.gen++; return b;
+}
+const AG = { gen: 0, keys: {} };
+window.addEventListener('keydown', (e) => { if (!$('shop').hidden) AG.keys[e.code] = true; });
+window.addEventListener('keyup', (e) => { AG.keys[e.code] = false; });
+const agAlive = (gen) => gen === AG.gen && !$('shop').hidden;
+const agWait = (ms) => new Promise((r) => setTimeout(r, ms));
+function agEl(parent, tag, css, text) { const e = document.createElement(tag); if (css) e.style.cssText = css; if (text !== undefined) e.textContent = text; parent.appendChild(e); return e; }
+function agBtn(parent, label, fn, big) { const b = agEl(parent, 'button', `margin:4px;padding:${big ? '14px 18px' : '8px 12px'};font-size:${big ? 19 : 15}px;touch-action:manipulation`, label); b.type = 'button'; b.addEventListener('pointerdown', (e) => { e.preventDefault(); fn(); }); return b; }
+function agCanvas(parent, w, h) { const c = agEl(parent, 'canvas', 'width:100%;max-width:480px;display:block;margin:6px auto;border-radius:10px;background:#123;touch-action:none'); c.width = w; c.height = h; return c; }
+function agLoop(gen, fn) { let last = performance.now(); const step = (now) => { if (!agAlive(gen)) return; const dt = Math.min(0.05, (now - last) / 1000); last = now; if (fn(dt) !== false) requestAnimationFrame(step); }; requestAnimationFrame(step); }
+// a marker sweeps a bar; tap in the green. Resolves 1 (dead centre) .. 0 (edge of the green), or -1 for a miss
+function agBar(parent, label, speed = 1, width = 0.2) {
+  return new Promise((res) => {
+    const gen = AG.gen, wrap = agEl(parent, 'div'); agEl(wrap, 'div', 'font:600 15px sans-serif;margin:6px 0', label);
+    const bar = agEl(wrap, 'div', 'position:relative;height:30px;background:#2b3238;border-radius:6px;overflow:hidden'), c0 = 0.15 + rand() * (0.7 - width);
+    agEl(bar, 'div', `position:absolute;left:${c0 * 100}%;width:${width * 100}%;top:0;bottom:0;background:#33d17a`);
+    const mk = agEl(bar, 'div', 'position:absolute;width:6px;top:0;bottom:0;background:#fff');
+    let p = 0, dir = 1, done = false;
+    const hit = () => { if (done) return; done = true; wrap.remove(); const mid = c0 + width / 2, off = Math.abs(p - mid) / (width / 2); res(off <= 1 ? 1 - off : -1); };
+    agBtn(wrap, 'TAP (Space)', hit, true); const key = () => { if (AG.keys.Space) { AG.keys.Space = false; hit(); } };
+    agLoop(gen, (dt) => { if (done) return false; key(); p += dir * dt * 0.9 * speed; if (p > 1 || p < 0) { dir = -dir; p = clamp(p, 0, 1); } mk.style.left = p * 100 + '%'; });
+  });
+}
+// a button appears after a pause: hit it inside the window
+function agReact(parent, label, win = 0.7) {
+  return new Promise((res) => {
+    const gen = AG.gen, wrap = agEl(parent, 'div'); agEl(wrap, 'div', 'font:600 15px sans-serif;margin:6px 0', label + ' — wait for it…');
+    let t = 0, shown = false, done = false; const delay = 0.6 + rand() * 1.6, b = agBtn(wrap, 'NOW! (Space)', () => fin(shown), true); b.style.visibility = 'hidden';
+    const fin = (ok) => { if (done) return; done = true; wrap.remove(); res(ok && t - delay <= win); };
+    agLoop(gen, (dt) => { if (done) return false; t += dt; if (AG.keys.Space) { AG.keys.Space = false; fin(shown); } if (!shown && t > delay) { shown = true; b.style.visibility = 'visible'; } if (shown && t > delay + win) fin(false); });
+  });
+}
+function agResult(id, r) { // the end of a game: pay, record, and offer another go
+  stat('minigames'); const a = ACT_BY[id];
+  if (r.win && a && a.cat === 'sport') stat('sportWins');
+  if (r.win || r.complete) actComplete(id, r); else actFail(id, r.msg);
+  const body = $('shop-body'); if ($('shop').hidden) return;
+  agEl(body, 'p', 'font:700 18px sans-serif;margin:10px 0', (r.win || r.complete ? '🏆 ' : '😕 ') + (r.msg || ''));
+  agBtn(body, 'Play again', () => { if (actReady(a) === null) startAct(id); else toast(actReady(a)); }); agBtn(body, 'Done', closeShop);
+}
+const winMoney = (base, lvlCat) => Math.round(base * (1 + (catLevel(lvlCat) - 1) * 0.1));
+
+// ---------------------------------------------------------------- beach volleyball: move under the ball, hit it back
+function playVolleyball(id) {
+  const body = agOpen('Beach volleyball', 'A/D (or ◀ ▶) to move, Space or HIT when the ball drops to you. First to 7.'), gen = AG.gen;
+  const c = agCanvas(body, 480, 260), g = c.getContext('2d'), info = agEl(body, 'p', 'font:600 16px sans-serif');
+  const row = agEl(body, 'div'), L = { l: false, r: false, hit: false };
+  for (const [lab, k] of [['◀', 'l'], ['HIT', 'hit'], ['▶', 'r']]) { const b = agBtn(row, lab, () => { L[k] = true; }, true); b.addEventListener('pointerup', () => { if (k !== 'hit') L[k] = false; }); b.addEventListener('pointerleave', () => { if (k !== 'hit') L[k] = false; }); }
+  let me = 0, them = 0, px = 120, ball = null, nx = 360, wait = 1;
+  const serve = (toMe) => { ball = toMe ? { x: 360, y: 120, vx: -(120 + rand() * 60), vy: -260, mine: true } : { x: px, y: 150, vx: 160 + rand() * 60, vy: -300, mine: false }; };
+  serve(true);
+  agLoop(gen, (dt) => {
+    const k = AG.keys; if (k.KeyA || k.ArrowLeft || L.l) px -= 240 * dt; if (k.KeyD || k.ArrowRight || L.r) px += 240 * dt; px = clamp(px, 20, 225);
+    if (wait > 0) { wait -= dt; } else if (ball) {
+      ball.vy += 420 * dt; ball.x += ball.vx * dt; ball.y += ball.vy * dt;
+      if (ball.x < 240 && ball.mine && ball.y > 150 && (k.Space || L.hit)) { // your hit: the closer under it, the better
+        const off = Math.abs(ball.x - px); k.Space = false; L.hit = false;
+        if (off < 34) { ball.vx = 150 + (34 - off) * 4; ball.vy = -320; ball.mine = false; sfxNoise(0.05, 1800, 0.2); }
+      }
+      if (ball.x > 240 && !ball.mine) { nx += clamp(ball.x - nx, -200 * dt, 200 * dt); if (ball.y > 150 && Math.abs(ball.x - nx) < 40) { if (rand() > 0.2) /* they miss about one in five */ { ball.vx = -(130 + rand() * 90); ball.vy = -330 + rand() * 40; ball.mine = true; } } }
+      if (ball.y > 230) { if (ball.x < 240) them++; else me++; ball = null; wait = 1; if (me >= 7 || them >= 7) { info.textContent = ''; const win = me > them; agResult(id, { win, score: me - them, money: win ? winMoney(60, 'sport') : 0, msg: `${win ? 'You won' : 'You lost'} ${me}–${them}` }); return false; } setTimeout(() => serve(true), 0); }
+    }
+    g.fillStyle = '#7fc8e8'; g.fillRect(0, 0, 480, 260); g.fillStyle = '#e8d29a'; g.fillRect(0, 230, 480, 30); g.fillStyle = '#fff'; g.fillRect(238, 150, 4, 80); g.fillRect(238, 150, 4, 3);
+    g.fillStyle = '#ff6f4f'; g.fillRect(px - 10, 196, 20, 34); g.fillStyle = '#2d6cdf'; g.fillRect(nx - 10, 196, 20, 34);
+    if (ball) { g.fillStyle = '#ffd400'; g.beginPath(); g.arc(ball.x, ball.y, 9, 0, TAU); g.fill(); }
+    info.textContent = `You ${me} – ${them} them`;
+  });
+}
+// ---------------------------------------------------------------- sandcastle: design, pack, carve, dig a moat before the tide, decorate
+async function playSandcastle(id) {
+  const body = agOpen('Sandcastle competition', 'Judges score size, detail and finishing touches. The tide is coming in…'); const gen = AG.gen;
+  let score = 0; const say = agEl(body, 'p', 'font:600 16px sans-serif');
+  say.textContent = 'Pick a design:'; const design = await new Promise((r) => { const row = agEl(body, 'div'); [['🏰 Classic castle', 1], ['🐉 Sand dragon', 1.3], ['🐙 Giant octopus', 1.5]].forEach(([l, m]) => agBtn(row, l, () => { row.remove(); r({ l, m }); })); });
+  for (const step of ['Pack the base', 'Shape the walls', 'Carve the towers']) { if (!agAlive(gen)) return; const v = await agBar(body, step, 1.1 * design.m, 0.22); score += v > 0 ? 20 + v * 15 : 2; }
+  if (!agAlive(gen)) return;
+  say.textContent = 'Dig the moat: tap DIG as fast as you can before the tide (8 s)!'; let dug = 0; const m = agEl(body, 'div', 'height:12px;background:#2b3238;border-radius:6px'); const fill = agEl(m, 'div', 'height:12px;width:0;background:#2a7de2;border-radius:6px');
+  const digB = agBtn(body, 'DIG (Space)', () => { dug++; }, true);
+  await new Promise((r) => { let t = 0; agLoop(gen, (dt) => { t += dt; if (AG.keys.Space) { AG.keys.Space = false; dug++; } fill.style.width = Math.min(100, dug * 3) + '%'; if (t > 8) { r(); return false; } }); });
+  digB.remove(); m.remove(); score += Math.min(30, dug);
+  say.textContent = 'Decorate (pick up to 3):'; const picks = new Set();
+  await new Promise((r) => { const row = agEl(body, 'div'); ['🐚 Shells', '🚩 Flags', '🌿 Seaweed', '🪨 Pebbles', '🦀 A crab'].forEach((l) => { const b = agBtn(row, l, () => { picks.add(l); b.disabled = true; if (picks.size >= 3) { row.remove(); r(); } }); }); agBtn(row, 'Finished', () => { row.remove(); r(); }); });
+  score = Math.round((score + picks.size * 8) * design.m); const place = score > 150 ? 1 : score > 110 ? 2 : score > 70 ? 3 : 0;
+  say.textContent = '';
+  agResult(id, { complete: true, score, money: [0, 120, 70, 40][place], msg: `${design.l}: ${score} points${place ? ` — ${['', '1st', '2nd', '3rd'][place]} place!` : ' — no ribbon this time'}` });
+}
+// ---------------------------------------------------------------- soccer: penalties (aim, then power), saving theirs, free kicks over a wall
+function playSoccer(id) {
+  const body = agOpen('Soccer', 'Pick a game'); const row = agEl(body, 'div');
+  agBtn(row, '🥅 Penalty shootout', () => soccerShootout(id, false), true); agBtn(row, '🧱 Free kicks', () => soccerFreeKicks(id), true); agBtn(row, '🏆 Tournament (3 rounds)', () => soccerShootout(id, true), true);
+}
+function kickAt(body, wall) { // aim sweeps across the goal: tap to lock, then power
+  return new Promise((res) => {
+    const gen = AG.gen, c = agCanvas(body, 420, 200), g = c.getContext('2d'); let ax = 0, dir = 1, phase = 'aim', pw = 0, pd = 1, done = false;
+    const lock = () => { if (phase === 'aim') phase = 'power'; else if (phase === 'power') { phase = 'go'; done = true; } };
+    const b = agBtn(body, 'TAP (Space)', lock, true);
+    agLoop(gen, (dt) => {
+      if (AG.keys.Space) { AG.keys.Space = false; lock(); }
+      if (phase === 'aim') { ax += dir * dt * 1.4; if (ax > 1 || ax < -1) dir = -dir; } else if (phase === 'power') { pw += pd * dt * 1.6; if (pw > 1 || pw < 0) pd = -pd; }
+      g.fillStyle = '#3f8f3a'; g.fillRect(0, 0, 420, 200); g.strokeStyle = '#fff'; g.lineWidth = 6; g.strokeRect(60, 30, 300, 120);
+      if (wall) { g.fillStyle = '#d9483b'; for (let k = -2; k <= 1; k++) g.fillRect(190 + k * 22, 120, 18, 50); }
+      g.fillStyle = '#ffd400'; g.beginPath(); g.arc(210 + ax * 140, 90, 10, 0, TAU); g.fill();
+      g.fillStyle = '#222'; g.fillRect(40, 180, 340, 10); g.fillStyle = pw > 0.55 && pw < 0.85 ? '#33d17a' : '#f6c445'; g.fillRect(40, 180, 340 * pw, 10);
+      if (done) { c.remove(); b.remove(); res({ ax, pw }); return false; }
+    });
+  });
+}
+async function soccerShootout(id, tourney) {
+  const body = agOpen('Penalty shootout', 'Lock your aim, then the power (green is best). Then save theirs: guess the side.'), gen = AG.gen;
+  const rounds = tourney ? ['Quarter-final', 'Semi-final', 'Final'] : ['Shootout']; let goalsTotal = 0;
+  for (const [ri, rname] of rounds.entries()) {
+    let me = 0, them = 0; const say = agEl(body, 'p', 'font:700 16px sans-serif', rname);
+    for (let k = 0; k < 5; k++) {
+      if (!agAlive(gen)) return;
+      const s = await kickAt(body, false); const keeper = pick([-1, 0, 1]), side = s.ax < -0.33 ? -1 : s.ax > 0.33 ? 1 : 0;
+      const onTarget = Math.abs(s.ax) < 0.95 && s.pw > 0.4 && s.pw < 0.95, goal = onTarget && (side !== keeper || (s.pw > 0.7 && Math.abs(s.ax) > 0.75));
+      if (goal) { me++; goalsTotal++; } say.textContent = `${rname} · kick ${k + 1}: ${goal ? 'GOAL!' : onTarget ? 'Saved!' : 'Missed!'} · you ${me} – ${them}`;
+      if (!agAlive(gen)) return;
+      const dive = await new Promise((r) => { const row = agEl(body, 'div'); agEl(row, 'div', 'font:600 15px sans-serif', 'Their kick — dive:'); [['⬅ Left', -1], ['Stay', 0], ['Right ➡', 1]].forEach(([l, v]) => agBtn(row, l, () => { row.remove(); r(v); }, true)); });
+      const shot = pick([-1, 0, 1, -1, 1]), scored = rand() > 0.15 + ri * -0.03 && dive !== shot; if (scored) them++;
+      say.textContent = `${rname} · their kick ${k + 1}: ${scored ? 'they scored' : 'SAVED!'} · you ${me} – ${them}`;
+    }
+    while (me === them && agAlive(gen)) { const s = await kickAt(body, false); if (Math.abs(s.ax) < 0.9 && s.pw > 0.45 && s.pw < 0.9 && rand() < 0.7) me++; if (rand() < 0.6) them++; say.textContent = `Sudden death · you ${me} – ${them}`; }
+    if (!agAlive(gen)) return;
+    if (me < them) { stat('goals', goalsTotal); return agResult(id, { win: false, msg: `Knocked out in the ${rname.toLowerCase()} (${me}–${them})` }); }
+  }
+  stat('goals', goalsTotal);
+  agResult(id, { win: true, score: goalsTotal, money: winMoney(tourney ? 300 : 70, 'sport'), msg: tourney ? `Tournament champions! ${goalsTotal} goals` : `You won the shootout (${goalsTotal} goals)` });
+}
+async function soccerFreeKicks(id) {
+  const body = agOpen('Free kicks', 'Curl it over the wall: aim wide of the middle, power in the green.'), gen = AG.gen; let goals = 0; const say = agEl(body, 'p', 'font:700 16px sans-serif');
+  for (let k = 0; k < 6; k++) { if (!agAlive(gen)) return; const s = await kickAt(body, true); const over = s.pw > 0.55 && s.pw < 0.85, wide = Math.abs(s.ax) > 0.25 && Math.abs(s.ax) < 0.95; const goal = over && wide && rand() > 0.25; if (goal) goals++; say.textContent = `Free kick ${k + 1}/6: ${goal ? 'GOAL!' : !over ? 'Into the wall' : !wide ? 'Straight at the keeper' : 'Saved'} · ${goals} goals`; }
+  stat('goals', goals); agResult(id, { win: goals >= 3, score: goals, money: goals >= 3 ? winMoney(goals * 20, 'sport') : 0, msg: `${goals}/6 free kicks scored` });
+}
+// ---------------------------------------------------------------- basketball: a timed shooting round, or 1 on 1 to 11
+function playBasketball(id) { const body = agOpen('Basketball', 'Pick a game'); const row = agEl(body, 'div'); agBtn(row, '⏱ Shooting challenge (45 s)', () => bballShoot(id), true); agBtn(row, '🏀 1 on 1 to 11', () => bball1v1(id), true); }
+async function bballShoot(id) {
+  const body = agOpen('Shooting challenge', 'As many baskets as you can in 45 seconds. Further out = 3 points.'), gen = AG.gen, t0 = performance.now(); let pts = 0; const say = agEl(body, 'p', 'font:700 16px sans-serif');
+  while ((performance.now() - t0) / 1000 < 45 && agAlive(gen)) { const three = rand() < 0.4; const v = await agBar(body, three ? 'Three-pointer!' : 'Jump shot', three ? 1.5 : 1.2, three ? 0.13 : 0.18); if (v >= 0) { pts += three ? 3 : 2; sfxTone([660], 0.05, 0.04); } say.textContent = `${pts} points · ${Math.max(0, Math.ceil(45 - (performance.now() - t0) / 1000))}s left`; }
+  if (!agAlive(gen)) return; agResult(id, { win: pts >= 16, score: pts, money: pts >= 16 ? winMoney(pts * 3, 'sport') : 0, msg: `${pts} points${pts >= 16 ? ' — that beats the court record target (16)' : ' — 16 to beat'}` });
+}
+async function bball1v1(id) {
+  const body = agOpen('1 on 1', 'Your ball: time the shot. Their ball: block when they rise.'), gen = AG.gen; let me = 0, them = 0; const say = agEl(body, 'p', 'font:700 16px sans-serif');
+  while (me < 11 && them < 11 && agAlive(gen)) {
+    const v = await agBar(body, 'Your shot', 1.25, 0.17); if (v >= 0) me += v > 0.7 && rand() < 0.4 ? 3 : 2; if (!agAlive(gen)) return;
+    const blocked = await agReact(body, 'They drive to the hoop — BLOCK', 0.55); if (!blocked && rand() < 0.75) them += 2;
+    say.textContent = `You ${me} – ${them}`;
+  }
+  if (!agAlive(gen)) return; const win = me > them; agResult(id, { win, score: me, money: win ? winMoney(90, 'sport') : 0, msg: `${win ? 'You won' : 'You lost'} ${me}–${them}` });
+}
+// ---------------------------------------------------------------- skateboarding: type the trick combos before you land
+const TRICKS = [['Ollie', '↑'], ['Kickflip', '↑←'], ['Heelflip', '↑→'], ['Shove-it', '↓→'], ['Pop shove-it', '↑↓→'], ['Tre flip', '↑←↓'], ['5-0 grind', '→→↓'], ['Boardslide', '←↓←'], ['Varial heelflip', '↑→↓→'], ['Hardflip', '↑↓←↑']];
+async function playSkate(id) {
+  const body = agOpen('Skatepark session', 'Type each trick’s arrows (keys or buttons) before you land. Chain them for a multiplier. 60 seconds.'), gen = AG.gen;
+  const say = agEl(body, 'p', 'font:700 17px sans-serif'), trick = agEl(body, 'p', 'font:700 26px sans-serif;letter-spacing:4px'), row = agEl(body, 'div');
+  let pts = 0, chain = 1, input = ''; const press = (a) => { input += a; };
+  [['←', 'ArrowLeft'], ['↑', 'ArrowUp'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']].forEach(([a]) => agBtn(row, a, () => press(a), true));
+  const t0 = performance.now();
+  while ((performance.now() - t0) / 1000 < 60 && agAlive(gen)) {
+    const T = TRICKS[Math.min(TRICKS.length - 1, Math.floor(rand() * Math.min(TRICKS.length, 3 + chain * 2)))]; input = '';
+    const limit = 1.2 + T[1].length * 0.55; let t = 0;
+    const ok = await new Promise((r) => agLoop(gen, (dt) => {
+      t += dt; for (const [a, k] of [['←', 'ArrowLeft'], ['↑', 'ArrowUp'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']]) if (AG.keys[k]) { AG.keys[k] = false; press(a); }
+      trick.textContent = `${T[0]}: ${T[1]}   ${input}`; trick.style.color = T[1].startsWith(input) ? '#fff' : '#ff6b6b';
+      if (input === T[1]) { r(true); return false; } if (!T[1].startsWith(input) || t > limit) { r(false); return false; }
+    }));
+    if (ok) { pts += T[1].length * 100 * chain; chain = Math.min(5, chain + 1); sfxTone([523 + chain * 60], 0.06, 0.04); } else { chain = 1; sfxNoise(0.15, 500, 0.3); }
+    say.textContent = `${pts.toLocaleString()} pts · ×${chain} · ${Math.max(0, Math.ceil(60 - (performance.now() - t0) / 1000))}s`;
+  }
+  if (!agAlive(gen)) return; agResult(id, { complete: true, win: pts >= 4000, score: pts, money: Math.min(150, Math.round(pts / 60)), msg: `Session score ${pts.toLocaleString()}` });
+}
+// ---------------------------------------------------------------- tennis: rallies decided by timing; early goes cross-court, late goes down the line
+async function playTennis(id) {
+  const body = agOpen('Tennis', 'Time each swing. Hit it sweetly and they may not get there. First to 4 games (deuce: win by 2).'), gen = AG.gen; const say = agEl(body, 'p', 'font:700 16px sans-serif');
+  let gm = 0, gt = 0;
+  while ((gm < 4 && gt < 4) || Math.abs(gm - gt) < 2) {
+    let pm = 0, pt = 0;
+    while ((pm < 4 && pt < 4) || Math.abs(pm - pt) < 2) {
+      if (!agAlive(gen)) return; let rally = 0, won = null;
+      while (won === null) { const v = await agBar(body, `Rally shot ${rally + 1}`, 1.1 + rally * 0.12, 0.2 - Math.min(0.08, rally * 0.01)); if (!agAlive(gen)) return; if (v < 0) won = false; else if (rand() < 0.15 + v * 0.35 + rally * 0.03) won = true; rally++; }
+      if (won) pm++; else pt++;
+      const call = (a, b) => (a >= 3 && b >= 3 ? (a === b ? 'Deuce' : a > b ? 'Advantage you' : 'Advantage them') : `${[0, 15, 30, 40][Math.min(a, 3)]}–${[0, 15, 30, 40][Math.min(b, 3)]}`);
+      say.textContent = `Games ${gm}–${gt} · ${call(pm, pt)}`;
+    }
+    if (pm > pt) gm++; else gt++; say.textContent = `Games ${gm}–${gt}`;
+  }
+  const win = gm > gt; agResult(id, { win, score: gm, money: win ? winMoney(110, 'sport') : 0, msg: `${win ? 'Set to you' : 'Set to them'}, ${gm}–${gt}` });
+}
+// ---------------------------------------------------------------- putting physics (golf putting challenge and mini-golf share it)
+const MINI_HOLES = [ // ball start, hole, walls [x0,y0,x1,y1]
+  { s: [60, 130], h: [400, 130], w: [] }, { s: [60, 200], h: [400, 60], w: [[220, 80, 240, 260]] }, { s: [60, 60], h: [420, 200], w: [[150, 0, 170, 160], [300, 100, 320, 260]] },
+  { s: [240, 230], h: [240, 40], w: [[140, 120, 340, 140]] }, { s: [50, 130], h: [430, 130], w: [[200, 0, 220, 110], [200, 150, 220, 260], [320, 60, 340, 200]] }, { s: [80, 220], h: [400, 40], w: [[100, 100, 380, 120], [180, 160, 200, 260]] },
+];
+function puttHole(body, H, par) { // drag back from the ball and let go (or the power bar on touch)
+  return new Promise((res) => {
+    const gen = AG.gen, c = agCanvas(body, 480, 260), g = c.getContext('2d'); let b = { x: H.s[0], y: H.s[1], vx: 0, vy: 0 }, strokes = 0, drag = null;
+    const pos = (e) => { const r = c.getBoundingClientRect(); return [(e.clientX - r.left) * 480 / r.width, (e.clientY - r.top) * 260 / r.height]; };
+    c.addEventListener('pointerdown', (e) => { if (Math.hypot(b.vx, b.vy) < 2) drag = pos(e); });
+    c.addEventListener('pointermove', (e) => { if (drag) drag.cur = pos(e); });
+    c.addEventListener('pointerup', (e) => { if (!drag) return; const p = pos(e), dx = drag[0] - p[0], dy = drag[1] - p[1]; drag = null; if (!(Math.hypot(dx, dy) >= 4)) return; b.vx = clamp(dx * 3, -500, 500); b.vy = clamp(dy * 3, -500, 500); strokes++; sfxNoise(0.04, 2400, 0.15); });
+    agLoop(gen, (dt) => {
+      b.x += b.vx * dt; b.y += b.vy * dt; const f = Math.pow(0.35, dt); b.vx *= f; b.vy *= f;
+      if (b.x < 8 || b.x > 472) { b.vx = -b.vx; b.x = clamp(b.x, 8, 472); } if (b.y < 8 || b.y > 252) { b.vy = -b.vy; b.y = clamp(b.y, 8, 252); }
+      for (const [x0, y0, x1, y1] of H.w) if (b.x > x0 - 7 && b.x < x1 + 7 && b.y > y0 - 7 && b.y < y1 + 7) { const dl = b.x - (x0 - 7), dr = x1 + 7 - b.x, dtp = b.y - (y0 - 7), db = y1 + 7 - b.y, m = Math.min(dl, dr, dtp, db); if (m === dl || m === dr) { b.vx = -b.vx; b.x += m === dl ? -m : m; } else { b.vy = -b.vy; b.y += m === dtp ? -m : m; } }
+      let sp = Math.hypot(b.vx, b.vy); if (sp < 6) { b.vx = b.vy = 0; sp = 0; } // it stops rather than creeping forever
+      const dh = Math.hypot(b.x - H.h[0], b.y - H.h[1]);
+      g.fillStyle = '#2f8f3c'; g.fillRect(0, 0, 480, 260); g.fillStyle = '#7a5a3c'; for (const [x0, y0, x1, y1] of H.w) g.fillRect(x0, y0, x1 - x0, y1 - y0);
+      g.fillStyle = '#111'; g.beginPath(); g.arc(H.h[0], H.h[1], 10, 0, TAU); g.fill(); g.fillStyle = '#fff'; g.beginPath(); g.arc(b.x, b.y, 6, 0, TAU); g.fill();
+      if (drag && drag.cur) { g.strokeStyle = '#ffd400'; g.lineWidth = 3; g.beginPath(); g.moveTo(b.x, b.y); g.lineTo(b.x + (drag[0] - drag.cur[0]), b.y + (drag[1] - drag.cur[1])); g.stroke(); }
+      g.fillStyle = '#fff'; g.font = '600 16px sans-serif'; g.fillText(`Strokes ${strokes}${par ? ' · par ' + par : ''}`, 10, 20);
+      if (dh < 10 && sp < 260) { c.remove(); sfxTone([880], 0.1, 0.05); res(strokes); return false; }
+      if (strokes >= 6 && sp === 0) { c.remove(); toast('Pick it up — 7 on that hole'); res(7); return false; } // six strokes and you pick up
+    });
+  });
+}
+async function playMinigolf(id) {
+  const body = agOpen('Mini-golf', 'Drag back from the ball and let go — further back = harder. 6 holes, par 2 each.'), gen = AG.gen; const card = agEl(body, 'p', 'font:700 16px sans-serif'); let total = 0; const scores = [];
+  for (const [i, H] of MINI_HOLES.entries()) { if (!agAlive(gen)) return; card.textContent = `Hole ${i + 1}/6 · scorecard: ${scores.join(' ') || '—'} · total ${total}`; const s = await puttHole(body, H, 2); scores.push(s); total += s; }
+  if (!agAlive(gen)) return; agResult(id, { complete: true, win: total <= 12, score: total, money: total <= 12 ? 60 : 20, msg: `Round of ${total} (par 12)${total <= 12 ? ' — under or on par!' : ''}` });
+}
+async function playGolf(id) {
+  const body = agOpen('Golf', 'Driving range: set the club angle, then the power, into the wind. Then three putts on the practice green.'), gen = AG.gen; const say = agEl(body, 'p', 'font:700 16px sans-serif'); let pts = 0;
+  for (let k = 0; k < 5; k++) {
+    if (!agAlive(gen)) return; const target = pick([100, 150, 200]), wind = Math.round(rr(-12, 12));
+    say.textContent = `Ball ${k + 1}/5 · flag at ${target} m · wind ${wind > 0 ? '+' : ''}${wind} m`;
+    const ang = await agBar(body, 'Club face (square = green)', 1.3, 0.2); if (!agAlive(gen)) return; const pw = await agBar(body, `Power for ${target} m`, 1.4, 0.16);
+    const dist = Math.round(target * (pw < 0 ? 0.6 + rand() * 0.6 : 0.92 + pw * 0.08) + wind + (ang < 0 ? rr(-25, 25) : 0)), off = Math.abs(dist - target);
+    const p = off < 5 ? 30 : off < 12 ? 20 : off < 25 ? 10 : 0; pts += p; say.textContent = `${dist} m — ${off} m from the flag (+${p})`; await agWait(700);
+  }
+  for (const H of [MINI_HOLES[0], { s: [80, 200], h: [400, 70], w: [] }, { s: [420, 60], h: [70, 200], w: [] }]) { if (!agAlive(gen)) return; const s = await puttHole(body, H, 1); pts += Math.max(0, 30 - (s - 1) * 12); }
+  if (!agAlive(gen)) return; agResult(id, { complete: true, win: pts >= 150, score: pts, money: Math.round(pts / 3), msg: `Practice score ${pts}` });
+}
+// ---------------------------------------------------------------- boxing: hit the pad that lights up (J / K / L), combos for speed
+async function playBoxing(id) {
+  const body = agOpen('Boxing fitness', 'Hit the lit pad fast: J jab · K cross · L hook (or tap). 30 seconds.'), gen = AG.gen; const row = agEl(body, 'div', 'display:flex;gap:10px;justify-content:center'), say = agEl(body, 'p', 'font:700 17px sans-serif');
+  const pads = ['J', 'K', 'L'].map((k, i) => { const b = agBtn(row, ['Jab (J)', 'Cross (K)', 'Hook (L)'][i], () => hit(i), true); b.style.width = '30%'; b.style.height = '80px'; return b; });
+  let lit = -1, litT = 0, pts = 0, combo = 0, t = 0;
+  const light = () => { lit = Math.floor(rand() * 3); litT = 0; pads.forEach((p, i) => { p.style.background = i === lit ? '#f6c445' : ''; p.style.color = i === lit ? '#111' : ''; }); };
+  const hit = (i) => { if (lit < 0) return; if (i === lit) { combo++; pts += Math.max(10, Math.round(100 - litT * 120)) * Math.min(4, 1 + Math.floor(combo / 5)); sfxNoise(0.05, 900, 0.3); } else { combo = 0; sfxTone([200], 0.05, 0.04); } light(); };
+  light(); await new Promise((r) => agLoop(gen, (dt) => { t += dt; litT += dt; for (const [i, k] of [[0, 'KeyJ'], [1, 'KeyK'], [2, 'KeyL']]) if (AG.keys[k]) { AG.keys[k] = false; hit(i); } if (litT > 1.2) { combo = 0; light(); } say.textContent = `${pts} pts · combo ${combo} · ${Math.max(0, Math.ceil(30 - t))}s`; if (t > 30) { r(); return false; } }));
+  if (!agAlive(gen)) return; if (ECON.fitness < 10 && pts > 3500 && rand() < 0.3) ECON.fitness++;
+  agResult(id, { complete: true, score: pts, money: 0, msg: `${pts} points${pts > 3500 ? ' — a great session' : ''}` });
+}
+// ---------------------------------------------------------------- lawn bowls: roll your bowls nearest the jack (they curve)
+function playBowls(id) {
+  const body = agOpen('Lawn bowls', 'Aim (it swings), then power. Bowls curve with their bias. Nearest to the jack scores. 4 ends.'), gen = AG.gen;
+  const c = agCanvas(body, 480, 260), g = c.getContext('2d'), say = agEl(body, 'p', 'font:700 16px sans-serif'); const btn = agBtn(body, 'TAP (Space)', () => tap(), true);
+  let end = 1, me = 0, them = 0, bowls = [], jack = null, phase = 'aim', aim = 0, ad = 1, pw = 0, pd = 1, turn = 0, rolling = null;
+  const newEnd = () => { bowls = []; jack = { x: 330 + rand() * 90, y: 90 + rand() * 80 }; turn = 0; phase = 'aim'; };
+  const tap = () => { if (turn % 2) return; if (phase === 'aim') phase = 'power'; else if (phase === 'power') { roll(aim, pw, '#2a2a2a'); } };
+  const roll = (a, p, col) => { rolling = { x: 30, y: 130, vx: 140 + p * 260, vy: a * 120, curve: (a > 0 ? -1 : 1) * 40, col }; phase = 'roll'; };
+  newEnd();
+  agLoop(gen, (dt) => {
+    if (AG.keys.Space) { AG.keys.Space = false; tap(); }
+    if (phase === 'aim') { aim += ad * dt * 1.2; if (aim > 1 || aim < -1) ad = -ad; } else if (phase === 'power') { pw += pd * dt * 1.3; if (pw > 1 || pw < 0) pd = -pd; }
+    if (rolling) { const R = rolling; R.x += R.vx * dt; R.y += R.vy * dt; R.vy += R.curve * dt; const f = Math.pow(0.55, dt); R.vx *= f; R.vy *= f; if (R.vx < 6 || R.x > 470 || R.y < 5 || R.y > 255) { if (R.x < 470 && R.y > 5 && R.y < 255) bowls.push({ x: R.x, y: R.y, col: R.col }); rolling = null; turn++; phase = turn % 2 ? 'cpu' : 'aim';
+      if (turn >= 4) { const d = (b) => Math.hypot(b.x - jack.x, b.y - jack.y), s = bowls.slice().sort((a, b) => d(a) - d(b)); if (s.length) { const w = s[0].col; let n = 0; for (const b of s) { if (b.col !== w) break; n++; } if (w === '#2a2a2a') me += n; else them += n; } end++; if (end > 4) { const win = me > them; agResult(id, { win, score: me, money: win ? winMoney(70, 'sport') : 0, msg: `${win ? 'You won' : me === them ? 'Drawn' : 'You lost'} ${me}–${them} after 4 ends` }); btn.remove(); return false; } setTimeout(newEnd, 600); }
+      else if (turn % 2) setTimeout(() => { const ideal = (jack.y - 130) / 120; roll(clamp(ideal + rr(-0.35, 0.35), -1, 1), clamp(0.55 + (jack.x - 330) / 400 + rr(-0.15, 0.15), 0, 1), '#c43a2a'); }, 700); } }
+    g.fillStyle = '#3e8f3e'; g.fillRect(0, 0, 480, 260); g.fillStyle = '#fff'; g.beginPath(); g.arc(jack.x, jack.y, 5, 0, TAU); g.fill();
+    for (const b of bowls) { g.fillStyle = b.col; g.beginPath(); g.arc(b.x, b.y, 10, 0, TAU); g.fill(); }
+    if (rolling) { g.fillStyle = rolling.col; g.beginPath(); g.arc(rolling.x, rolling.y, 10, 0, TAU); g.fill(); }
+    if (phase === 'aim' || phase === 'power') { g.strokeStyle = '#ffd400'; g.lineWidth = 3; g.beginPath(); g.moveTo(30, 130); g.lineTo(30 + 120, 130 + aim * 90); g.stroke(); g.fillStyle = '#222'; g.fillRect(20, 245, 200, 8); g.fillStyle = '#f6c445'; g.fillRect(20, 245, 200 * pw, 8); }
+    say.textContent = `End ${Math.min(4, end)}/4 · you ${me} – ${them} · ${turn % 2 ? 'their bowl' : phase === 'aim' ? 'tap to set the line' : phase === 'power' ? 'tap to set the weight' : ''}`;
+  });
+}
+// ---------------------------------------------------------------- laser tag: tag the other team as they pop out of cover
+function playLaserTag(id) {
+  const body = agOpen('Laser tag', 'Click (or tap) the red team when they pop out. Too slow and they tag you. 60 seconds, your team vs theirs.'), gen = AG.gen;
+  const c = agCanvas(body, 480, 260), g = c.getContext('2d'), say = agEl(body, 'p', 'font:700 16px sans-serif'); const spots = [[60, 200], [150, 120], [240, 190], [330, 110], [420, 200], [240, 70]];
+  let t = 0, up = null, upT = 0, wait = 0.8, mine = 0, theirs = 0, mates = 0, shield = 3, flash = 0;
+  c.addEventListener('pointerdown', (e) => { const r = c.getBoundingClientRect(), x = (e.clientX - r.left) * 480 / r.width, y = (e.clientY - r.top) * 260 / r.height; sfxNoise(0.04, 3200, 0.1); if (up && Math.hypot(x - up[0], y - up[1] + 20) < 26) { mine += 100; up = null; wait = 0.3 + rand() * 0.9; } });
+  agLoop(gen, (dt) => {
+    t += dt; flash = Math.max(0, flash - dt);
+    if (!up) { wait -= dt; if (wait <= 0) { up = pick(spots); upT = 0; } } else { upT += dt; if (upT > 1.15) { theirs += 100; shield--; flash = 0.3; up = null; wait = 0.5; if (shield <= 0) { shield = 3; theirs += 200; } } }
+    if (rand() < dt * 0.6) mates += 100; if (rand() < dt * 0.45) theirs += 100;
+    g.fillStyle = '#0b0f1e'; g.fillRect(0, 0, 480, 260); g.fillStyle = '#29324a'; for (const [x, y] of spots) g.fillRect(x - 30, y, 60, 30);
+    if (up) { g.fillStyle = '#ff3b3b'; g.beginPath(); g.arc(up[0], up[1] - 20, 16, 0, TAU); g.fill(); g.fillStyle = '#fff'; g.fillRect(up[0] - 2, up[1] - 26, 4, 4); }
+    if (flash) { g.fillStyle = 'rgba(255,40,40,.35)'; g.fillRect(0, 0, 480, 260); }
+    say.textContent = `Blue (you ${mine} + team ${mates}) ${mine + mates} – ${theirs} Red · shields ${'🛡'.repeat(shield)} · ${Math.max(0, Math.ceil(60 - t))}s`;
+    if (t > 60) { const win = mine + mates > theirs; agResult(id, { win, score: mine, money: win ? 50 : 10, msg: `${win ? 'Blue team wins' : 'Red team wins'} ${mine + mates}–${theirs} (you scored ${mine})` }); return false; }
+  });
+}
+// ---------------------------------------------------------------- busking: hit the notes as they reach the line (← ↓ ↑ →)
+function playBusk(id, title) {
+  const body = agOpen(title || 'Street performance', 'Hit each note on the line: arrow keys or the buttons. The crowd tips for a good set.'), gen = AG.gen;
+  const c = agCanvas(body, 360, 260), g = c.getContext('2d'), say = agEl(body, 'p', 'font:700 16px sans-serif'), row = agEl(body, 'div', 'text-align:center');
+  const lanes = ['←', '↓', '↑', '→'], keysL = ['ArrowLeft', 'ArrowDown', 'ArrowUp', 'ArrowRight'], notes = []; let t = 0, next = 0.8, hits = 0, miss = 0, streak = 0;
+  const press = (i) => { const n = notes.find((q) => q.l === i && !q.done && Math.abs(q.y - 220) < 28); if (n) { n.done = true; hits++; streak++; sfxTone([392, 440, 523, 587][i] * (1 + Math.floor(streak / 8) * 0.5), 0.12, 0.05); } else { streak = 0; miss++; } };
+  lanes.forEach((l, i) => agBtn(row, l, () => press(i), true));
+  agLoop(gen, (dt) => {
+    t += dt; next -= dt; if (next <= 0 && t < 40) { notes.push({ l: Math.floor(rand() * 4), y: -10 }); next = Math.max(0.35, 0.9 - t * 0.012); }
+    keysL.forEach((k, i) => { if (AG.keys[k]) { AG.keys[k] = false; press(i); } });
+    for (const n of notes) { n.y += 160 * dt; if (!n.done && n.y > 250) { n.done = true; miss++; streak = 0; } }
+    g.fillStyle = '#1a1030'; g.fillRect(0, 0, 360, 260); g.fillStyle = '#f6c445'; g.fillRect(0, 218, 360, 4);
+    for (const n of notes) if (!n.done) { g.fillStyle = ['#ff6f4f', '#33d17a', '#2a7de2', '#e85a9a'][n.l]; g.beginPath(); g.arc(45 + n.l * 90, n.y, 16, 0, TAU); g.fill(); g.fillStyle = '#fff'; g.font = '700 16px sans-serif'; g.textAlign = 'center'; g.fillText(lanes[n.l], 45 + n.l * 90, n.y + 6); }
+    say.textContent = `Hits ${hits} · misses ${miss} · streak ${streak}`;
+    if (t > 43) { const acc = hits / Math.max(1, hits + miss), tips = Math.round(acc * 80); agResult(id, { complete: true, win: acc > 0.7, score: Math.round(acc * 100), money: tips, msg: `${Math.round(acc * 100)}% of notes · the crowd tipped $${tips}` }); return false; }
+  });
+}
+// ---------------------------------------------------------------- the festival: three stalls, then the prize
+async function playFestival(id) {
+  const F = festivalToday(), body = agOpen(F.name, 'Play all three stalls. Score 2 of 3 for the event prize.'), gen = AG.gen; const say = agEl(body, 'p', 'font:700 16px sans-serif'); let won = 0;
+  say.textContent = 'Stall 1: ring toss'; let rings = 0; for (let k = 0; k < 3; k++) { if (!agAlive(gen)) return; if ((await agBar(body, `Ring ${k + 1}/3`, 1.5, 0.12)) >= 0) rings++; } if (rings >= 2) won++;
+  say.textContent = `Ring toss ${rings}/3 · Stall 2: test your reflexes`; let quick = 0; for (let k = 0; k < 3; k++) { if (!agAlive(gen)) return; if (await agReact(body, `Bell ${k + 1}/3`, 0.45)) quick++; } if (quick >= 2) won++;
+  say.textContent = `Reflexes ${quick}/3 · Stall 3: the strongman bell`; if (!agAlive(gen)) return; const v = await agBar(body, 'SWING!', 1.8, 0.1); if (v > 0.4) won++;
+  if (!agAlive(gen)) return; const prize = won >= 2; if (prize) { player.look.cap = F.cap; rebuildPlayer(); }
+  agResult(id, { complete: true, win: prize, score: won, money: prize ? 80 : 0, msg: prize ? `You won ${won}/3 — here’s the ${F.name} cap!` : `${won}/3 — no prize this time` });
+}
+// ---------------------------------------------------------------- camping: pitch the tent, keep the fire going, sleep under the stars
+async function playCamping(id) {
+  const body = agOpen('Camping', 'Peg the tent down, get a fire going and keep it alive, then sleep.'), gen = AG.gen; const say = agEl(body, 'p', 'font:700 16px sans-serif'); let good = 0;
+  for (let k = 0; k < 4; k++) { if (!agAlive(gen)) return; say.textContent = `Tent peg ${k + 1}/4`; if ((await agBar(body, 'Hammer it in', 1.2, 0.2)) >= 0) good++; }
+  if (!agAlive(gen)) return; say.textContent = 'The campfire: tap ADD WOOD when it burns low (keep it out of the red) for 15 seconds.';
+  const meter = agEl(body, 'div', 'height:16px;background:#2b3238;border-radius:8px;overflow:hidden'), flame = agEl(meter, 'div', 'height:16px;width:60%;background:#ff9a3c'); let fire = 0.6, t = 0, out = false;
+  const add = () => { fire = Math.min(1.2, fire + 0.25); }; const b = agBtn(body, '🪵 ADD WOOD (Space)', add, true);
+  await new Promise((r) => agLoop(gen, (dt) => { t += dt; if (AG.keys.Space) { AG.keys.Space = false; add(); } fire -= dt * (0.12 + t * 0.006); if (fire > 1.05) fire -= dt * 0.4; flame.style.width = Math.min(100, fire * 100) + '%'; flame.style.background = fire < 0.25 || fire > 1.05 ? '#d6302a' : '#ff9a3c'; if (fire <= 0) { out = true; r(); return false; } if (t > 15) { r(); return false; } }));
+  b.remove(); if (!agAlive(gen)) return;
+  if (!out) { gameHour = 7; player.health = 100; ECON.home = ECON.home || null; }
+  agResult(id, { complete: !out, win: !out, score: good, money: 0, msg: out ? 'The fire went out — a cold night. Try again?' : `A good night under the stars (${good}/4 pegs solid). Fully rested, it’s morning.` });
+}
+// ---------------------------------------------------------------- Sea World rides: hold on through the twists (quick prompts)
+const RIDES = [['Storm Coaster', 6], ['Jet Rescue', 7], ['Vikings Revenge Flume Ride', 5], ['Leviathan', 8], ['Sea Viper', 7]];
+async function playRide(id) {
+  const body = agOpen('Sea World rides', 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
+  const R = await new Promise((r) => { const row = agEl(body, 'div'); for (const q of RIDES) agBtn(row, `🎢 ${q[0]}${(actData().coll.rides || []).includes(q[0]) ? ' ✅' : ''}`, () => { row.remove(); r(q); }); });
+  const say = agEl(body, 'p', 'font:700 18px sans-serif'), arrow = agEl(body, 'p', 'font:700 48px sans-serif;text-align:center'), row = agEl(body, 'div', 'text-align:center'); let thrill = 0, got = '';
+  const map = [['←', 'ArrowLeft'], ['↑', 'ArrowUp'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']]; map.forEach(([a]) => agBtn(row, a, () => { got = a; }, true));
+  for (let k = 0; k < R[1]; k++) {
+    if (!agAlive(gen)) return; const [want] = pick(map); got = ''; arrow.textContent = want; say.textContent = `${R[0]} · twist ${k + 1}/${R[1]}`; let t = 0;
+    const ok = await new Promise((r) => agLoop(gen, (dt) => { t += dt; for (const [a, kk] of map) if (AG.keys[kk]) { AG.keys[kk] = false; got = a; } if (got) { r(got === want ? Math.max(0, 1 - t) : 0); return false; } if (t > 1.3) { r(0); return false; } }));
+    thrill += Math.round(ok * 100); sfxNoise(0.2, 400 + ok * 800, 0.3);
+  }
+  arrow.textContent = ''; if (!agAlive(gen)) return; const badge = collect('rides', R[0], R[0] + ' badge');
+  agResult(id, { complete: true, score: thrill, money: 0, msg: `${R[0]}: thrill score ${thrill}${badge ? ' · new ride badge!' : ''} (${collCount('rides')}/${RIDES.length} rides)` });
+}
+// ---------------------------------------------------------------- the cinema: a ticket and a (made-up) short film
+const FILMS = [
+  { name: 'Seagull Heist', scenes: ['🏖️ Surfers Paradise, noon.', '🐦 Gary the seagull has a plan.', '🍟 The target: a large chips, unattended.', '😱 A beach umbrella topples!', '🐦🐦🐦 The whole flock swoops.', '🍟➡️🐦 Success. Gary is a legend.', 'THE END'] },
+  { name: 'Wave of a Lifetime', scenes: ['🌊 Burleigh Heads, 5 a.m.', '🏄 Mia paddles out alone.', '⛈️ A storm swell rolls in.', '🌊🌊🌊 The set of the decade.', '🏄‍♀️ She drops in…', '🏆 …and makes it. The crowd goes wild.', 'THE END'] },
+  { name: 'Lost at Pacific Fair', scenes: ['🛒 One quick errand.', '🗺️ Wrong exit.', '🍦 A detour for ice cream.', '🚗 Which car park level was it?!', '⏳ Three hours later…', '🚗✨ Found it. Level 2. Always level 2.', 'THE END'] },
+];
+async function playCinema(id) {
+  const body = agOpen('Event Cinemas', 'Pick a film ($18). Popcorn not included.'), gen = AG.gen;
+  const F = await new Promise((r) => { const row = agEl(body, 'div'); for (const f of FILMS) agBtn(row, `🎬 ${f.name}`, () => { if (!pay(18, 'a ticket')) return; row.remove(); r(f); }); });
+  const screen = agEl(body, 'div', 'background:#000;color:#fff;font:700 24px sans-serif;text-align:center;padding:50px 10px;border-radius:8px;min-height:80px'); agBtn(body, 'Skip ⏭', () => { skip = true; });
+  let skip = false; for (const s of F.scenes) { if (!agAlive(gen) || skip) break; screen.textContent = s; await agWait(2600); }
+  if (!agAlive(gen)) return; collect('films', F.name); player.health = Math.min(100, player.health + 15);
+  agResult(id, { complete: true, money: 0, msg: `You watched ${F.name} (${collCount('films')}/${FILMS.length} films seen) · +15 health` });
+}
+// ---------------------------------------------------------------- job tasks for the existing shift system
+function retailTask(S) { // a customer at the checkout: give the right change
+  const price = Math.round(rr(12, 95) * 100) / 100, paid = [20, 50, 100].find((n) => n > price) || 100, change = Math.round((paid - price) * 100) / 100;
+  const opts = [change, Math.round((change + pick([1, 5, -1, 10])) * 100) / 100, Math.round((change + pick([0.5, -0.5, 2])) * 100) / 100].filter((v, i, a) => v > 0 && a.indexOf(v) === i).sort(() => rand() - 0.5);
+  econPanel(`${S.shop.name} — retail`, `Customer ${S.done + 1}/5 buys $${price.toFixed(2)} of clothes and hands you $${paid}. Their change?`, opts.map((v) => [`$${v.toFixed(2)}`, 'Give', true, () => { S.done++; if (v === change) { S.good++; S.earned += jobRate('retail'); player.money += jobRate('retail'); } else toast(`It was $${change.toFixed(2)}`); nextTask(); }]));
+}
+const GUESTS = ['Nguyen', 'Smith', 'Patel', 'O’Brien', 'Kowalski', 'Tanaka', 'Garcia', 'Wilson'];
+function receptionTask(S) { // check a guest in to the right room
+  const book = GUESTS.slice().sort(() => rand() - 0.5).slice(0, 4).map((n, i) => [n, 100 + Math.floor(rand() * 20) * 10 + i]), guest = pick(book);
+  econPanel(`${S.shop.name} — reception`, `Guest ${S.done + 1}/5: “Hi, I’m ${guest[0]}, checking in.” Bookings: ${book.map((b) => `${b[0]} → room ${b[1]}`).join(' · ')}`,
+    book.map((b) => [`Key for room ${b[1]}`, 'Hand over', true, () => { S.done++; if (b === guest) { S.good++; S.earned += jobRate('reception'); player.money += jobRate('reception'); } else toast(`That’s ${b[0]}’s room!`); nextTask(); }]));
+}
+const FAULTS = [['Squeals when braking', 'Brake pads'], ['Won’t start, clicks', 'Battery'], ['Overheats in traffic', 'Radiator fan'], ['Pulls to the left', 'Wheel alignment'], ['Check-engine light, rough idle', 'Spark plugs'], ['Flat and won’t hold air', 'Tyre']];
+async function mechanicTask(S) {
+  const f = pick(FAULTS), body = agOpen(`${S.shop.name} — mechanic`, `Job ${S.done + 1}/4: “${f[0]}.” What needs fixing?`), gen = AG.gen;
+  const ans = await new Promise((r) => { const row = agEl(body, 'div'); FAULTS.map((q) => q[1]).sort(() => rand() - 0.5).forEach((p) => agBtn(row, p, () => { row.remove(); r(p); })); });
+  if (!agAlive(gen)) return; let ok = ans === f[1];
+  if (ok) { const v = await agBar(body, 'Torque it up (green)', 1.2, 0.2); if (!agAlive(gen)) return; ok = v >= 0; if (!ok) toast('Stripped a bolt — redo'); } else toast(`It was the ${f[1].toLowerCase()}`);
+  S.done++; if (ok) { S.good++; S.earned += jobRate('mechanic'); player.money += jobRate('mechanic'); } nextTask();
+}
+const GROCER_AISLES = { 'Fruit & veg': ['Bananas', 'Avocados', 'Lettuce'], Dairy: ['Milk', 'Cheese', 'Yoghurt'], Bakery: ['Bread', 'Croissants'], Frozen: ['Ice cream', 'Frozen peas'], Drinks: ['Soft drink', 'Juice', 'Water'] };
+function grocerTask(S) { // restock, or point a customer to the right aisle
+  const aisle = pick(Object.keys(GROCER_AISLES)), item = pick(GROCER_AISLES[aisle]), ask = S.done % 2;
+  econPanel(`${S.shop.name} — supermarket`, `${S.done + 1}/8: ${ask ? `A customer asks, “Where’s the ${item.toLowerCase()}?”` : `A trolley of ${item.toLowerCase()} to put away.`}`,
+    Object.keys(GROCER_AISLES).map((a) => [`Aisle: ${a}`, ask ? 'Point there' : 'Stock here', true, () => { S.done++; if (a === aisle) { S.good++; S.earned += jobRate('grocer'); player.money += jobRate('grocer'); } else toast(`That’s in ${aisle}`); nextTask(); }]));
+}
+
+// ============================================================================
+// Gold Coast Streets — activities out in the world: checkpoint courses (running, cycling, swimming, kayaking,
+// paddleboarding, jet-ski racing, boat tours, hikes, go-karts), the camera (landmarks, wildlife and birds), hidden
+// things to find (beach treasure, geocaches, scavenger hunts), the jobs done out on the streets (taxi, tour guide,
+// lifeguard, photographer), and the list of every activity with its real place.
+// ============================================================================
+// ---------------------------------------------------------------- the checkpoint ring
+let COURSE_RING = null;
+function courseRing() {
+  if (COURSE_RING) return COURSE_RING;
+  const m = new THREE.Mesh(new THREE.TorusGeometry(3.2, 0.3, 8, 28), new THREE.MeshBasicMaterial({ color: col('#f6c445'), transparent: true, opacity: 0.85, toneMapped: false }));
+  const beam = new THREE.Mesh(new THREE.CylinderGeometry(0.15, 0.15, 40, 6).translate(0, 20, 0), new THREE.MeshBasicMaterial({ color: col('#f6c445'), transparent: true, opacity: 0.35, toneMapped: false }));
+  const g = new THREE.Group(); g.add(m, beam); g.visible = false; scene.add(g); return (COURSE_RING = g);
+}
+const isWater = (x, z) => !isLand(x, z);
+function clearWater(ax, az, bx, bz) { const L = Math.hypot(bx - ax, bz - az); for (let s = 0; s <= L; s += 6) { const t = s / L; if (isLand(ax + (bx - ax) * t, az + (bz - az) * t)) return false; } return true; }
+function nearWater(x, z, maxR = 300) { // the nearest open water to a point (boats start and stop there)
+  for (let r = 0; r <= maxR; r += 10) for (let k = 0; k < 24; k++) { const a = k / 24 * TAU, px = x + Math.cos(a) * r, pz = z + Math.sin(a) * r; if (isWater(px, pz) && isWater(px + 8, pz) && isWater(px - 8, pz) && isWater(px, pz + 8) && isWater(px, pz - 8)) return [px, pz]; }
+  return null;
+}
+function waterPath(start, n, step) { // a paddle route that keeps to open water
+  const pts = [start]; let h = null;
+  for (let k = 0; k < n; k++) {
+    const [x, z] = pts[pts.length - 1]; let best = null, bs = -1;
+    for (let q = 0; q < 24; q++) {
+      const a = q / 24 * TAU; if (h !== null && Math.abs(angDiff(a, h)) > 1.8) continue;
+      const bx = x + Math.sin(a) * step, bz = z + Math.cos(a) * step; if (!clearWater(x, z, bx, bz)) continue;
+      const far = Math.min(...pts.map((p) => Math.hypot(p[0] - bx, p[1] - bz))); if (far > bs) { bs = far; best = [bx, bz, a]; }
+    }
+    if (!best) break; pts.push([best[0], best[1]]); h = best[2];
+  }
+  return pts.slice(1);
+}
+function shorePath(x, z, n, step, off) { // along the beach: off < 0 is up on the sand/promenade, > 0 out in the surf
+  const pts = []; let S = nearestShore(x, z); if (!S) return pts; let tx = S.tx, tz = S.tz, cx = S.px, cz = S.pz;
+  for (let k = 0; k < n; k++) {
+    cx += tx * step; cz += tz * step; const S2 = nearestShore(cx, cz); if (!S2) break;
+    if (S2.tx * tx + S2.tz * tz < 0) { tx = -S2.tx; tz = -S2.tz; } else { tx = S2.tx; tz = S2.tz; }
+    cx = S2.px; cz = S2.pz; pts.push([cx + S2.nx * off, cz + S2.nz * off]);
+  }
+  return pts;
+}
+function roadPath(x, z, len) { // a ride along the streets
+  const ne = nearestEdge(x, z); if (ne.e < 0 || !EDGES[ne.e]) return [];
+  let e = ne.e, dir = 1, s = ne.s, run = 0; const pts = [], P = {};
+  for (let guard = 0; guard < 80 && run < len; guard++) {
+    const E = EDGES[e]; if (!E) break;
+    while (s < E.len && run < len) { s += 30; run += 30; if (Math.floor(run / 350) > pts.length - 1 || !pts.length) { edgePoint(E, dir, Math.min(s, E.len), P); pts.push([P.x, P.z]); } }
+    const nx = chooseNext(e, dir); if (!nx) break; e = nx.e; dir = nx.dir; s = 0;
+  }
+  return pts.slice(1);
+}
+const loopPts = (cx, cz, r, n) => Array.from({ length: n }, (_, k) => [cx + Math.cos(k / n * TAU) * r, cz + Math.sin(k / n * TAU) * r]);
+// ---------------------------------------------------------------- running a course
+const MODE_OK = {
+  foot: () => player.state === 'foot', bike: () => player.state === 'car' && player.car && player.car.spec.bike, boat: (C) => player.state === 'boat' && (!C.boat || player.boat === C.boat),
+  car: (C) => player.state === 'car' && (!C.car || player.car === C.car), any: () => true,
+};
+const MODE_HINT = { foot: 'on foot', bike: 'on a bike', boat: 'in your boat', car: 'in your kart', any: '' };
+function startCourse(cur, o) {
+  if (!o.pts || o.pts.length < 2) { actFail(cur.id, 'No route from here — try again in a moment'); return; }
+  cur.C = Object.assign({ i: 0, lap: 1, laps: 1, t: 0, off: 0, r: 9, wob: 0, lapT: 0, laps_: [] }, o);
+  const C = cur.C;
+  if (o.boatType) { const [sx, sz] = o.start || o.pts[0], h = Math.atan2(o.pts[0][0] - sx, o.pts[0][1] - sz); C.boat = new Boat(o.boatType, sx, sz, h); C.boat.story = true; player.x = sx; player.z = sz; boardBoat(C.boat); }
+  if (o.carType) { const P = o.start ? { x: o.start[0], z: o.start[1], h: Math.atan2(o.pts[0][0] - o.start[0], o.pts[0][1] - o.start[1]) } : curbNear(player.x, player.z); C.car = new Car(o.carType, o.color || null, P.x, P.z, P.h); C.car.kind = 'abandoned'; C.car.story = true; cars.push(C.car); player.x = P.x + 2; player.z = P.z; startEnter(C.car); }
+  courseRing().visible = true; goal(`${ACT_BY[cur.id].name}: checkpoint 1`, C.pts[0][0], C.pts[0][1]);
+  toast(o.intro || `${ACT_BY[cur.id].name}: go through each ring${MODE_HINT[o.mode] ? ' ' + MODE_HINT[o.mode] : ''}!`); sfxTone([440, 440, 880], 0.4, 0.07);
+}
+function courseTick(cur, dt) {
+  const C = cur.C; if (!C) return; const a = ACT_BY[cur.id];
+  C.t += dt; C.lapT += dt;
+  const ok = MODE_OK[C.mode](C); C.off = ok ? 0 : C.off + dt;
+  if (C.off > 10) return endCourse(cur, false, `You need to stay ${MODE_HINT[C.mode]} — ${a.name} over`);
+  if (C.sup && player.boat) { // paddleboard balance: hard turns at speed wobble you off
+    C.wob = Math.max(0, C.wob + (Math.abs(player.boat.steer) * Math.abs(player.boat.v) * 0.09 - 0.25) * dt);
+    if (C.wob > 1) { C.wob = 0; player.boat.v = 0; C.t += 5; toast('Splash! You fell in (+5 s) — gentler turns'); sfxNoise(0.4, 700, 0.4); }
+  }
+  const [px, pz] = C.pts[C.i], R = courseRing(), gy = C.water ? WATER_Y + 0.4 : standAt(px, pz);
+  R.position.set(px, gy + 3.2, pz); R.rotation.y = elapsed;
+  $('jobhud').hidden = false; $('jobhud').textContent = `${a.icon} ${a.name} · ${C.laps > 1 ? `lap ${C.lap}/${C.laps} · ` : ''}checkpoint ${C.i + 1}/${C.pts.length} · ${fmtTime(C.t)}${C.sup ? ` · balance ${'▮'.repeat(Math.round((1 - C.wob) * 5))}` : ''}${ok ? '' : ` · get back ${MODE_HINT[C.mode]}!`}`;
+  if (Math.hypot(px - player.x, pz - player.z) < C.r && ok) {
+    C.i++; sfxTone([660 + C.i * 30], 0.08, 0.05); if (C.narrate && C.narrate[C.i - 1]) toast(C.narrate[C.i - 1]);
+    if (C.i >= C.pts.length) {
+      if (C.lap < C.laps) { C.laps_.push(C.lapT); C.lapT = 0; C.lap++; C.i = 0; toast(`Lap ${C.lap}/${C.laps}`); }
+      else { if (C.laps > 1) C.laps_.push(C.lapT); return endCourse(cur, true); }
+    }
+    goal(`${a.name}: checkpoint ${C.i + 1}`, C.pts[C.i][0], C.pts[C.i][1]);
+  }
+}
+function endCourse(cur, won, msg) {
+  const C = cur.C, a = ACT_BY[cur.id]; courseRing().visible = false; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true;
+  if (C.boat) { const b = C.boat; if (player.boat === b) leaveBoat(); b.story = false; b.remove(); }
+  if (C.car) { const c = C.car; if (player.car === c) bailOut(); c.story = false; c.remove(); }
+  if (!won) return actFail(cur.id, msg);
+  stat('courses'); const t = Math.round(C.t * 10) / 10, par = C.par || 1e9, fast = t <= par;
+  let extra = ''; if (C.rivals) { const lap = Math.min(...C.laps_), beat = C.rivals.filter((r) => lap < r).length; extra = ` · best lap ${fmtTime(lap)}, beat ${beat}/${C.rivals.length} rivals`; if (beat === C.rivals.length) stat('sportWins'); }
+  actComplete(cur.id, { score: t, money: fast ? C.reward : Math.round(C.reward / 2), msg: `${a.name}: ${fmtTime(t)}${fast ? '' : ` (par ${fmtTime(par)} for the full reward)`}${extra}` });
+}
+function courseQuit(cur) { if (cur.C) { const C = cur.C; courseRing().visible = false; if (C.boat) { if (player.boat === C.boat) leaveBoat(); C.boat.remove(); } if (C.car) { if (player.car === C.car) bailOut(); C.car.remove(); } } }
+// ---------------------------------------------------------------- the camera: landmarks, wildlife and birds
+const LANDMARKS = [
+  ['Q1', /^Skypoint Observ/i, 606, 753], ['The Soul octopus', /^Soul$/i, 727, 290], ['Surfers Paradise Surf Life Saving Club', /^Surfers Paradise Surf Life/i, 742, 403], ['Kurrawa Surf Club', /^Kurrawa Surf Club/i, 1115, 3340],
+  ['The Star', /^The Star Event Centre/i, 498, 3640], ['Pacific Fair', /^Pacific Fair$/i, 440, 4067], ['Sea World', /^Sea World$/i, 50, -4294], ['Marina Mirage', /^Marina Mirage/i, 129, -3489],
+  ['Burleigh Heads', /^Burleigh Head National Park/i, 3361, 10507], ['Currumbin Wildlife Sanctuary', /^Currumbin Wildlife Sanctuary/i, 6159, 15188], ['Purling Brook Falls lookout', /^Purling Brook Falls Lookout/i, -14996, 21040], ['Gold Coast Airport', /^Gold Coast Airport$/i, 11000, 20000],
+];
+const landmarkAt = (L) => venue(L[0], L[1], L[2], L[3]);
+const WILDLIFE = [
+  { id: 'dragon', name: 'Eastern water dragon', hab: 'shore', col: ['#6b7a3a', '#3f4a22'], size: 0.5 }, { id: 'turkey', name: 'Australian brush-turkey', hab: 'park', col: ['#1d1d1d', '#d6302a'], size: 0.6 },
+  { id: 'koala', name: 'Koala', hab: 'sanctuary', col: ['#9a9a96', '#5a5a58'], size: 0.6, tree: true }, { id: 'roo', name: 'Eastern grey kangaroo', hab: 'golf', col: ['#8a7a68', '#5a4a3c'], size: 1.3 },
+  { id: 'dolphin', name: 'Bottlenose dolphin', hab: 'water', col: ['#6f7f8c', '#4a5660'], size: 1.2, swim: true }, { id: 'whale', name: 'Humpback whale', hab: 'ocean', col: ['#2f3a44', '#d8d8d8'], size: 5, swim: true, rare: 0.3 },
+  { id: 'possum', name: 'Common brushtail possum', hab: 'night', col: ['#5a5a58', '#2a2a2a'], size: 0.45 },
+  { id: 'pelican', name: 'Australian pelican', bird: true, hab: 'water', col: ['#f4f4f2', '#1d1d1d'], size: 0.8, swim: true }, { id: 'ibis', name: 'Australian white ibis', bird: true, hab: 'park', col: ['#e8e8e4', '#111111'], size: 0.6 },
+  { id: 'lorikeet', name: 'Rainbow lorikeet', bird: true, hab: 'park', col: ['#2fae3a', '#2a5de2'], size: 0.25, perch: true }, { id: 'kookaburra', name: 'Laughing kookaburra', bird: true, hab: 'park', col: ['#c8b48a', '#6b4a2b'], size: 0.35, perch: true },
+  { id: 'gull', name: 'Silver gull', bird: true, hab: 'beach', col: ['#f4f4f2', '#9aa0a6'], size: 0.35 }, { id: 'cockatoo', name: 'Sulphur-crested cockatoo', bird: true, hab: 'park', col: ['#f8f8f4', '#f2d230'], size: 0.4, perch: true },
+  { id: 'lapwing', name: 'Masked lapwing', bird: true, hab: 'park', col: ['#e8e2d0', '#f2d230'], size: 0.35 }, { id: 'osprey', name: 'Eastern osprey', bird: true, hab: 'water', col: ['#5a4a3c', '#f4f4f2'], size: 0.6, fly: true, rare: 0.4 },
+];
+const ANIMALS = [];
+function habitatOk(W, x, z) {
+  const land = isLand(x, z);
+  switch (W.hab) {
+    case 'water': return !land && nearWater(x, z, 0) !== null;
+    case 'ocean': return !land && [400, 900].every((d) => !isLand(x - 0, z) && !isLand(x + d * 0.3, z));
+    case 'shore': return land && [8, 16].some((d) => !isLand(x + d, z) || !isLand(x - d, z) || !isLand(x, z + d) || !isLand(x, z - d));
+    case 'beach': return land && onBeachSand(x, z);
+    case 'park': return land && !resolveCircle(x, z, 1) && !onBeachSand(x, z);
+    case 'sanctuary': { const V = venue('Currumbin Wildlife Sanctuary', /^Currumbin Wildlife Sanctuary/i, 6159, 15188); return land && Math.hypot(V.x - x, V.z - z) < 350; }
+    case 'golf': return land && REGION.search.some((q) => /golf (club|course)/i.test(q[0]) && Math.hypot(q[2] - x, q[3] - z) < 450);
+    case 'night': return land && nightLevel > 0.5 && !resolveCircle(x, z, 1);
+  }
+  return false;
+}
+function makeAnimal(W) {
+  const s = W.size, g = new THREE.Group(), body = new THREE.Mesh(new THREE.BoxGeometry(s * (W.swim ? 0.5 : 0.6), s * 0.5, s * (W.swim ? 1.6 : 1)), new THREE.MeshStandardMaterial({ color: col(W.col[0]), roughness: 0.8 }));
+  const head = new THREE.Mesh(new THREE.BoxGeometry(s * 0.35, s * 0.35, s * 0.4), new THREE.MeshStandardMaterial({ color: col(W.col[1]), roughness: 0.8 }));
+  body.position.y = s * 0.35; head.position.set(0, s * 0.6, s * 0.55); body.castShadow = true; g.add(body, head); scene.add(g); return g;
+}
+let animalT = 0;
+function updateWildlife(dt) {
+  for (const A of ANIMALS.slice()) { const d = Math.hypot(A.x - player.x, A.z - player.z); if (d > 230) { scene.remove(A.g); A.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); ANIMALS.splice(ANIMALS.indexOf(A), 1); continue; }
+    A.t += dt; const W = A.W; let y = W.swim ? WATER_Y + Math.sin(A.t * 1.5) * 0.25 : W.perch ? standAt(A.x, A.z) + 3.2 : W.fly ? standAt(A.x, A.z) + 18 : standAt(A.x, A.z);
+    if (W.fly) { A.x += Math.cos(A.t * 0.4) * dt * 6; A.z += Math.sin(A.t * 0.4) * dt * 6; }
+    if (d < 6 && !W.swim && !W.perch) { A.x += (A.x - player.x) / d * dt * 4; A.z += (A.z - player.z) / d * dt * 4; } // it shies away
+    A.g.position.set(A.x, y, A.z); A.g.rotation.y = A.h + (W.fly ? A.t * 0.4 : Math.sin(A.t) * 0.2);
+  }
+  animalT -= dt; if (animalT > 0 || !REGION) return; animalT = 2;
+  if (ANIMALS.length >= 7) return;
+  const a = rand() * TAU, r = 25 + rand() * 120, x = player.x + Math.cos(a) * r, z = player.z + Math.sin(a) * r;
+  const opts = WILDLIFE.filter((W) => (!W.rare || rand() < W.rare) && habitatOk(W, x, z)); if (!opts.length) return;
+  const W = pick(opts); ANIMALS.push({ W, x, z, h: rand() * TAU, t: rand() * 10, g: makeAnimal(W) });
+}
+function cameraDir() { const v = new THREE.Vector3(); camera.getWorldDirection(v); return v; }
+function inShot(x, y, z, maxD, deg) { // in front of the lens, near enough, and not behind a wall
+  const v = cameraDir(), dx = x - camera.position.x, dy = y - camera.position.y, dz = z - camera.position.z, d = Math.hypot(dx, dy, dz);
+  if (d > maxD || d < 1) return false; const cos = (dx * v.x + dy * v.y + dz * v.z) / d; return cos > Math.cos(deg * Math.PI / 180);
+}
+function snapPhoto() {
+  stat('photos'); sfxNoise(0.08, 4000, 0.3); const fl = document.createElement('div'); fl.style.cssText = 'position:fixed;inset:0;background:#fff;z-index:99;pointer-events:none;transition:opacity .4s'; document.body.appendChild(fl); setTimeout(() => { fl.style.opacity = 0; setTimeout(() => fl.remove(), 450); }, 40);
+  const got = [];
+  for (const L of LANDMARKS) { const P = landmarkAt(L); if (inShot(P.x, standAt(P.x, P.z) + 20, P.z, 700, 14)) { got.push(L[0]); if (collect('photos', L[0], L[0])) actHook('photo', { msg: `Landmark photographed: ${L[0]} (${collCount('photos')}/${LANDMARKS.length})`, money: 30 }); photoJobCheck(L[0]); } }
+  for (const A of ANIMALS) { if (!inShot(A.x, A.g.position.y + A.W.size * 0.4, A.z, A.W.size > 3 ? 160 : 45, 16)) continue; got.push(A.W.name); const set = A.W.bird ? 'birds' : 'wildlife';
+    if (collect(set, A.W.id, A.W.name)) actHook(A.W.bird ? 'birds' : 'wildlife', { msg: `${A.W.bird ? 'Bird' : 'Wildlife'} photographed: ${A.W.name} (${collCount(set)}/${WILDLIFE.filter((w) => !!w.bird === !!A.W.bird).length})`, money: A.W.rare ? 120 : 40 }); }
+  toast(got.length ? `📸 ${got.join(', ')}` : '📸 Nice shot — nothing on your checklists in frame');
+}
+function cameraMode() { closePhone(); document.body.classList.add('photo'); if (hasGear('prophone')) camera.fov = 35; toast('📷 Aim, then Space (or click) to take a photo · P or Esc to put the camera away'); }
+// ---------------------------------------------------------------- things to find: beach treasure, geocaches, scavenger hunts
+const BEACHES = [['Surfers Paradise Beach', 848, 306], ['Kurrawa Beach', 1180, 3340], ['Mermaid Beach', 1512, 5105], ['Miami Beach', 2048, 7432], ['Burleigh Beach', 2729, 9435], ['The Spit Beach', 583, -5040]];
+const TREASURE = ['Old coin', 'Message in a bottle', 'Lost gold ring', 'Pirate doubloon (replica)', 'Sand dollar', 'Vintage sunnies', 'Shark tooth', 'Ship’s bell (tiny)'];
+function treasureSpots(B) { // three spots on the sand, new each day
+  const S = nearestShore(B[1], B[2]); if (!S) return []; const seed = Math.floor(Date.now() / 86400000) * 31 + B[1]; const out = [];
+  for (let k = 0; out.length < 3 && k < 40; k++) { const r1 = ((seed * (k + 3) * 9301 + 49297) % 233280) / 233280, r2 = ((seed * (k + 7) * 4871 + 13) % 233280) / 233280; const along = (r1 - 0.5) * 320, inl = 12 + r2 * 30; const x = S.px + S.tx * along - S.nx * inl, z = S.pz + S.tz * along - S.nz * inl; if (isLand(x, z)) out.push([x, z]); }
+  return out;
+}
+function detector(cur, targets, label) { // hot / cold beeps towards the nearest one
+  const d = Math.min(...targets.map((p) => Math.hypot(p[0] - player.x, p[1] - player.z)));
+  cur.beepT = (cur.beepT || 0) - 1 / 60; if (cur.beepT <= 0) { cur.beepT = clamp(d / 25, 0.12, 2); sfxTone([d < 4 ? 1600 : d < 15 ? 1100 : 700], 0.04, 0.03, 'square'); }
+  return `${label} · ${d < 4 ? '🔥 right here — press E to dig' : d < 15 ? 'very warm' : d < 40 ? 'warm' : d < 90 ? 'cool' : 'cold'}`;
+}
+const CACHES = () => { // twelve caches in real parks, the same for everyone
+  if (CACHES.list) return CACHES.list;
+  const parks = REGION.search.filter((q) => q[1] === 2 && /park|gardens|reserve/i.test(q[0]) && !/national|conservation|habitat|car park/i.test(q[0]));
+  const out = []; for (let k = 0; out.length < 12 && k < parks.length; k++) { const p = parks[(k * 7919) % parks.length]; if (out.some((o) => o.name === p[0])) continue; const a = (k * 2.39996) % TAU, r = 12 + (k * 13) % 30; out.push({ id: 'gc' + k, name: p[0], x: p[2] + Math.cos(a) * r, z: p[3] + Math.sin(a) * r, cx: p[2], cz: p[3], dir: ['north', 'north-east', 'east', 'south-east', 'south', 'south-west', 'west', 'north-west'][Math.round(((Math.atan2(Math.cos(a), -Math.sin(a)) / TAU + 1) % 1) * 8) % 8] }); }
+  return (CACHES.list = out);
+};
+const HUNTS = [
+  { name: 'Surfers icons', clues: [['The tallest tower on the coast — go to its foot', 'Q1'], ['Where Surfers’ red-and-yellow lifesavers keep watch', 'Surfers Paradise Surf Life Saving Club'], ['Broadbeach’s surf club, by the big park', 'Kurrawa Surf Club'], ['Lights, cards and a big hotel by the river', 'The Star']] },
+  { name: 'Broadwater', clues: [['Yachts and shops at the top of Main Beach', 'Marina Mirage'], ['Dolphins, rides and the Spit', 'Sea World'], ['Southport’s big shopping centre', 'Australia Fair'], ['The oldest yacht club on the Broadwater', 'Southport Yacht Club']] },
+  { name: 'Burleigh', clues: [['The headland’s cultural centre, by the creek', 'Jellurgal'], ['A lookout named for the headland’s old name', 'Tumgun Lookout'], ['The point break everyone photographs', 'Burleigh Beach'], ['Courts by the creek where the club plays', 'Burleigh Heads Tennis Club']] },
+];
+const HUNT_PLACES = { Q1: [/^Skypoint Observ/i, 606, 753], 'Surfers Paradise Surf Life Saving Club': [/^Surfers Paradise Surf Life/i, 742, 403], 'Kurrawa Surf Club': [/^Kurrawa Surf Club/i, 1115, 3340], 'The Star': [/^The Star Event Centre/i, 498, 3640], 'Marina Mirage': [/^Marina Mirage/i, 129, -3489], 'Sea World': [/^Sea World$/i, 50, -4294], 'Australia Fair': [/^Australia Fair Shopping Centre/i, -735, -3470], 'Southport Yacht Club': [/^Southport Yacht Club/i, 285, -2925], Jellurgal: [/^Jellurgal/i, 3114, 10735], 'Tumgun Lookout': [/^Tumgun Lookout/i, 3515, 10226], 'Burleigh Beach': [/^Burleigh Beach$/i, 2729, 9435], 'Burleigh Heads Tennis Club': [/^Burleigh Heads Tennis Club/i, 1949, 10978] };
+const huntPlace = (n) => venue(n, HUNT_PLACES[n][0], HUNT_PLACES[n][1], HUNT_PLACES[n][2]);
+function actUseKey() { // E for an activity: dig for treasure, log a cache, or start the one you're standing at
+  const cur = ACT_CUR;
+  if (cur && cur.dig && player.state === 'foot') { const i = cur.dig.findIndex((p) => Math.hypot(p[0] - player.x, p[1] - player.z) < 4); if (i >= 0) { cur.dig.splice(i, 1); const item = pick(TREASURE), cash = Math.round(rr(20, 150)); player.money += cash; collect('treasure', item, item); toast(`⛏️ Found: ${item}! +$${cash}`); sfxTone([523, 784], 0.2, 0.05); if (!cur.dig.length) actComplete(cur.id, { money: 50, msg: `All the treasure on ${cur.beach} found` }); return true; } }
+  if (cur && cur.cache && player.state === 'foot' && Math.hypot(cur.cache.x - player.x, cur.cache.z - player.z) < 4) { const c = cur.cache; collect('caches', c.id, `Cache in ${c.name}`); WAYPOINT = null; clearGPS(); actComplete(cur.id, { money: 60, msg: `Geocache logged in ${c.name} (${collCount('caches')}/12)` }); return true; }
+  return actUse();
+}
+// ---------------------------------------------------------------- jobs out on the streets (they use the existing shift system: ECON.shift, jobRate, endShift)
+const WORLD_JOBS = ['taxi', 'guide', 'lifeguard', 'photographer'];
+let paxModel = null;
+function dropPax() { if (paxModel) { disposePerson(paxModel); paxModel = null; } }
+function startWorldJob(k, V) {
+  ECON.shift = { job: k, shop: V || { name: JOBS[k].name }, done: 0, good: 0, earned: 0, phase: 'new' }; jobState(k).hired = true;
+  toast(`${JOBS[k].name}: shift started — ${JOBS[k].desc}`); worldJobNext();
+}
+function worldJobNext() {
+  const S = ECON.shift; if (!S) return; const k = S.job, n = { taxi: 3, guide: 3, lifeguard: 3, photographer: 3 }[k];
+  if (S.done >= n) return endShift(`Shift over: ${S.good}/${n} done well.`);
+  dropPax(); S.t = 0;
+  if (k === 'taxi') { const a = rand() * TAU, s = sidewalkNear(player.x + Math.cos(a) * rr(250, 600), player.z + Math.sin(a) * rr(250, 600)); S.pax = { x: s.x, z: s.z }; S.phase = 'pickup'; paxModel = makePerson({}); scene.add(paxModel.root); paxModel.root.position.set(s.x, standAt(s.x, s.z), s.z); paxModel.armR.rotation.x = -2.6; goal('Taxi passenger', s.x, s.z); }
+  if (k === 'guide') { const L = LANDMARKS.map(landmarkAt).filter((P) => Math.hypot(P.x - player.x, P.z - player.z) < 4000 && Math.hypot(P.x - player.x, P.z - player.z) > 200); const P = L.length ? pick(L) : landmarkAt(LANDMARKS[0]); S.dest = P; S.limit = Math.round(Math.hypot(P.x - player.x, P.z - player.z) / 9 + 60); goal('Tour stop: ' + P.name, P.x, P.z); toast(`Take the tour group to ${P.name} (${S.limit}s)`); }
+  if (k === 'lifeguard') { const Sh = nearestShore(player.x, player.z); const off = rr(40, 80), al = rr(-80, 80); S.victim = { x: Sh.px + Sh.tx * al + Sh.nx * off, z: Sh.pz + Sh.tz * al + Sh.nz * off }; S.phase = 'swim'; S.limit = 75; paxModel = makePerson({ shirt: '#d6302a' }); scene.add(paxModel.root); paxModel.armL.rotation.x = paxModel.armR.rotation.x = -2.8; goal('Swimmer in trouble!', S.victim.x, S.victim.z); toast('🚨 A swimmer is in trouble — get out there!'); sfxTone([880, 660, 880, 660], 0.6, 0.06, 'square'); }
+  if (k === 'photographer') { const L = LANDMARKS.filter((q) => { const P = landmarkAt(q); return Math.hypot(P.x - player.x, P.z - player.z) < 5000; }); const q = L.length ? pick(L) : LANDMARKS[0]; S.want = q[0]; const P = landmarkAt(q); goal('Photo: ' + q[0], P.x, P.z); toast(`Commission: a photo of ${q[0]} (phone → Camera, aim, Space)`); }
+}
+function photoJobCheck(name) { const S = ECON.shift; if (S && S.job === 'photographer' && S.want === name) { S.done++; S.good++; S.earned += jobRate('photographer'); player.money += jobRate('photographer'); toast(`Commission done: ${name} · +$${jobRate('photographer')}`); worldJobNext(); } }
+function updateWorldJobs(dt) {
+  const S = ECON.shift; if (!S || !WORLD_JOBS.includes(S.job)) return; S.t += dt; const hud = $('jobhud'); hud.hidden = false;
+  if (S.job === 'taxi') {
+    const inCar = player.state === 'car' && player.car && !player.car.spec.bike, slow = inCar && player.car.speed < 2;
+    if (S.phase === 'pickup') { const d = Math.hypot(S.pax.x - player.x, S.pax.z - player.z); hud.textContent = `🚕 Fare ${S.done + 1}/3 · pick up the passenger ${Math.round(d)} m${inCar ? '' : ' · you need a car'}`; if (d < 10 && slow) { dropPax(); const e = pick(REGION.search.filter((q) => q[1] === 0 && Math.hypot(q[2] - player.x, q[3] - player.z) > 800 && Math.hypot(q[2] - player.x, q[3] - player.z) < 2500)); S.dest = { x: e[2], z: e[3], name: e[0] }; S.dist = Math.hypot(e[2] - player.x, e[3] - player.z); S.phase = 'drop'; S.t = 0; goal('Drop-off: ' + e[0], e[2], e[3]); toast(`“${e[0]}, please.”`); } }
+    else { const d = Math.hypot(S.dest.x - player.x, S.dest.z - player.z); hud.textContent = `🚕 To ${S.dest.name} · ${Math.round(d)} m · meter $${Math.round(4 + S.t * 0.3 + (S.dist - d) / 1000 * 2.2)}`; if (d < 20 && slow) { const fare = Math.round(4 + S.dist / 1000 * 2.2 * 6 + jobRate('taxi')), tip = S.t < S.dist / 12 ? 8 : 0; S.done++; S.good += tip ? 1 : 0; S.earned += fare + tip; player.money += fare + tip; toast(`Fare paid $${fare}${tip ? ` + $${tip} tip for a quick trip` : ''}`); worldJobNext(); } }
+  } else if (S.job === 'guide') {
+    const d = Math.hypot(S.dest.x - player.x, S.dest.z - player.z), left = S.limit - S.t; hud.textContent = `🧭 Tour stop ${S.done + 1}/3: ${S.dest.name} · ${Math.round(d)} m · ${Math.max(0, Math.ceil(left))}s`;
+    if (d < 45) { S.done++; const onTime = left > 0; if (onTime) S.good++; const pay = onTime ? jobRate('guide') : Math.round(jobRate('guide') / 3); S.earned += pay; player.money += pay; toast(onTime ? `The group loved ${S.dest.name}! +$${pay}` : `Late, but they got their photos. +$${pay}`); worldJobNext(); }
+  } else if (S.job === 'lifeguard') {
+    if (paxModel && S.phase === 'swim') { paxModel.root.position.set(S.victim.x, WATER_Y - 0.9 + Math.sin(S.t * 4) * 0.15, S.victim.z); }
+    const left = S.limit - S.t;
+    if (S.phase === 'swim') { const d = Math.hypot(S.victim.x - player.x, S.victim.z - player.z); hud.textContent = `🛟 Rescue ${S.done + 1}/3 · swimmer ${Math.round(d)} m out · ${Math.max(0, Math.ceil(left))}s`; if (d < 5) { S.phase = 'shore'; dropPax(); toast('Got them! Bring them back to the sand'); goal('The beach', player.x - (S.victim.x - player.x), player.z - (S.victim.z - player.z)); } else if (left <= 0) { S.done++; toast('Another lifeguard got there first — be quicker'); worldJobNext(); } }
+    else { hud.textContent = `🛟 Bring the swimmer to shore`; if (isLand(player.x, player.z)) { S.done++; S.good++; S.earned += jobRate('lifeguard'); player.money += jobRate('lifeguard'); stat('rescues'); toast(`Rescue complete! +$${jobRate('lifeguard')}`); worldJobNext(); } }
+  } else if (S.job === 'photographer') hud.textContent = `📸 Commission ${S.done + 1}/3: photograph ${S.want} (phone → Camera)`;
+}
+// ---------------------------------------------------------------- special events
+const FESTIVALS = [
+  { name: 'Surfers Beachfront Night Markets', at: ['Surfers Paradise beachfront', /^Surfers Paradise Surf Life/i, 742, 403], cap: '#e85a9a' },
+  { name: 'Broadwater Lantern Festival', at: ['Broadwater Parklands', /^Broadwater Parklands/i, -460, -3800], cap: '#f2c230' },
+  { name: 'Kurrawa Beach Sports Carnival', at: ['Kurrawa Park', /^Kurrawa Park/i, 1080, 3420], cap: '#2a7de2' },
+  { name: 'Burleigh Food & Music Weekend', at: ['Justins Park', /^Justins Park/i, 2806, 9743], cap: '#33d17a' },
+];
+function festivalToday() { const F = FESTIVALS[Math.floor(Date.now() / 86400000) % FESTIVALS.length]; return Object.assign({ w: venue(F.at[0], F.at[1], F.at[2], F.at[3]) }, F); }
+// a busker on Cavill Mall
+let busker = null;
+function updateBusker() {
+  const V = venue('Cavill Mall', /^Cavill Mall$/i, 727, 305), d = Math.hypot(V.x - player.x, V.z - player.z);
+  if (d < 140 && !busker) { busker = makePerson({ shirt: '#5a3d8a', hairStyle: 'long', beard: true }); scene.add(busker.root); busker.root.position.set(V.x + 6, standAt(V.x + 6, V.z), V.z); }
+  else if (d > 180 && busker) { disposePerson(busker); busker = null; }
+  if (busker) { busker.armR.rotation.x = -1 + Math.sin(elapsed * 9) * 0.3; busker.armL.rotation.x = -0.8; }
+}
+// ---------------------------------------------------------------- hooks from existing systems (they count whether or not you started them from the phone)
+function actHook(id, r) { if (ACT_BY[id]) actComplete(id, r || {}); }
+const JOB_ACT = { delivery: 'job_delivery', barista: 'job_barista', retail: 'job_retail', grocer: 'job_grocer', taxi: 'job_taxi', guide: 'job_guide', reception: 'job_reception', mechanic: 'job_mechanic', lifeguard: 'job_lifeguard', photographer: 'job_photographer' };
+function jobGo(k) { // the Activities/Jobs "start": walk-in jobs at the nearest workplace, world jobs where you are (or at the venue)
+  const J = JOBS[k];
+  if (ECON.shift) { toast('You’re already on a shift'); return; }
+  if (J.needs && J.needs()) { toast(J.needs()); return; }
+  if (WORLD_JOBS.includes(k) || J.venue) {
+    if (J.venue) { const V = jobVenue(k); if (Math.hypot(V.x - player.x, V.z - player.z) > 60) { directions(V.name, V.x, V.z); toast(`Head to ${V.name} to start your shift`); return; } if (k === 'mechanic') { ECON.shift = { job: k, shop: V, done: 0, good: 0, earned: 0 }; jobState(k).hired = true; closePhone(); return nextTask(); } closePhone(); return startWorldJob(k, V); }
+    closePhone(); return startWorldJob(k, null);
+  }
+  const at = jobWorkplace(k); if (!at) { toast('No workplace nearby — try somewhere busier'); return; }
+  if (Math.hypot(at.x - player.x, at.z - player.z) > 25) { directions(at.name, at.x, at.z); toast(`Walk in to ${at.name} and press E at the counter to start`); return; }
+  closePhone(); jobState(k).hired = true; startShift(k, at);
+}
+function jobVenue(k) { const J = JOBS[k]; const c = REGION.search.filter((q) => J.venue.test(q[0])).sort((a, b) => Math.hypot(a[2] - player.x, a[3] - player.z) - Math.hypot(b[2] - player.x, b[3] - player.z))[0]; return c ? { name: c[0], x: c[2], z: c[3] } : { name: J.name, x: player.x, z: player.z }; }
+function jobWorkplace(k) { const J = JOBS[k]; return nearest(SHOPS.filter((q) => (J.at.includes(q.kind) || (J.style && shopStyle(q) === J.style)) && (k !== 'stocker' || shopStyle(q) !== 'supermarket'))); }
+// ---------------------------------------------------------------- every activity, with its real place
+(function defineActivities() {
+  const V = (n, re, x, z) => () => venue(n, re, x, z);
+  const timeFmt = (v) => fmtTime(v), course = { tick: courseTick, quit: courseQuit, unit: 's', low: true, fmt: timeFmt };
+  // A · beach and water
+  defAct({ id: 'surf', name: 'Surf contest', icon: '🏄', cat: 'water', diff: 2, at: V('Surfers Paradise Beach', /^Surfers Paradise Beach$/i, 848, 306), desc: 'Hire a board and ride 3 waves; your total is judged against 1,500 points. Every ride you take anywhere counts toward your surfing.', reward: '$150 for a winning total', unit: 'pts', fmt: (v) => v + ' pts', stat: 'contests',
+    start: (cur) => { cur.waves = []; toast('Surf contest: hire a board (E on the sand), paddle out and ride 3 waves'); surfUse(); }, tick: (cur) => { $('jobhud').hidden = !!SURF.on; if (!SURF.on) $('jobhud').textContent = `🏄 Surf contest · waves ${cur.waves.length}/3 · hire a board: E on the sand`; } });
+  defAct({ id: 'fishing', name: 'Fishing', icon: '🎣', cat: 'water', diff: 1, anywhere: true, where: 'any beach, the Broadwater, rivers and canals', needs: 'a fishing rod ($60 at a servo)', desc: 'Cast from the water’s edge and land a fish. Different fish on the surf beaches and in the Broadwater; rare catches fill your collection; the fish market pays by weight. Your water level makes the strike window longer.', reward: 'the market price', unit: 'kg', fmt: (v) => v.toFixed(2) + ' kg', progress: () => `${collCount('fish')} species caught`,
+    req: () => (player.items.rod > 0 ? null : 'You need a fishing rod — servos and convenience stores sell them ($60)'), start: (cur) => { ACT_CUR = null; toast('Face the water at the edge and press E to cast'); } });
+  defAct(Object.assign({ id: 'kayak', name: 'Kayak the Nerang River', icon: '🛶', cat: 'water', diff: 2, at: V('Isle of Capri boat ramp', /^Isle of Capri Public Boat Ramp/i, 177, 1099), desc: 'Paddle a marked course along the river from the Isle of Capri boat ramp. Beat par for the full reward.', reward: '$70 (par 3:30)',
+    start: (cur) => { const w = actWhere(ACT_BY.kayak), s = nearWater(w.x, w.z, 200); startCourse(cur, { mode: 'boat', water: true, boatType: 'kayak', start: s, pts: s ? waterPath(s, 6, 110) : [], par: 210, reward: 70 }); } }, course));
+  defAct(Object.assign({ id: 'sup', name: 'Paddleboard Tallebudgera Creek', icon: '🏄‍♂️', cat: 'water', diff: 2, at: V('Tallebudgera Creek', /^Tallebudgera Creek Park/i, 3404, 10952), desc: 'Stand-up paddleboard a marked route on the creek. Turn too hard at speed and you’ll fall in (+5 s).', reward: '$60 (par 3:00)',
+    start: (cur) => { const w = actWhere(ACT_BY.sup), s = nearWater(w.x, w.z, 250); startCourse(cur, { mode: 'boat', water: true, sup: true, boatType: 'sup', start: s, pts: s ? waterPath(s, 4, 80) : [], par: 180, reward: 60 }); } }, course));
+  defAct({ id: 'volley', name: 'Beach volleyball', icon: '🏐', cat: 'water', diff: 2, at: V('Surfers Paradise beach courts', /^Surfers Paradise Surf Life/i, 742, 403), note: 'on the sand by the surf club', desc: 'A match to 7 against a local pair on the sand.', reward: '$60 a win', unit: 'pts', start: () => playVolleyball('volley') });
+  defAct(Object.assign({ id: 'swim', name: 'Ocean swim', icon: '🏊', cat: 'water', diff: 2, at: V('Surfers Paradise Beach', /^Surfers Paradise Beach$/i, 848, 306), desc: 'Swim the buoys just past the break, parallel to the beach.', reward: '$50 (par 2:30)',
+    start: (cur) => { const w = actWhere(ACT_BY.swim); startCourse(cur, { mode: 'foot', water: true, pts: shorePath(w.x, w.z, 4, 55, 32), par: 150, reward: 50, r: 7 }); } }, course));
+  defAct(Object.assign({ id: 'jetrace', name: 'Jet-ski race', icon: '🚤', cat: 'water', diff: 3, at: V('Southport Yacht Club Marina', /^Southport Yacht Club Marina/i, 285, -2925), desc: 'Three laps of a buoy course on the Broadwater. Your best lap goes in your records.', reward: '$120 (par 2:40)',
+    start: (cur) => { const w = actWhere(ACT_BY.jetrace), c = openWater(w.x, w.z, 150, 700, 600); const s = c && nearWater(c.x - 120, c.z, 120); startCourse(cur, { mode: 'boat', water: true, boatType: 'jetski', start: s || (c && [c.x, c.z]), pts: c ? loopPts(c.x, c.z, 110, 5) : [], laps: 3, par: 160, reward: 120, r: 12 }); } }, course));
+  defAct(Object.assign({ id: 'boattour', name: 'Broadwater boat tour', icon: '⛴️', cat: 'water', diff: 1, at: V('Marina Mirage', /^Marina Mirage/i, 129, -3489), desc: 'Skipper a speedboat past Sea World and up the Broadwater, with a guide’s commentary at each stop.', reward: '$80',
+    start: (cur) => { const stops = [[50, -4294], [430, -5100], [-300, -3900], [77, -3225]].map(([x, z]) => nearWater(x, z, 400)).filter(Boolean); const s = nearWater(129, -3489, 300);
+      startCourse(cur, { mode: 'boat', water: true, boatType: 'speedboat', start: s, pts: stops, reward: 80, r: 25, narrate: ['🐬 Sea World — the dolphins are showing off today.', '🏖️ The Spit: surfers to the east, calm water to the west.', '🌳 Broadwater Parklands and Southport’s skyline.', '⛵ Mariners Cove — home stretch!'] }); } }, course, { unit: null }));
+  defAct({ id: 'treasure', name: 'Beach treasure hunt', icon: '🪙', cat: 'water', diff: 1, at: () => { const B = BEACHES.slice().sort((a, b) => Math.hypot(a[1] - player.x, a[2] - player.z) - Math.hypot(b[1] - player.x, b[2] - player.z))[0]; return { name: B[0], x: B[1], z: B[2] }; }, desc: 'Three things buried on the nearest beach (new every day). Follow the detector — warmer, warmer — and press E to dig.', reward: '$20–150 each + $50', progress: () => `${collCount('treasure')} treasures found`,
+    start: (cur) => { const w = actWhere(ACT_BY.treasure), B = BEACHES.find((b) => b[0] === w.name); cur.dig = treasureSpots(B); cur.beach = B[0]; if (!cur.dig.length) actFail(cur.id, 'Nothing to find here today'); else toast(`Metal detector on: three things are buried along ${B[0]}`); },
+    tick: (cur) => { if (cur.dig && cur.dig.length) { $('jobhud').hidden = false; $('jobhud').textContent = '🪙 ' + detector(cur, cur.dig, `${3 - cur.dig.length}/3 found`); } } });
+  defAct({ id: 'sandcastle', name: 'Sandcastle competition', icon: '🏰', cat: 'water', diff: 1, at: V('Mermaid Beach', /^Mermaid Beach Beach$/i, 1512, 5105), desc: 'Build against the tide: design, pack, carve, dig the moat and decorate for the judges.', reward: 'up to $120', unit: 'pts', start: () => playSandcastle('sandcastle') });
+  // B · sports and fitness
+  defAct({ id: 'soccer', name: 'Soccer', icon: '⚽', cat: 'sport', diff: 2, at: V('Pizzey Park', /^Pizzey Park$/i, 420, 7250), desc: 'Penalty shootouts, free kicks over the wall, or a three-round tournament.', reward: '$70 a win, $300 for the tournament', unit: 'goals', start: () => playSoccer('soccer'), progress: () => `${actData().stats.goals || 0} goals scored` });
+  defAct({ id: 'basketball', name: 'Basketball', icon: '🏀', cat: 'sport', diff: 2, at: V('Miami basketball courts', /^Basketball Courts$/i, 1450, 7063), desc: 'A 45-second shooting challenge, or 1 on 1 to 11.', reward: '$3 a point (16+), $90 a 1-on-1 win', unit: 'pts', start: () => playBasketball('basketball') });
+  defAct({ id: 'skate', name: 'Skateboarding', icon: '🛹', cat: 'sport', diff: 2, at: V('Pizzey skatepark', /^Pizzey skatepark/i, 500, 7146), desc: 'A 60-second session: land trick combos for points and multipliers.', reward: 'up to $150', unit: 'pts', fmt: (v) => v.toLocaleString() + ' pts', start: () => playSkate('skate') });
+  defAct(Object.assign({ id: 'run', name: 'Beachfront run', icon: '🏃', cat: 'sport', diff: 1, at: V('Surfers Paradise beachfront', /^Surfers Paradise Surf Life/i, 742, 403), desc: 'Run the promenade south along the beach from Surfers. Sprint (Shift) to beat par.', reward: '$60 (par 4:00)',
+    start: (cur) => { const w = actWhere(ACT_BY.run); startCourse(cur, { mode: 'foot', pts: shorePath(w.x, w.z, 6, 280, -55).filter(([x, z]) => isLand(x, z)), par: 240, reward: 60, r: 10 }); } }, course));
+  defAct(Object.assign({ id: 'cycle', name: 'Road cycling time trial', icon: '🚴', cat: 'sport', diff: 2, at: V('Broadbeach', /^Kurrawa Park/i, 1080, 3420), desc: 'A 4 km time trial on the streets from Broadbeach — a bike is waiting for you.', reward: '$80 (par 6:00)',
+    start: (cur) => { startCourse(cur, { mode: 'bike', carType: 'ebike', color: '#2a7de2', pts: roadPath(player.x, player.z, 4000), par: 360, reward: 80, r: 12 }); } }, course));
+  defAct(Object.assign({ id: 'mtb', name: 'Mountain bike Nerang State Forest', icon: '🚵', cat: 'sport', diff: 3, at: V('Nerang State Forest', /^Nerang State Forest Walk/i, -13063, -3277), desc: 'Ride the forest checkpoints out in the hinterland. Rough ground, steep bits.', reward: '$120 (par 5:00)',
+    start: (cur) => { const a = actWhere(ACT_BY.mtb), e = REGION.search.filter((q) => /^Nerang State Forest Walk/i.test(q[0]))[1] || { 2: a.x - 900, 3: a.z + 800 }; const pts = []; for (let k = 1; k <= 6; k++) { const t = k / 6, x = a.x + (e[2] - a.x) * t + Math.sin(k * 2.1) * 90, z = a.z + (e[3] - a.z) * t + Math.cos(k * 1.7) * 90; pts.push([x, z]); } startCourse(cur, { mode: 'bike', carType: 'ebike', color: '#33d17a', pts, par: 300, reward: 120, r: 14 }); } }, course));
+  defAct({ id: 'tennis', name: 'Tennis', icon: '🎾', cat: 'sport', diff: 2, at: V('Tennis Central Miami', /^Tennis Central Miami/i, 1648, 7237), desc: 'A set against a club player: time your swings and outlast them in the rallies.', reward: '$110 a set', unit: 'games', start: () => playTennis('tennis') });
+  defAct({ id: 'golf', name: 'Golf', icon: '⛳', cat: 'sport', diff: 2, at: V('Gold Coast Burleigh Golf Club', /^Gold Coast Burleigh Golf Club/i, 593, 7535), desc: 'The driving range (club face, power, wind) and three putts on the practice green.', reward: 'up to ~$100', unit: 'pts', start: () => playGolf('golf') });
+  defAct({ id: 'gym', name: 'Gym training', icon: '🏋️', cat: 'sport', diff: 1, at: V('World Gym Burleigh', /^World Gym$/i, 1542, 11116), desc: 'A timed lifting set that builds your fitness (sprint speed). Uses the gym system you already know.', reward: 'fitness (+1 per session)', progress: () => `fitness ${ECON.fitness}/10`,
+    start: () => { ACT_CUR = null; openGym({ name: actWhere(ACT_BY.gym).name, kind: 'gym' }); } }); // the gym's own menu: day pass, workout, shakes
+  defAct({ id: 'boxing', name: 'Boxing fitness', icon: '🥊', cat: 'sport', diff: 1, at: V('World Gym Burleigh', /^World Gym$/i, 1542, 11116), range: 70, desc: 'Pad work: hit the lit pad fast for 30 seconds. Big sessions can lift your fitness.', reward: 'fitness', unit: 'pts', start: () => playBoxing('boxing') });
+  // C · adventure and exploration
+  defAct(Object.assign({ id: 'hike', name: 'Burleigh Heads headland walk', icon: '🥾', cat: 'explore', diff: 1, at: V('Jellurgal Cultural Centre', /^Jellurgal/i, 3114, 10735), desc: 'Walk the national park headland: from Jellurgal past the lookouts.', reward: '$50',
+    start: (cur) => { const P = ['Burleigh Head National Park', 'Tumgun Lookout', 'Jebbribillum Lookout'].map((n) => { const e = REGION.search.find((q) => q[0].startsWith(n)); return e ? [e[2], e[3]] : null; }).filter(Boolean); startCourse(cur, { mode: 'foot', pts: P, reward: 50, r: 25, narrate: ['🌿 Into the national park.', '🌊 Tumgun Lookout — whales pass here in winter.', '🏄 Jebbribillum Lookout over the point break.'] }); } }, course, { unit: null }));
+  defAct({ id: 'wildlife', name: 'Wildlife photography', icon: '🦘', cat: 'explore', diff: 2, at: V('Currumbin Wildlife Sanctuary', /^Currumbin Wildlife Sanctuary/i, 6159, 15188), desc: 'Photograph animals in the wild: water dragons by the water, brush-turkeys in parks, kangaroos on golf courses, dolphins and (rarely) whales, koalas at the sanctuary, possums at night.', reward: '$40 a new species, $120 rare', progress: () => `${collCount('wildlife')}/${WILDLIFE.filter((w) => !w.bird).length} species`, start: () => { ACT_CUR = null; cameraMode(); } });
+  defAct({ id: 'photo', name: 'Landmark photography', icon: '📸', cat: 'explore', diff: 1, anywhere: true, where: 'famous places all over the coast', desc: 'Photograph the Gold Coast’s landmarks: Q1, the Soul octopus, the surf clubs, The Star, Sea World, Burleigh Heads, Purling Brook Falls and more. Get them in frame and take the shot.', reward: '$30 a new landmark', progress: () => `${collCount('photos')}/${LANDMARKS.length} landmarks`, start: () => { ACT_CUR = null; cameraMode(); } });
+  defAct({ id: 'camping', name: 'Camping', icon: '⛺', cat: 'explore', diff: 1, at: V('Tallebudgera Creek Tourist Park', /^Kiosk - Tallebudgera Creek Tourist Park/i, 3497, 11106), desc: 'Pitch a tent, keep the campfire going, and sleep till morning (full health).', reward: 'a night’s rest', start: () => playCamping('camping') });
+  defAct({ id: 'hunt', name: 'Scavenger hunt', icon: '🧩', cat: 'explore', diff: 2, anywhere: true, where: 'three themed hunts around the coast', desc: 'Solve the clues in order — no GPS, just the riddle (a hint costs 60 seconds).', reward: '$150 a hunt', unit: 's', low: true, fmt: timeFmt, progress: () => `${(actData().coll.hunts || []).length}/3 hunts done`,
+    start: (cur) => { const done = actData().coll.hunts || [], H = HUNTS.find((h) => !done.includes(h.name)) || pick(HUNTS); cur.hunt = H; cur.k = 0; toast(`🧩 ${H.name}: ${H.clues[0][0]}`); },
+    tick: (cur) => { const H = cur.hunt, [clue, place] = H.clues[cur.k], P = huntPlace(place); $('jobhud').hidden = false; $('jobhud').textContent = `🧩 ${H.name} ${cur.k + 1}/4: ${clue}${cur.hint ? ` (${place})` : ' · phone: hint'}`;
+      if (Math.hypot(P.x - player.x, P.z - player.z) < 45) { cur.k++; cur.hint = false; WAYPOINT = null; clearGPS(); sfxTone([660, 880], 0.15, 0.05); if (cur.k >= 4) { collect('hunts', H.name); actComplete(cur.id, { score: Math.round(cur.t), money: 150, msg: `${H.name} hunt solved in ${fmtTime(cur.t)}` }); } else toast(`✔ ${place}! Next: ${H.clues[cur.k][0]}`); } } });
+  defAct({ id: 'geocache', name: 'Geocaching', icon: '📦', cat: 'explore', diff: 1, anywhere: true, where: 'twelve real parks', desc: 'Your GPS gets you to the park; the clue and the hot/cold reading get you to the cache. E to sign the logbook.', reward: '$60 a cache', progress: () => `${collCount('caches')}/12 found`,
+    start: (cur) => { const have = actData().coll.caches || [], C = CACHES().filter((c) => !have.includes(c.id)).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z))[0]; if (!C) return actFail(cur.id, 'You’ve found every cache!'); cur.cache = C; goal(C.name, C.cx, C.cz); toast(`📦 Cache: in ${C.name}, on the ${C.dir} side — look near the trees`); },
+    tick: (cur) => { if (cur.cache) { $('jobhud').hidden = false; $('jobhud').textContent = `📦 ${cur.cache.name} (${cur.cache.dir} side) · ` + detector(cur, [[cur.cache.x, cur.cache.z]], 'cache').replace('dig', 'log it'); } } });
+  defAct({ id: 'sightsee', name: 'Sightseeing tour', icon: '🗺️', cat: 'explore', diff: 1, anywhere: true, where: 'three sights near you', desc: 'The landmark tour from your phone: visit three sights within 10 minutes.', reward: '$600', start: () => { ACT_CUR = null; startTour(); } });
+  defAct(Object.assign({ id: 'waterfall', name: 'Springbrook falls lookouts', icon: '💧', cat: 'explore', diff: 2, at: V('Purling Brook Falls lookout', /^Purling Brook Falls Lookout/i, -14996, 21040), desc: 'Up in the hinterland at Springbrook: visit the lookouts over the falls and gorges (any way you like). The lookouts are real; the waterfalls themselves aren’t drawn yet.', reward: '$90',
+    start: (cur) => { const w = actWhere(ACT_BY.waterfall), L = REGION.search.filter((q) => q[1] === 10 && /lookout/i.test(q[0]) && Math.hypot(q[2] - w.x, q[3] - w.z) < 6000).slice(0, 4).map((q) => [q[2], q[3]]); startCourse(cur, { mode: 'any', pts: L.length >= 2 ? L : [[w.x, w.z], [w.x + 300, w.z]], reward: 90, r: 30 }); } }, course, { unit: null }));
+  defAct({ id: 'birds', name: 'Birdwatching', icon: '🦜', cat: 'explore', diff: 1, at: V('Broadwater Parklands', /^Broadwater Parklands/i, -460, -3800), desc: 'Photograph the coast’s birds: pelicans on the water, ibis and lapwings in parks, lorikeets, kookaburras and cockatoos up in the trees, gulls on the beach — and the odd osprey overhead.', reward: '$40 a new species', progress: () => `${collCount('birds')}/${WILDLIFE.filter((w) => w.bird).length} species`, start: () => { ACT_CUR = null; cameraMode(); } });
+  defAct({ id: 'bikeexplore', name: 'Cycling exploration', icon: '🚲', cat: 'explore', diff: 1, anywhere: true, where: 'suburbs you haven’t been to', desc: 'Ride a bike into 3 suburbs you’ve never visited.', reward: '$90', progress: () => `${(actData().found || []).length} places discovered`,
+    start: (cur) => { cur.base = actData().stats.bikePlaces || 0; toast('Grab a bike (or e-bike) and ride somewhere new'); },
+    tick: (cur) => { const n = (actData().stats.bikePlaces || 0) - cur.base; $('jobhud').hidden = false; $('jobhud').textContent = `🚲 New suburbs by bike ${n}/3`; if (n >= 3) actComplete(cur.id, { money: 90, msg: 'Three new suburbs explored by bike' }); } });
+  // D · entertainment
+  defAct(Object.assign({ id: 'karts', name: 'Go-karting at Slideways', icon: '🏎️', cat: 'fun', diff: 2, at: V('Slideways Go Karting', /^Slideways Go Karting/i, -8147, -180), desc: 'Three laps against the clock — beat the lap times of the three regulars. (The kart is a small race car for now.)', reward: '$80 (par 1:30)',
+    start: (cur) => { if (!pay(25, 'a kart session')) return actFail(cur.id, 'Karts are $25'); const w = actWhere(ACT_BY.karts), c = curbNear(w.x, w.z) || { x: w.x, z: w.z }; const pts = loopPts(c.x, c.z, 40, 6).filter(([x, z]) => isLand(x, z)); startCourse(cur, { mode: 'car', carType: 'coupe', color: '#ff6f00', start: [c.x, c.z], pts, laps: 3, par: 90, reward: 80, r: 10, rivals: [24, 28, 33] }); } }, course));
+  defAct({ id: 'bowls', name: 'Lawn bowls', icon: '🎳', cat: 'fun', diff: 1, at: V('Burleigh Heads Bowls Club', /^Burleigh Heads Bowls Club/i, 2831, 10008), note: 'there’s no ten-pin alley in the map data — it’s lawn bowls at the club', desc: 'Four ends against a club member. Bowls curve with their bias: get closest to the jack.', reward: '$70 a win', start: () => playBowls('bowls') });
+  defAct({ id: 'minigolf', name: 'Mini-golf', icon: '⛳', cat: 'fun', diff: 1, at: () => { const t = SHOPS.find((s) => /^timezone/i.test(s.name)); return t ? { name: t.name, x: t.x, z: t.z } : { name: 'Timezone Surfers Paradise', x: 720, z: 300 }; }, note: 'no mini-golf venue is in the map data, so it’s set at the arcade for now', desc: 'Six holes, par 2 each: drag back and let go.', reward: '$60 on par', unit: 'strokes', low: true, start: () => playMinigolf('minigolf') });
+  defAct({ id: 'arcade', name: 'Arcade games', icon: '🕹️', cat: 'fun', diff: 1, at: () => ACT_BY.minigolf.at(), desc: 'The Timezone machines (Croc Whack, Wave Rider, Stacker): win prize tickets and swap them at the counter. Walk in and press E at the counter.', reward: 'prize tickets', start: () => { ACT_CUR = null; const t = SHOPS.find((s) => /^timezone/i.test(s.name)); if (t) openShop(t); } });
+  defAct({ id: 'cinema', name: 'Cinema', icon: '🎬', cat: 'fun', diff: 1, at: V('Event Cinemas Australia Fair', /^Event Cinemas$/i, -843, -3377), desc: 'Buy a ticket and watch one of three (made-up) short films.', reward: '+15 health, a film checklist', progress: () => `${collCount('films')}/${FILMS.length} films`, start: () => playCinema('cinema') });
+  defAct({ id: 'escape', name: 'Escape room', icon: '🔐', cat: 'fun', diff: 2, at: () => { const e = SHOPS.find((s) => s.kind === 'escape'); return e ? { name: e.name, x: e.x, z: e.z } : { name: 'Escape room, Surfers', x: 720, z: 300 }; }, desc: 'Five minutes to find the clues and get out. Walk in and press E at the counter.', reward: 'a trophy', start: () => { ACT_CUR = null; const e = SHOPS.find((s) => s.kind === 'escape'); if (e) openShop(e); } });
+  defAct({ id: 'lasertag', name: 'Laser tag', icon: '🔫', cat: 'fun', diff: 2, at: () => ACT_BY.minigolf.at(), note: 'no laser tag venue is in the map data, so it’s set at the arcade for now', desc: 'Blue team vs red: tag them as they pop out of cover before they tag you. 60 seconds.', reward: '$50 a win', unit: 'pts', start: () => playLaserTag('lasertag') });
+  defAct({ id: 'ride', name: 'Sea World rides', icon: '🎢', cat: 'fun', diff: 1, at: V('Sea World', /^Sea World$/i, 50, -4294), desc: 'Ride the Storm Coaster, Jet Rescue, the Vikings Revenge flume, Leviathan and Sea Viper — hold on through every twist. Collect all five ride badges.', reward: 'ride badges', progress: () => `${collCount('rides')}/${RIDES.length} badges`, unit: 'pts', start: () => playRide('ride') });
+  defAct({ id: 'busk', name: 'Street performance', icon: '🎸', cat: 'fun', diff: 1, at: V('Cavill Mall', /^Cavill Mall$/i, 727, 305), desc: 'Join the busker on Cavill Mall for a song: hit the notes, earn the crowd’s tips.', reward: 'tips (up to $80)', unit: '%', start: () => playBusk('busk') });
+  defAct({ id: 'festival', name: 'Festival event', icon: '🎪', cat: 'fun', diff: 1, at: () => festivalToday().w, desc: 'Today’s event (it moves around the coast each day): play the three stalls for the event cap.', reward: '$80 + the event cap', start: () => playFestival('festival') });
+  // E · jobs (the existing job system: shifts, raises, pay into your wallet)
+  const jobAct = (id, k, icon, desc) => defAct({ id, name: JOBS[k].name, icon, cat: 'job', diff: 1, anywhere: true, where: JOBS[k].where || 'see Jobs', desc: desc || JOBS[k].desc, reward: `$${JOBS[k].pay} base per task (raises every 5 shifts)`, start: () => { ACT_CUR = null; jobGo(k); }, progress: () => `${jobState(k).shifts} shifts · $${jobState(k).earned} earned` });
+  jobAct('job_delivery', 'delivery', '🛵'); jobAct('job_barista', 'barista', '☕'); jobAct('job_retail', 'retail', '👕'); jobAct('job_grocer', 'grocer', '🛒');
+  jobAct('job_taxi', 'taxi', '🚕'); jobAct('job_guide', 'guide', '🧭'); jobAct('job_reception', 'reception', '🛎️'); jobAct('job_mechanic', 'mechanic', '🔧'); jobAct('job_lifeguard', 'lifeguard', '🛟'); jobAct('job_photographer', 'photographer', '📸');
+})();
+function surfContest(pts) {
+  const cur = ACT_CUR; if (!cur || cur.id !== 'surf') return; cur.waves.push(pts); const tot = cur.waves.reduce((a, b) => a + b, 0);
+  toast(`Contest wave ${cur.waves.length}/3: ${pts} pts (total ${tot})`);
+  if (cur.waves.length >= 3) { const win = tot >= 1500; if (win) stat('sportWins'); actComplete('surf', { score: tot, money: win ? 150 : 30, msg: `Contest total ${tot} pts${win ? ' — you won!' : ' — 1,500 to win'}` }); }
+}
+// ---------------------------------------------------------------- the Jobs app (the existing job system, all in one place)
+function jobsApp(btn, head) {
+  const S = ECON.shift;
+  if (S) { head('On shift now'); btn(`${JOBS[S.job].name} · ${S.shop.name}`, `${S.done} done · $${S.earned} earned so far`, () => {}, false); btn('Finish shift', 'clock off and keep what you’ve earned', () => { endShift('You clocked off early.'); phoneApp('jobs'); }); }
+  head('Jobs around the coast');
+  for (const [k, J] of Object.entries(JOBS)) { const st = jobState(k), need = J.needs && J.needs(); btn(`${st.hired ? '✔ ' : ''}${J.name} · $${jobRate(k)}${k === 'taxi' ? ' + fares' : ' a task'}`, `${J.where || ''}${need ? ' · needs ' + need : ''} · ${st.shifts} shifts, $${st.earned} earned`, () => { PHONE.job = k; phoneApp('job'); }); }
+  const log = actData().jobLog; head(log.length ? 'Job history' : 'No shifts worked yet');
+  for (const L of log.slice(0, 8)) btn(`${JOBS[L.job] ? JOBS[L.job].name : L.job} · $${L.earned}`, `${L.good}/${L.done} done well · ${new Date(L.t).toLocaleDateString()}`, () => {}, false);
+}
+function jobApp(btn, head) {
+  const k = PHONE.job, J = JOBS[k], st = jobState(k), need = J.needs && J.needs(), rate = jobRate(k), raise = Math.min(4, Math.floor(st.shifts / 5));
+  head(J.name); btn(J.desc, `Where: ${J.where || 'see the map'}`, () => {}, false);
+  btn(`Pay: $${rate}${k === 'taxi' ? ' per fare + distance' : ' per task'}`, `raise level ${raise}/4 (a raise every 5 shifts) · ${st.shifts} shifts · $${st.earned} earned`, () => {}, false);
+  if (need) btn('Requirement', need, () => {}, false);
+  if (!st.hired) btn('📝 Apply', need ? 'you don’t meet the requirement yet' : 'you’ll hear back straight away', () => { st.hired = true; actNote(`💼 You got the job: ${J.name}!`); saveGame(); phoneApp('job'); }, !need).classList.add('go');
+  else btn(ECON.shift ? 'You’re on a shift' : '▶ Start a shift', WORLD_JOBS.includes(k) ? 'starts right where you are' : J.venue ? 'at the workplace (you’ll get directions)' : 'walk in to the nearest workplace and press E at the counter', () => jobGo(k), !ECON.shift).classList.add('go');
+  btn('← All jobs', '', () => phoneApp('jobs'));
 }
 
 // ============================================================================
@@ -5952,7 +6944,7 @@ function mgBegin() {
 }
 function mgFinish(score, reward) {
   MG.phase = 'done';
-  const r = reward || {};
+  const r = reward || {}; actHook(MG.id === 'escape' ? 'escape' : 'arcade', { score });
   if (r.tickets) player.items.tickets = (player.items.tickets || 0) + r.tickets;
   if (r.money) player.money += r.money;
   if (r.item) player.items[r.item] = (player.items[r.item] || 0) + 1;
@@ -9632,7 +10624,7 @@ function useKey() {
   if (player.state === 'boat') { leaveBoat(); return; }
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
-  if (towerUse() || houseUse() || propertyUse()) return;
+  if (towerUse() || houseUse() || propertyUse() || actUseKey()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const bt = nearestBoat(4); if (bt) return boardBoat(bt);
@@ -9974,6 +10966,7 @@ function drawBigMap() {
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
   for (const P of ECON.props) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#ff9f43'); }
   for (const P of NET.peers.values()) if (P.s) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#5ee0c8'); label(P.name, P.x, P.z - 18 / S, 13, '#5ee0c8'); }
+  if (MAPV.zoom > 2) for (const a of ACTS) { if (a.anywhere || a.cat === 'job') continue; const w = actWhere(a); if (w) { dot(w.x, w.z, 7, '#000'); dot(w.x, w.z, 5, '#f6c445'); if (MAPV.zoom > 5) label(a.icon + ' ' + a.name, w.x, w.z - 14 / S, 12, '#f6c445'); } } // activities
   if (hasGear('scanner')) for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 5, '#3b7bff'); // the scanner app
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
@@ -10163,7 +11156,7 @@ function updateHUD(dt) {
     const shop = nearShop();
     if (shop) prompt = `Press <b>F</b> to try on clothes at ${shop.name}`;
     else if (player.items.rod > 0 && fishSpot()) prompt = 'Press <b>E</b> to cast a line';
-    else { const c = nearestEnterableCar(); if (c) prompt = c.driver ? `Press <b>F</b> to carjack` : `Press <b>F</b> to get in`; }
+    else { const a = actNear(8), c = !a && nearestEnterableCar(); if (a) prompt = `Press <b>E</b> to start ${a.icon} ${a.name}`; else if (c) prompt = c.driver ? `Press <b>F</b> to carjack` : `Press <b>F</b> to get in`; }
   } else if (player.state === 'car' && player.car.speed < 0.5) prompt = 'Press <b>F</b> to get out';
   const pe = $('prompt'); if (pe.innerHTML !== prompt) pe.innerHTML = prompt; pe.style.opacity = prompt ? 1 : 0;
   drawMinimap();
@@ -10236,6 +11229,7 @@ function keyCode(e) {
 function punch() { if (player.state === 'foot' && player.punchT <= 0 && player.deadT === 0) { player.punchT = 0.32; player.punchArm = 1 - player.punchArm; } }
 canvasEl.addEventListener('contextmenu', (e) => e.preventDefault());
 canvasEl.addEventListener('mousedown', (e) => {
+  if (document.body.classList.contains('photo')) { snapPhoto(); return; } // the camera: a click takes the photo
   if (!started || paused || uiOpen) return;
   if (!mouse.locked) lockPointer();
   mouse.dragging = true;
@@ -10260,7 +11254,7 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[code] = true;
   if (!started) return;
-  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') document.body.classList.remove('photo'); return; }
+  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') { document.body.classList.remove('photo'); camera.fov = 62; } else if (code === 'Space') snapPhoto(); return; } // the camera: Space takes the photo
   if (uiOpen) {
     if (PHONE.open) { if (code === 'Escape' || code === 'KeyP') closePhone(); return; }
     if (!$('casino').hidden) { if (code === 'Escape') closeCasino(); return; }
@@ -10445,7 +11439,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

@@ -23,9 +23,16 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
+    head('Things to do'); grid = null;
+    tile('🎯', 'Activities', () => phoneApp('acts'), ACT_CUR ? '!' : '');
+    tile('💼', 'Jobs', () => phoneApp('jobs'), ECON.shift ? '!' : '');
+    tile('🏅', 'Missions', () => phoneApp('missions'), String(['daily', 'weekly'].reduce((n, k) => n + challengeRows(k).filter((r) => !r.done).length, 0) || ''));
+    tile('📊', 'Stats', () => phoneApp('stats'));
+    tile('📷', 'Camera', cameraMode);
+    tile('🔔', 'Alerts', () => phoneApp('notes'), unreadNotes() ? String(unreadNotes()) : '');
     head('Getting around'); grid = null;
     tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
     tile('🗺️', 'Map', () => { closePhone(); toggleMap(); });
@@ -38,7 +45,6 @@ function phoneApp(app) {
     tile('🏁', 'Street race', startRace);
     tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
     head('Money & life'); grid = null;
-    tile('💼', 'Jobs', () => phoneApp('jobs'));
     tile('📸', 'Tour', startTour);
     tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
     tile('🏆', 'Records', () => phoneApp('records'));
@@ -46,7 +52,6 @@ function phoneApp(app) {
     tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
     tile('📱', 'TikTak', () => phoneApp('clips'));
-    if (hasGear('prophone')) tile('📷', 'Camera', photoMode);
     const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}`; body.appendChild(foot);
   } else if (app === 'travel') {
     back();
@@ -70,13 +75,14 @@ function phoneApp(app) {
       .sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z)).slice(0, 8);
     if (!list.length) btn('Nothing nearby', 'try somewhere busier', () => {}, false);
     for (const q of list) btn(q.name, `${km(q.x, q.z)} · $150–450 in the till · 2 stars`, () => directions(q.name, q.x, q.z));
-  } else if (app === 'jobs') {
-    back(); head('Legit work: walk in and press F at the counter');
-    for (const [k, J] of Object.entries(JOBS)) {
-      const at = nearest(SHOPS.filter((q) => J.at.includes(q.kind)));
-      btn(`${J.name} · $${jobRate(k)} a task`, at ? `${at.name} · ${km(at.x, at.z)} · ${jobState(k).shifts} shifts done` : 'no workplace nearby', () => at && directions(at.name, at.x, at.z), !!at);
-    }
-  } else if (app === 'clips') { back(); showClip(); }
+  } else if (app === 'jobs') { back(); jobsApp(btn, head); }
+  else if (app === 'job') { jobApp(btn, head); }
+  else if (app === 'acts') { back(); actsApp(btn, head); }
+  else if (app === 'act') { actApp(btn, head); }
+  else if (app === 'missions') { back(); missionsApp(btn, head); }
+  else if (app === 'stats') { back(); statsApp(btn, head); }
+  else if (app === 'notes') { back(); notesApp(btn, head); }
+  else if (app === 'clips') { back(); showClip(); }
   else if (app === 'records') { back(); recordsApp(btn, head); }
   else if (app === 'board') { btn('← Records', '', () => phoneApp('records')); boardApp(btn, head); }
   else if (app === 'trials') { back(); trialsApp(btn, head); }
@@ -99,6 +105,8 @@ function activeCard(body) {
   } else if (MISSION) {
     const T = MISSION.targets[0]; title = MISSION.title; sub = `${T[0]} · ${Math.max(0, Math.ceil(MISSION.t))}s left`; where = { name: T[0], x: T[2], z: T[3] };
     quit = () => { endMission(false, 'Mission abandoned.'); phoneApp('home'); };
+  } else if (ACT_CUR) {
+    const a = ACT_BY[ACT_CUR.id]; title = `${a.icon} ${a.name}`; sub = $('jobhud').hidden ? 'in progress' : $('jobhud').textContent; where = WAYPOINT; quit = () => { quitAct(); phoneApp('home'); };
   } else if (WAYPOINT) { title = 'Destination'; sub = `${WAYPOINT.name} · ${km(WAYPOINT.x, WAYPOINT.z)}`; quit = () => { cancelDestination(); phoneApp('home'); }; }
   if (!title) return;
   const card = document.createElement('div'); card.className = 'pcard'; card.innerHTML = '<b></b><span></span><div></div>';
@@ -134,6 +142,7 @@ function foodDelivery() {
 let MISSION = null; // { kind, title, t, targets, reward }
 function endMission(won, msg) {
   if (!MISSION) return; const M = MISSION; MISSION = null; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true;
+  if (won && M.kind === 'tour') actHook('sightsee');
   if (won) { player.money += M.reward; saveGame(); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); toast(`${msg} +$${M.reward}`); } else toast(msg);
 }
 function pickPlaces(kinds, minD, maxD) { return (REGION && REGION.search ? REGION.search : []).filter((e) => kinds.includes(e[1]) && Math.hypot(e[2] - player.x, e[3] - player.z) > minD && Math.hypot(e[2] - player.x, e[3] - player.z) < maxD); }

@@ -13,6 +13,7 @@ window.runRegression = async () => {
   const step = (sec, ks = {}) => { for (const k in keys) keys[k] = false; Object.assign(keys, ks); for (let i = 0; i < Math.round(sec * 60); i++) stepWorld(1 / 60); for (const k in keys) keys[k] = false; };
   started = true; paused = true; document.getElementById('menu').hidden = true;
   const savedBefore = localStorage.getItem('gcs-save');
+  for (const k of ['daily', 'weekly']) { const C = challengeSet(k); C.done = C.list.slice(); } // challenge rewards would muddle the exact-pay checks
   const home = () => { player.state = 'foot'; player.mode = 'foot'; player.car = null; player.deadT = 0; player.health = 100; player.stars = 0; player.x = playerSpot.x; player.z = playerSpot.z; };
 
   await test('boots with the city built', () => { expect(ready, 'not ready'); expect(MAP.buildings.length > 2000, 'buildings'); expect(cars.length > 10, 'traffic'); return `${MAP.buildings.length} buildings, ${cars.length} cars`; });
@@ -699,6 +700,16 @@ window.runRegression = async () => {
     expect(MODE === 'single', 'the test page should be single player'); expect(!recordable(), 'single player can set records');
     const m0 = player.money; player.money = 4242; saveGame(); const local = JSON.parse(localStorage.getItem('gcs-save')).money; player.money = m0; saveGame();
     expect(local === 4242, 'not saved on this device'); return 'saved locally · no records offline';
+  });
+  // ---------------------------------------------------------------- V15: activities (each one is played start to finish by tests/activities_test.js)
+  await test('activities: 50 real activities in 5 categories, each with a place, a start and a phone page; progress saves', () => {
+    const cats = {}; for (const a of ACTS) cats[a.cat] = (cats[a.cat] || 0) + 1;
+    expect(ACTS.length === 50 && Object.values(cats).every((n) => n === 10), JSON.stringify(cats));
+    const noPlace = ACTS.filter((a) => !a.anywhere && a.cat !== 'job' && !actWhere(a)).map((a) => a.id); expect(!noPlace.length, 'no place: ' + noPlace);
+    expect(ACTS.every((a) => typeof a.start === 'function' && a.desc && a.reward), 'an activity is missing its start, description or reward');
+    for (const app of ['acts', 'jobs', 'missions', 'stats', 'notes']) { openPhone(); phoneApp(app); expect(document.querySelectorAll('#phone-body .papp').length > 0, app + ' app is empty'); closePhone(); }
+    const d0 = actData().done.sandcastle || 0; actComplete('sandcastle', { money: 0, score: 1 }); const saved = JSON.parse(localStorage.getItem('gcs-save')).act.done.sandcastle;
+    expect(saved === d0 + 1, 'activity progress not in the save'); return `${ACTS.length} activities · phone apps fine · progress saved`;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

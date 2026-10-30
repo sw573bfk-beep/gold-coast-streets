@@ -25,7 +25,7 @@ function mgBegin() {
 }
 function mgFinish(score, reward) {
   MG.phase = 'done';
-  const r = reward || {};
+  const r = reward || {}; actHook(MG.id === 'escape' ? 'escape' : 'arcade', { score });
   if (r.tickets) player.items.tickets = (player.items.tickets || 0) + r.tickets;
   if (r.money) player.money += r.money;
   if (r.item) player.items[r.item] = (player.items[r.item] || 0) + 1;

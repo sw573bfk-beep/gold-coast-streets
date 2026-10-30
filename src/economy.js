@@ -103,6 +103,7 @@ function startWorkout(sh, day) {
       cancelAnimationFrame(raf);
       const gain = hits >= 5 && ECON.gymDay !== day && ECON.fitness < 10;
       if (gain) { ECON.fitness++; ECON.gymDay = day; }
+      if (hits >= 5) actHook('gym');
       saveGame(); toast(hits >= 5 ? (gain ? `Set done! Fitness ${ECON.fitness}/10` : 'Set done (fitness already trained this session)') : 'Too many missed reps — try again');
       openGym(sh);
     }
@@ -122,9 +123,17 @@ function bookRoom(sh) {
 const JOBS = {
   barista: { name: 'Barista', at: ['cafe'], pay: 16, desc: 'Make each order: tap the right items, then Serve. 5 orders a shift.' },
   stocker: { name: 'Shelf stacker', at: ['convenience', 'shop'], pay: 6, desc: 'Put each delivery item in the right aisle. 8 items a shift.' },
-  delivery: { name: 'Delivery driver', at: ['food'], pay: 22, desc: 'Take 3 orders to the addresses on your map before time runs out (walk or drive).' },
+  delivery: { name: 'Delivery driver', at: ['food'], pay: 22, desc: 'Take 3 orders to the addresses on your map before time runs out (walk or drive).', where: 'any takeaway' },
+  retail: { name: 'Retail assistant', at: ['clothes'], pay: 14, desc: 'Work the checkout: give 5 customers the right change.', where: 'clothes shops' },
+  grocer: { name: 'Supermarket worker', at: [], style: 'supermarket', pay: 10, desc: 'Restock shelves and point customers to the right aisle. 8 tasks a shift.', where: 'supermarkets' },
+  reception: { name: 'Hotel receptionist', at: ['hotel'], pay: 15, desc: 'Check 5 guests in to the right rooms.', where: 'hotels' },
+  mechanic: { name: 'Mechanic', at: [], venue: /Automotive Services|Smash Repairs|Tyre and Brake/i, pay: 30, desc: 'Diagnose 4 cars and fix them (pick the fault, then torque it up).', where: 'Mudgeeraba Automotive Services / West Burleigh Smash Repairs' },
+  taxi: { name: 'Taxi driver', at: [], pay: 6, desc: 'Pick up 3 passengers and drive them where they’re going (bring any car). Paid by distance; quick trips get tips.', where: 'anywhere (you need a car)' },
+  guide: { name: 'Tour guide', at: [], pay: 35, desc: 'Lead a tour group to 3 landmarks, each against the clock.', where: 'anywhere' },
+  lifeguard: { name: 'Lifeguard', at: [], venue: /Lifeguard Centre|Surf Club|Surf Life/i, pay: 45, desc: 'Patrol from the lifeguard centre: swim out to 3 swimmers in trouble and bring them in.', where: 'Surfers Paradise and Broadbeach lifeguard centres', needs: () => (ECON.fitness >= 2 ? null : 'Fitness 2 — train at a gym first') },
+  photographer: { name: 'Photographer', at: [], pay: 40, desc: 'Three commissions: photograph the landmark each client asks for (phone → Camera).', where: 'anywhere' },
 };
-function jobFor(sh) { return Object.keys(JOBS).find((k) => JOBS[k].at.includes(sh.kind)); }
+function jobFor(sh) { if (shopStyle(sh) === 'supermarket') return 'grocer'; return Object.keys(JOBS).find((k) => JOBS[k].at.includes(sh.kind)); }
 function jobState(k) { return ECON.jobs[k] || (ECON.jobs[k] = { shifts: 0, earned: 0, ready: 0 }); }
 function jobRate(k) { return Math.round(JOBS[k].pay * (1 + Math.min(4, Math.floor(jobState(k).shifts / 5)) * 0.15)); } // a raise every 5 shifts
 function jobRowFor(sh, body) {
@@ -136,12 +145,13 @@ function jobRowFor(sh, body) {
   b.addEventListener('click', () => startShift(k, sh)); row.append(l, b); body.appendChild(row);
 }
 function startShift(k, sh) {
-  ECON.shift = { job: k, shop: sh, done: 0, good: 0, earned: 0 };
+  ECON.shift = { job: k, shop: sh, done: 0, good: 0, earned: 0 }; jobState(k).hired = true;
   if (k === 'delivery') { closeShop(); nextDelivery(); } else nextTask();
 }
 function endShift(msg) {
   const S = ECON.shift; if (!S) return; const st = jobState(S.job);
-  st.shifts++; st.earned += S.earned; st.ready = elapsed + 60; ECON.shift = null; WAYPOINT = null; $('jobhud').hidden = true; saveGame();
+  st.shifts++; st.earned += S.earned; st.ready = elapsed + 60; ECON.shift = null; WAYPOINT = null; $('jobhud').hidden = true;
+  const A = actData(); A.jobLog.unshift({ job: S.job, earned: S.earned, good: S.good, done: S.done, t: Date.now() }); A.jobLog.length = Math.min(A.jobLog.length, 15); stat('shifts'); stat('earned', S.earned); if (S.done) actHook(JOB_ACT[S.job]); dropPax(); saveGame();
   toast(`${msg} Shift paid $${S.earned}.`);
   if (!$('shop').hidden) closeShop();
 }
@@ -168,6 +178,10 @@ function nextTask() {
       nextTask();
     }]));
   }
+  else if (S.job === 'retail') { if (S.done >= 5) return endShift(`Shift over: ${S.good}/5 customers given the right change.`); retailTask(S); }
+  else if (S.job === 'reception') { if (S.done >= 5) return endShift(`Shift over: ${S.good}/5 guests in the right rooms.`); receptionTask(S); }
+  else if (S.job === 'grocer') { if (S.done >= 8) return endShift(`Shift over: ${S.good}/8 right.`); grocerTask(S); }
+  else if (S.job === 'mechanic') { if (S.done >= 4) return endShift(`Shift over: ${S.good}/4 cars fixed.`); mechanicTask(S); }
   void J;
 }
 function nextDelivery() {
@@ -204,7 +218,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -214,6 +228,7 @@ function economyLoad(s) {
   if (typeof s.aim === 'number') ECON.aim = clamp(s.aim, 0, 5);
   if (typeof s.rangeBest === 'number') ECON.rangeBest = s.rangeBest;
   storyLoad(s.story);
+  if (s.act && typeof s.act === 'object') ECON.act = s.act;
   if (s.jobs) ECON.jobs = s.jobs;
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);
