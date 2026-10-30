@@ -4,6 +4,7 @@
 // Accounts are a name and a password (stored only as a PBKDF2 hash, no email). Multiplayer progress is saved to the
 // account, and records set in public worlds go on the leaderboards.
 //   GET  /worlds                       the public worlds and how many are in each
+//   GET  /match  ·  GET /newcode            a public world with room (or a new code)  ·  a free 4-digit code
 //   GET  /ws?world=CODE&token=T&public=1&title=T   join (or start) a world over a WebSocket (needs an account)
 //   POST /signup {name, password}  ·  POST /login {name, password}  ->  { token, name }
 //   GET  /save  ·  POST /save {data, world}      your multiplayer progress
@@ -11,7 +12,7 @@
 //   GET  /leaders?board=B                        the top 20 (and where you are)
 import { DurableObject } from 'cloudflare:workers';
 
-const MAX_PLAYERS = 16;
+const SHOWN_MAX = 16, MAX_PLAYERS = 20; // public worlds fill to 16; friends with the code can still get in up to 20
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' };
 const BAD = /fuck|shit|cunt|bitch|nigg|fag|slut|whore|rape|nazi|porn|dick|cock|pussy|wank/i;
 // names and world titles: letters, numbers and spaces only, nothing rude
@@ -126,7 +127,7 @@ export default {
   async fetch(req, env) {
     const url = new URL(req.url);
     if (req.method === 'OPTIONS') return new Response(null, { headers: CORS });
-    if (url.pathname === '/worlds') return env.LOBBY.get(env.LOBBY.idFromName('lobby')).fetch('https://lobby/list');
+    if (['/worlds', '/match', '/newcode'].includes(url.pathname)) return env.LOBBY.get(env.LOBBY.idFromName('lobby')).fetch('https://lobby' + (url.pathname === '/worlds' ? '/list' : url.pathname));
     if (url.pathname === '/ws') {
       if (req.headers.get('Upgrade') !== 'websocket') return json({ error: 'expected a websocket' }, 426);
       const code = String(url.searchParams.get('world') || '').toUpperCase().replace(/[^A-Z0-9-]/g, '').slice(0, 12);
@@ -155,13 +156,14 @@ export class World extends DurableObject {
   async report(gone) { // tell the lobby how many are here (public worlds only show up in the list)
     const m = await this.loadMeta(); if (!m) return;
     const players = this.sockets().filter((ws) => ws !== gone).length; // a closing socket is still listed
-    await this.env.LOBBY.get(this.env.LOBBY.idFromName('lobby')).fetch('https://lobby/report', { method: 'POST', body: JSON.stringify({ ...m, players }) });
+    this.seq = Math.max((this.seq || 0) + 1, Date.now() * 100); // reports can arrive out of order when many leave at once: the newest wins
+    await this.env.LOBBY.get(this.env.LOBBY.idFromName('lobby')).fetch('https://lobby/report', { method: 'POST', body: JSON.stringify({ ...m, players, seq: this.seq }) });
   }
   async fetch(req) {
     const url = new URL(req.url);
     if (this.sockets().length >= MAX_PLAYERS) return json({ error: 'world full' }, 403);
     let m = await this.loadMeta();
-    if (!m) { // the first player in starts the world
+    if (!m || !this.sockets().length) { // the first player in starts the world (codes get reused once a world empties)
       m = this.meta = { code: String(url.searchParams.get('world')).toUpperCase().slice(0, 12), title: clean(url.searchParams.get('title'), 24, 'Gold Coast'), public: url.searchParams.get('public') === '1' };
       await this.ctx.storage.put('meta', m);
     }
@@ -170,7 +172,7 @@ export class World extends DurableObject {
     this.ctx.acceptWebSocket(server);
     server.serializeAttachment({ id, name, look: null, n: 0, t0: Date.now() });
     const players = this.sockets().filter((ws) => ws !== server).map((ws) => { const I = this.info(ws); return { id: I.id, name: I.name, look: I.look, s: this.last.get(I.id) || null }; });
-    this.send(server, { t: 'hello', id, name, world: m, players, max: MAX_PLAYERS });
+    this.send(server, { t: 'hello', id, name, world: m, players, max: SHOWN_MAX });
     this.broadcast({ t: 'join', id, name }, server);
     await this.report();
     return new Response(null, { status: 101, webSocket: client });
@@ -198,24 +200,34 @@ export class World extends DurableObject {
     try { ws.close(1000, 'bye'); } catch (e) { /* already closed */ }
     this.last.delete(I.id); this.broadcast({ t: 'leave', id: I.id }, ws);
     await this.report(ws);
+    if (!this.sockets().some((o) => o !== ws)) { this.meta = null; await this.ctx.storage.delete('meta'); } // empty: the code is free again
   }
 }
 
-// the list of public worlds: each world reports its player count; empty or silent ones drop off
+// every live world and its player count; the public ones are listed and filled by quick join
 export class Lobby extends DurableObject {
   async fetch(req) {
     const url = new URL(req.url);
-    const worlds = (await this.ctx.storage.get('worlds')) || {};
-    const now = Date.now();
-    if (url.pathname === '/has') { const w = worlds[url.searchParams.get('code')]; return json({ public: !!(w && w.players > 0 && now - w.t < 6 * 3600 * 1000) }); }
+    const all = (await this.ctx.storage.get('worlds')) || {};
+    const now = Date.now(), live = (w) => w.players > 0 && now - w.t < 6 * 3600 * 1000;
+    const worlds = Object.fromEntries(Object.entries(all).filter(([, w]) => live(w)));
+    const freeCode = () => { for (let k = 0; k < 200; k++) { const c = String(1000 + Math.floor(Math.random() * 9000)); if (!worlds[c]) return c; } return String(Date.now() % 9000 + 1000); };
+    if (url.pathname === '/has') { const w = worlds[url.searchParams.get('code')]; return json({ public: !!(w && w.public) }); }
+    if (url.pathname === '/newcode') return json({ code: freeCode() });
+    if (url.pathname === '/match') { // the busiest public world that still has room, or a fresh one
+      const w = Object.values(worlds).filter((q) => q.public && q.players < SHOWN_MAX).sort((a, b) => b.players - a.players)[0];
+      return json(w ? { code: w.code, fresh: false } : { code: freeCode(), fresh: true });
+    }
     if (url.pathname === '/report') {
       const w = await req.json();
-      if (w.players > 0 && w.public) worlds[w.code] = { code: w.code, title: w.title, players: w.players, max: MAX_PLAYERS, t: now };
+      const seen = (await this.ctx.storage.get('seq:' + w.code)) || 0; if (w.seq && w.seq < seen) return json({ ok: true, stale: true });
+      if (w.seq) await this.ctx.storage.put('seq:' + w.code, w.seq);
+      if (w.players > 0) worlds[w.code] = { code: w.code, title: w.title, public: !!w.public, players: w.players, max: SHOWN_MAX, t: now };
       else delete worlds[w.code];
       await this.ctx.storage.put('worlds', worlds);
       return json({ ok: true });
     }
-    const list = Object.values(worlds).filter((w) => now - w.t < 6 * 3600 * 1000).sort((a, b) => b.players - a.players).slice(0, 30);
+    const list = Object.values(worlds).filter((w) => w.public).sort((a, b) => b.players - a.players).slice(0, 30).map(({ code, title, players, max }) => ({ code, title, players, max }));
     return json({ worlds: list });
   }
 }

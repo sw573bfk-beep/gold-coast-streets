@@ -2029,7 +2029,7 @@ $('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
   const first = !started; if (first) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
-  if (first && MODE === 'multi') { openPhone(); phoneApp('online'); } // straight to picking a world
+  if (first && MODE === 'multi') netQuick(); // straight into a public world (phone → Online for friends and codes)
 });
 
 // ---------------------------------------------------------------- the start screen: how you look, and where you start
