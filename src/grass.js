@@ -27,6 +27,8 @@ const GRASS_MAT = (() => {
       .replace('#include <begin_vertex>', `#include <begin_vertex>
 { float ph = instanceMatrix[3].x * 0.31 + instanceMatrix[3].z * 0.27; float w = sin(windT * 1.9 + ph) * 0.7 + sin(windT * 3.7 + ph * 2.3) * 0.3;
   float k = position.y * position.y * 1.6; transformed.x += w * k * 0.35; transformed.z += w * k * 0.2; }`);
+    // both faces of a blade are lit like the lawn (normals up), instead of the back face going black
+    sh.fragmentShader = sh.fragmentShader.replace('#include <normal_fragment_begin>', 'float faceDirection = gl_FrontFacing ? 1.0 : -1.0;\nvec3 normal = normalize( vNormal );\nvec3 geometryNormal = normal;');
   };
   return m;
 })();
@@ -68,7 +70,7 @@ function updateGrass(dt) {
   const R = GFX.cfg.grass, flying = player.plane && player.plane.alt > 25;
   if (!R || flying) { for (const m of GRASS.meshes || []) m.visible = false; GRASS.job = null; return; }
   if (!GRASS.meshes) { // two meshes: one on show while the other is filled in over a few frames
-    GRASS.meshes = [0, 1].map(() => { const m = new THREE.InstancedMesh(GRASS_GEO, GRASS_MAT, GRASS_MAX); m.frustumCulled = false; m.receiveShadow = true; m.count = 0; m.visible = false; scene.add(m); return m; });
+    GRASS.meshes = [0, 1].map(() => { const m = new THREE.InstancedMesh(GRASS_GEO, GRASS_MAT, GRASS_MAX); m.frustumCulled = false; m.receiveShadow = true; m.count = 0; m.visible = false; m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(GRASS_MAX * 3).fill(0.4), 3); scene.add(m); return m; }); // colours exist before the first draw, or the shader is built without them
     GRASS.show = 0; GRASS.mesh = GRASS.meshes[0];
   }
   GRASS.meshes[GRASS.show].visible = true; GRASS.t -= dt;

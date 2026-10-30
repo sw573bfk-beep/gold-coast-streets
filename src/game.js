@@ -399,8 +399,9 @@ function onBeach(x, z) {
 }
 // world positions around a car (the driver sits on the right, local -x)
 function carLocal(c, lx, lz) { const s = Math.sin(c.h), co = Math.cos(c.h); return { x: c.x + co * lx + s * lz, z: c.z - s * lx + co * lz }; }
-const carDoorPoint = (c) => carLocal(c, -(c.spec.W / 2 + 0.65), c.spec.cf - 0.7);
-const carSeat = (c) => carLocal(c, -c.spec.W * 0.2, (c.spec.cr + c.spec.cf) / 2 - 0.05);
+// bikes have no doors: you step up beside the seat and swing a leg over
+const carDoorPoint = (c) => (c.spec.bike ? carLocal(c, -(c.spec.W / 2 + 0.55), -0.1) : carLocal(c, -(c.spec.W / 2 + 0.65), c.spec.cf - 0.7));
+const carSeat = (c) => (c.spec.bike ? carLocal(c, 0, -0.15) : carLocal(c, -c.spec.W * 0.2, (c.spec.cr + c.spec.cf) / 2 - 0.05));
 
 function collideCars() {
   for (let i = 0; i < cars.length; i++) {
@@ -1180,7 +1181,7 @@ function startEnter(c) {
 }
 // pull the driver out of the driver's door
 function jackDriver(c) {
-  const dp = carDoorPoint(c), out = carLocal(c, -(c.spec.W / 2 + 1.6), c.spec.cf - 0.9);
+  const dp = carDoorPoint(c), out = carLocal(c, -(c.spec.W / 2 + 1.6), c.spec.bike ? 0 : c.spec.cf - 0.9);
   const cop = c.driver === 'cop';
   const p = new Ped(dp.x, dp.z, 0, 1, 0, 1, c.look || randomLook());
   p.knock((out.x - dp.x) * 2.2, 2.2, (out.z - dp.z) * 2.2, false, rr(1.2, 2));
@@ -1982,7 +1983,7 @@ function bbOf(b) {
   return b.bb;
 }
 function solidBuildingsNear(x, z, r) {
-  const list = [], scan = (arr) => { for (const b of arr) { if (b[1] > 2) continue; const bb = bbOf(b); if (x > bb[0] - r && x < bb[2] + r && z > bb[1] - r && z < bb[3] + r) list.push(b); } }; // raised parts (canopies, skybridges) can be walked under
+  const list = [], scan = (arr) => { for (const b of arr) { if (b[1] > 2 || b.skip) continue; const bb = bbOf(b); if (x > bb[0] - r && x < bb[2] + r && z > bb[1] - r && z < bb[3] + r) list.push(b); } }; // raised parts (canopies, skybridges) can be walked under
   if (x > MINX - r - 50 && x < MAXX + r + 50 && z > MINZ - r - 50 && z < MAXZ + r + 50) scan(MAP.buildings);
   if (REGION) for (const T of TILES.values()) if (T.blds && x > T.x0 - r - 150 && x < T.x0 + REGION.tile + r + 150 && z > T.z0 - r - 150 && z < T.z0 + REGION.tile + r + 150) scan(T.blds);
   return list;

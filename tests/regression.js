@@ -523,6 +523,40 @@ window.runRegression = async () => {
     for (const k of ['KeyW', 'KeyA', 'KeyD', 'Space']) keys[k] = false; endSurf(); home();
     expect(rode, 'never caught a wave'); expect(t > 3, `ride only ${t.toFixed(1)} s`); return `rode ${t.toFixed(1)} s`;
   });
+  // ---------------------------------------------------------------- V9.9: bikes you can ride, houses you can walk into, schools, clean buildings
+  await test('bikes: walk up, press E, ride off and get off again (e-bike and motorbike)', () => {
+    quiet(); const out = [];
+    for (const type of ['ebike', 'motorbike']) {
+      const c = new Car(type, '#2ac28a', player.x + 2.2, player.z, Math.PI / 2); c.kind = 'parked'; cars.push(c);
+      useKey(); for (let k = 0; k < 60 * 4 && player.state !== 'car'; k++) stepWorld(1 / 60);
+      const on = player.state === 'car'; let moved = 0;
+      if (on) { const x0 = c.x, z0 = c.z; for (let k = 0; k < 60 * 3; k++) { keys.KeyW = true; stepWorld(1 / 60); } keys.KeyW = false; moved = Math.hypot(c.x - x0, c.z - z0); c.vx = c.vz = 0; useKey(); for (let k = 0; k < 60 * 3 && player.state !== 'foot'; k++) stepWorld(1 / 60); }
+      out.push([type, on, moved, player.state]); c.remove(); home();
+    }
+    for (const [t, on, moved, st] of out) { expect(on, `${t}: could not get on`); expect(moved > 10, `${t}: moved ${moved.toFixed(1)} m`); expect(st === 'foot', `${t}: could not get off`); }
+    return out.map(([t, , m]) => `${t} ${m.toFixed(0)} m`).join(', ');
+  });
+  await test('houses: furniture and inside walls leave every door clear to walk in', async () => {
+    quiet(); await goToTile(-28.077, 153.392); let doors = 0, blocked = 0, houses = 0;
+    for (const T of TILES.values()) for (const H of T.houses || []) {
+      if (houses >= 120) break; houses++; if (H.inside) disposeHouseInterior(H); buildHouseInterior(H); HOUSE_ACTIVE.push(H);
+      for (const d of H.doors) { doors++; let ok = true; for (let k = 0.3; k <= 1.8; k += 0.25) { const GI = GRIDS.slice(); GRIDS.length = 0; GRIDS.push(H.inside.grid); const hit = resolveCircle(d.x - d.nx * k, d.z - d.nz * k, 0.3); GRIDS.length = 0; GRIDS.push(...GI); if (hit) { ok = false; break; } } if (!ok) blocked++; }
+      disposeHouseInterior(H);
+    }
+    expect(blocked === 0, `${blocked} of ${doors} doors blocked by furniture or inside walls`); return `${houses} houses, ${doors} doors, all clear inside`;
+  });
+  await test('schools: pitched roofs and verandahs, not flat boxes', async () => {
+    quiet(); const e = REGION.search.find((q) => /Burleigh Heads State School/.test(q[0])); await goToTile(-27.9995 - e[3] / 110574, 153.4235 + e[2] / (Math.cos(-27.9995 * Math.PI / 180) * 111320));
+    let schools = 0, pitched = 0; const R = { pos: [], nor: [], col: [] }, segs = [];
+    for (const T of TILES.values()) for (const b of T.blds || []) if (b[2] === 6 && !b.skip && b[0] < 16) { schools++; if (schoolRoof(R, segs, b.slice(3), 0, b[0], col('#2f4a62'), col('#e2cfa5'), schools)) pitched++; }
+    expect(schools > 3, 'no school buildings'); expect(pitched >= schools * 0.5, `${pitched}/${schools} pitched`); return `${pitched} of ${schools} school blocks pitched, ${segs.length / 5} verandah posts`;
+  });
+  await test('buildings: doubled-up, hidden and road-blocking footprints are cleaned up', () => {
+    const d = { buildings: [[6, 0, 0, 0, 0, 10, 0, 10, 10, 0, 10], [7, 0, 0, 0.5, 0.5, 10.5, 0.5, 10.5, 10.5, 0.5, 10.5], [4, 0, 0, 3, 3, 5, 3, 5, 5, 3, 5], [30, 0, 2, 50, 50, 60, 50, 60, 60, 50, 60], [5, 0, 0, 100, 95, 130, 95, 130, 105, 100, 105]], roads: [[4, 6, 0, 0, 90, 100, 140, 100]], bnames: {} };
+    markBrokenBuildings(d); const sk = d.buildings.map((b) => !!b.skip);
+    expect(sk[0] && !sk[1], 'duplicate pair not resolved to the taller'); expect(sk[2], 'hidden block kept'); expect(!sk[3], 'a normal building was removed'); expect(sk[4], 'building across the road kept');
+    return 'duplicates, hidden blocks and road blockers removed';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

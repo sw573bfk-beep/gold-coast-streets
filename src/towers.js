@@ -36,7 +36,7 @@ function bigBuildingsNear(x, z, r) {
   };
   if (inCore(x, z) || Math.abs(x) < 1600 && Math.abs(z) < 1900) MAP.buildings.forEach((b, bi) => consider(b, MAP.details && MAP.details.bnames && MAP.details.bnames[bi], CORE_POIS(), true));
   for (const T of TILES.values()) // big footprints can sit across a tile edge, so look in every loaded tile nearby
-    if (T.blds && x > T.x0 - r - 600 && x < T.x0 + REGION.tile + r + 600 && z > T.z0 - r - 600 && z < T.z0 + REGION.tile + r + 600) T.blds.forEach((b, bi) => consider(b, T.bnames && T.bnames[bi], T.pois));
+    if (T.blds && x > T.x0 - r - 600 && x < T.x0 + REGION.tile + r + 600 && z > T.z0 - r - 600 && z < T.z0 + REGION.tile + r + 600) T.blds.forEach((b, bi) => { if (!b.skip) consider(b, T.bnames && T.bnames[bi], T.pois); });
   return out;
 }
 // the core's shops as [x, z, cat, name] (for shopping arcades in Surfers)

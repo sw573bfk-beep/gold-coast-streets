@@ -125,6 +125,7 @@ async function loadTile(i, j) {
     T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) T.hgt = decodeHeights(data.hgt);
     tileGround(T, data); await tileYield(); if (!TILES.has(k)) return;
     tileRoads(T, data); await tileYield(); if (!TILES.has(k)) return;
+    markBrokenBuildings(data);
     const plan = planFronts(data);
     const segs = tileBuildings(T, data, plan.fronts); await tileYield(); if (!TILES.has(k)) return;
     tileTrees(T, data, segs); tileLamps(T, data, segs);
@@ -299,6 +300,84 @@ function tileRoads(T, data) {
 // ---------------------------------------------------------------- buildings (houses get hip roofs)
 const TILE_ROOFS = ['#a4553b', '#8a4b38', '#5c5f63', '#7d8288', '#b36a46', '#9a9d9f', '#3f4a52', '#c9c4b8', '#6b3d2e'];
 const BRICK = ['#b7704f', '#a35d43', '#c98a63', '#d8c3a5', '#efe7da', '#f4f1ea', '#d9d3c7', '#e8dcc6', '#b9b0a2'];
+// Queensland schools: face brick or painted blocks under pitched Colorbond roofs, with covered verandahs
+// (steel posts, a railing on the upper floors) along the classroom side
+const SCHOOL_BRICK = ['#e2cfa5', '#d8bf94', '#c9a77c', '#b98a64', '#9c5a3c', '#efe4c8', '#e8dcc0', '#cdb38c'];
+const COLORBOND = ['#2f4a62', '#3d5a43', '#7a3b31', '#bcbdb7', '#8a9095', '#5b6b5f', '#2e3b4e', '#4f5a3a'];
+const _sc = new THREE.Color();
+function schoolRoof(R, segs, f, base, top, roof, wall, seed) {
+  const n = f.length / 2; let best = 0, ex = 1, ez = 0;
+  for (let q = 0; q < n; q++) { const dx = f[(2 * q + 2) % (2 * n)] - f[2 * q], dz = f[(2 * q + 3) % (2 * n)] - f[2 * q + 1], L = Math.hypot(dx, dz); if (L > best) { best = L; ex = dx / L; ez = dz / L; } }
+  const nx = -ez, nz = ex; let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+  for (let q = 0; q < n; q++) { const u = f[2 * q] * ex + f[2 * q + 1] * ez, v = f[2 * q] * nx + f[2 * q + 1] * nz; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+  const W = v1 - v0, L = u1 - u0; if (Math.abs(polyArea(f)) / (W * L) < 0.8 || W > 40 || W < 4) return false; // odd shapes keep a flat roof
+  const P = (u, v, y) => [ex * u + nx * v, y, ez * u + nz * v], eave = base + top;
+  const face = (pts, c) => { // a flat polygon (3 or 4 points) with its own normal
+    const [a, b, d] = pts, ux = b[0] - a[0], uy = b[1] - a[1], uz = b[2] - a[2], wx = d[0] - a[0], wy = d[1] - a[1], wz = d[2] - a[2];
+    let qx = uy * wz - uz * wy, qy = uz * wx - ux * wz, qz = ux * wy - uy * wx; const ql = Math.hypot(qx, qy, qz) || 1; qx /= ql; qy /= ql; qz /= ql;
+    const tris = pts.length === 4 ? [[0, 1, 2], [0, 2, 3]] : [[0, 1, 2]];
+    for (const t of tris) { for (const k of t) R.pos.push(...pts[k]); for (let v = 0; v < 3; v++) { R.nor.push(qx, qy, qz); R.col.push(c.r, c.g, c.b); } }
+  };
+  const both = (pts, c) => { face(pts, c); face(pts.slice().reverse(), c); };
+  // the gable roof along the long side, overhanging 0.6 m, and the triangular gable ends in the wall colour
+  const o = 0.6, rise = Math.min(3.2, W * 0.2), vm = (v0 + v1) / 2;
+  both([P(u0 - o, v0 - o, eave), P(u1 + o, v0 - o, eave), P(u1 + o, vm, eave + rise), P(u0 - o, vm, eave + rise)], roof);
+  both([P(u0 - o, v1 + o, eave), P(u1 + o, v1 + o, eave), P(u1 + o, vm, eave + rise), P(u0 - o, vm, eave + rise)], roof);
+  for (const u of [u0, u1]) both([P(u, v0, eave), P(u, v1, eave), P(u, vm, eave + rise)], wall);
+  // the verandah: a skillion roof on posts along one long side, one for every floor, with a railing upstairs
+  const side = seed % 2 ? 1 : -1, vw = side > 0 ? v1 : v0, dep = 2.6 * side, levels = Math.max(1, Math.min(4, Math.round(top / 3.4)));
+  const postC = _sc.set(seed % 3 ? '#e9e9e4' : '#2f4a62').clone(), railC = col('#d8dbd8');
+  if (L > 8) for (let k = 0; k < levels; k++) {
+    const y = base + 3.4 * k + 2.9; if (y > eave - 0.2) break;
+    both([P(u0 + 0.6, vw, y + 0.25), P(u1 - 0.6, vw, y + 0.25), P(u1 - 0.6, vw + dep, y), P(u0 + 0.6, vw + dep, y)], roof);
+    if (k > 0) { both([P(u0 + 0.6, vw + dep * 0.97, y - 3.4 + 0.95), P(u1 - 0.6, vw + dep * 0.97, y - 3.4 + 0.95), P(u1 - 0.6, vw + dep * 0.97, y - 3.4 + 1.05), P(u0 + 0.6, vw + dep * 0.97, y - 3.4 + 1.05)], railC); }
+  }
+  if (L > 8) {
+    const yTop = base + 3.4 * (levels - 1) + 2.9;
+    for (let u = u0 + 0.8; u <= u1 - 0.7; u += 3) { const [x, , z] = P(u, vw + dep * 0.97, 0); boxInto(R, x, base - 0.3, z, 0.12, yTop - base + 0.3, 0.12, postC); segs.push(x - 0.08, z - 0.08, x + 0.08, z + 0.08, 3); }
+  }
+  return true;
+}
+// clean up the footprint data as a tile loads: two sources (OpenStreetMap and Microsoft's) sometimes map the same
+// building twice, which flickers; a small block can sit inside a bigger one and poke through its roof; long thin
+// slivers are walls read as buildings; and a few unnamed footprints sit right across a road. Those are skipped
+// (b.skip) everywhere: no walls, no collision, no doors.
+function markBrokenBuildings(data) {
+  const B = data.buildings, info = [], grid = new Map(), key = (x, z) => Math.floor(x / 20) + ',' + Math.floor(z / 20);
+  B.forEach((b, bi) => {
+    const f = b.slice(3), n = f.length / 2; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9, cx = 0, cz = 0;
+    for (let q = 0; q < n; q++) { const x = f[2 * q], z = f[2 * q + 1]; x0 = Math.min(x0, x); x1 = Math.max(x1, x); z0 = Math.min(z0, z); z1 = Math.max(z1, z); cx += x / n; cz += z / n; }
+    const a = Math.abs(polyArea(f)), I = { bi, b, f, a, x0, z0, x1, z1, cx, cz }; info.push(I);
+    const k = key(cx, cz); if (!grid.has(k)) grid.set(k, []); grid.get(k).push(I);
+    if (a > 1 && x1 - x0 > 0 && z1 - z0 > 0 && a / ((x1 - x0) * (z1 - z0)) < 0.12 && Math.max(x1 - x0, z1 - z0) > 20) b.skip = true; // a sliver
+  });
+  const named = (bi) => data.bnames && data.bnames[bi];
+  for (const I of info) {
+    if (I.b.skip || I.b[1] > 2) continue;
+    for (let gx = -1; gx <= 1; gx++) for (let gz = -1; gz <= 1; gz++) for (const J of grid.get((Math.floor(I.cx / 20) + gx) + ',' + (Math.floor(I.cz / 20) + gz)) || []) {
+      if (J === I || J.b.skip || I.b.skip || J.b[1] > 2) continue;
+      if (I.cx < J.x0 || I.cx > J.x1 || I.cz < J.z0 || I.cz > J.z1 || !inRing(I.cx, I.cz, J.f)) continue;
+      const r = I.a / Math.max(1, J.a);
+      if (r > 0.3 && r < 3) { // the same building twice: keep the named one, else the taller, else the bigger
+        const keepJ = named(J.bi) && !named(I.bi) ? true : named(I.bi) && !named(J.bi) ? false : J.b[0] !== I.b[0] ? J.b[0] > I.b[0] : J.a >= I.a;
+        (keepJ ? I : J).b.skip = true;
+      } else if (r <= 0.3 && I.b[0] <= J.b[0] + 2 && !named(I.bi)) I.b.skip = true; // hidden inside a bigger block (a tower on a podium stays)
+    }
+  }
+  // unnamed footprints lying across a road (at least 15 m of carriageway inside them)
+  const roads = data.roads.filter((r) => CARRIAGEWAY.has(r[0]) && r[0] !== 5 && !r[3]);
+  for (const I of info) {
+    if (I.b.skip || I.b[1] > 2 || named(I.bi) || I.b[2] > 2) continue;
+    let hit = 0;
+    for (const r of roads) for (let i = 4; i < r.length - 2 && hit < 5; i += 2) {
+      const ax = r[i], az = r[i + 1], bx = r[i + 2], bz = r[i + 3];
+      if (Math.max(ax, bx) < I.x0 || Math.min(ax, bx) > I.x1 || Math.max(az, bz) < I.z0 || Math.min(az, bz) > I.z1) continue;
+      const L = Math.hypot(bx - ax, bz - az), m = Math.max(1, Math.floor(L / 3));
+      for (let k = 0; k < m; k++) { const x = ax + (bx - ax) * k / m, z = az + (bz - az) * k / m; if (x > I.x0 && x < I.x1 && z > I.z0 && z < I.z1 && inRing(x, z, I.f)) hit++; }
+    }
+    if (hit >= 5) I.b.skip = true;
+  }
+}
 function tileBuildings(T, data, fronts) {
   const bufs = {}, segs = [], br = mulberry32(T.i * 4099 + T.j * 7);
   T.houses = [];
@@ -306,6 +385,7 @@ function tileBuildings(T, data, fronts) {
   const buf = (cls) => bufs[cls] || (bufs[cls] = Object.assign(newBuf(), { cls }));
   for (const b of data.buildings) {
     bi++;
+    if (b.skip) continue;
     const mh = b[1], kind = b[2], f = b.slice(3), n = f.length / 2;
     // footprint heights include the roof: a house gets ~3 m walls per storey and its roof on top
     const h = kind === 0 ? (b[0] < 6.5 ? 3.0 : b[0] < 9.5 ? 5.8 : b[0] - 1.6) : b[0];
@@ -327,8 +407,9 @@ function tileBuildings(T, data, fronts) {
     else if (kind === 5) cls = 'glass';
     else if (h >= 11) cls = h > 70 && r1 < 0.3 ? 'glass' : r1 < 0.4 ? 'tower' : r1 < 0.72 ? 'balcony' : r1 < 0.92 ? 'grid' : 'glass';
     const tints = STYLE_TINTS[cls];
-    const wall = bc && kind === 0 ? new THREE.Color(bc[1]) : col(kind === 0 ? BRICK[Math.floor(r2 * BRICK.length)] : tints ? tints[Math.floor(r2 * tints.length)] : pick(WALLS[kind] || WALLS[2]));
-    const roof = bc ? new THREE.Color(bc[0]) : col(kind === 0 ? TILE_ROOFS[Math.floor(br() * TILE_ROOFS.length)] : cls === 'plain' ? '#8f9498' : '#b4b3ad');
+    const school = kind === 6 && h < 16;
+    const wall = bc && kind === 0 ? new THREE.Color(bc[1]) : col(school ? SCHOOL_BRICK[Math.floor(r2 * SCHOOL_BRICK.length)] : kind === 0 ? BRICK[Math.floor(r2 * BRICK.length)] : tints ? tints[Math.floor(r2 * tints.length)] : pick(WALLS[kind] || WALLS[2]));
+    const roof = bc ? new THREE.Color(bc[0]) : col(school ? COLORBOND[Math.floor(br() * COLORBOND.length)] : kind === 0 ? TILE_ROOFS[Math.floor(br() * TILE_ROOFS.length)] : cls === 'plain' ? '#8f9498' : '#b4b3ad');
     const W = buf(cls), R = buf('plain'), cv = cls === 'low' ? 24 : 25.6;
     let acc = 0;
     for (let q = 0; q < n; q++) {
@@ -355,7 +436,8 @@ function tileBuildings(T, data, fronts) {
         segs.push(ax + ex * g0, az + ez * g0, bx, bz, h);
       }
     }
-    if (kind === 0 && n <= 10 && a < 650) { // hip roof: every eave rises to a ridge point over the middle
+    if (school && schoolRoof(R, segs, f, base, top, roof, wall, bi)) { /* pitched roof and verandahs done */ }
+    else if (kind === 0 && n <= 10 && a < 650) { // hip roof: every eave rises to a ridge point over the middle
       const eave = base + top, ry = eave + Math.min(2.6, Math.sqrt(a) * 0.17), apex = [cx, ry, cz];
       for (let q = 0; q < n; q++) {
         const A = [f[2 * q], eave, f[2 * q + 1]], Bv = [f[(2 * q + 2) % (2 * n)], eave, f[(2 * q + 3) % (2 * n)]];
@@ -434,6 +516,7 @@ function extraTrees(T, data, have) {
   for (const t of have) used.add(cell(t[0], t[1]));
   const bcells = new Set(); // 4 m cells covered by a building (with a metre to spare)
   for (const b of data.buildings) {
+    if (b.skip) continue;
     const f = b.slice(3); let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
     for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
     for (let gx = Math.floor((x0 - 1) / 4); gx <= Math.floor((x1 + 1) / 4); gx++) for (let gz = Math.floor((z0 - 1) / 4); gz <= Math.floor((z1 + 1) / 4); gz++) bcells.add(gx + ',' + gz);
@@ -555,7 +638,7 @@ function nearestFacade(data, x, z, maxD) {
   let best = null, bi = -1;
   for (const b of data.buildings) {
     bi++;
-    if (b[1] > 2.5) continue;
+    if (b[1] > 2.5 || b.skip) continue;
     const f = b.slice(3), n = f.length / 2;
     if (Math.abs(f[0] - x) > 80 || Math.abs(f[1] - z) > 80) continue;
     for (let q = 0; q < n; q++) {

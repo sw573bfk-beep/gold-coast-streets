@@ -210,11 +210,17 @@ function buildHouseInterior(H) {
   let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
   for (let q = 0; q < n; q++) { const u = f[2 * q] * ux + f[2 * q + 1] * uz, v = f[2 * q] * vx + f[2 * q + 1] * vz; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
   const W = (u, v) => [u * ux + v * vx, u * uz + v * vz];
+  const keepClear = []; // walkways furniture stays out of: in from every door, and both sides of every inside doorway
   const partition = (pa, pb, doorsAt) => { // an inside wall from pa to pb (u,v), clipped to the outline, with 0.9 m doorways at the given fractions
     const [ax, az] = W(...pa), [bx, bz] = W(...pb), L = Math.hypot(bx - ax, bz - az); if (L < 0.5) return;
     const ex = (bx - ax) / L, ez = (bz - az) / L, nx = -ez, nz = ex;
     for (const [s0, s1] of clipToRing(ax, az, bx, bz, f)) {
       const cuts = doorsAt.map((d) => d * L).filter((t) => t > s0 * L + 0.6 && t < s1 * L - 0.6).map((t) => [t - 0.45, t + 0.45]);
+      for (const d of H.doors) { // an inside wall that runs into an outside door gets a doorway right there
+        const t = (d.x - ax) * ex + (d.z - az) * ez, off = Math.abs((d.x - ax) * nx + (d.z - az) * nz);
+        if (off < 1.6 && t > s0 * L - 1.6 && t < s1 * L + 1.6) { const tc = clamp(t, s0 * L + 0.5, s1 * L - 0.5); if (!cuts.some(([a, b]) => tc > a - 0.6 && tc < b + 0.6)) cuts.push([tc - 0.55, tc + 0.55]); }
+      }
+      cuts.sort((a, b) => a[0] - b[0]);
       let from = s0 * L;
       const piece = (t0, t1, ya, yb) => {
         if (t1 - t0 < 0.02) return;
@@ -222,14 +228,24 @@ function buildHouseInterior(H) {
         wallInto(B, px, pz, qx, qz, ya, yb, nx, nz, wallC); wallInto(B, px, pz, qx, qz, ya, yb, -nx, -nz, wallC);
         if (ya === y0) segs.push(px, pz, qx, qz, 2.6);
       };
-      for (const [t0, t1] of cuts) { piece(from, t0, y0, top); piece(t0, t1, y0 + DOOR_H, top); from = t1; }
+      for (const [t0, t1] of cuts) {
+        piece(from, t0, y0, top); piece(t0, t1, y0 + DOOR_H, top); from = t1;
+        const t = (t0 + t1) / 2; for (const k of [-1.0, -0.5, 0.5, 1.0]) { const x = ax + ex * t + nx * k, z = az + ez * t + nz * k; keepClear.push([x * ux + z * uz, x * vx + z * vz]); }
+      }
       piece(from, s1 * L, y0, top);
     }
   };
   const depth = v1 - v0, width = u1 - u0, rooms = [];
   if (depth > 7.5 && width > 5) {
-    const vs = v0 + depth * (0.48 + r() * 0.08), nb = width > 13 ? 3 : 2, splits = [];
-    for (let k = 1; k < nb; k++) splits.push(u0 + (width * k) / nb);
+    let vs = v0 + depth * (0.48 + r() * 0.08); const nb = width > 13 ? 3 : 2, splits = [];
+    // inside walls keep 1.3 m to the side of every outside door, so the way in is never along a wall
+    const doorUV = H.doors.map((d) => [d.x * ux + d.z * uz, d.x * vx + d.z * vz, d.nx * vx + d.nz * vz]);
+    for (const [, dv, nvv] of doorUV) if (Math.abs(nvv) < 0.5 && Math.abs(dv - vs) < 1.4) vs = dv + (vs > dv ? 1.4 : -1.4); // a side door: the cross wall moves clear of it
+    for (let k = 1; k < nb; k++) {
+      let us = u0 + (width * k) / nb;
+      for (const [du] of doorUV) if (Math.abs(du - us) < 1.3) us = du + (us >= du ? 1.3 : -1.3);
+      splits.push(us);
+    }
     partition([u0 - 1, vs], [u1 + 1, vs], [...Array(nb).keys()].map((k) => (0.5 + k) / nb * (width / (width + 2)) + 1 / (width + 2)));
     for (const us of splits) partition([us, vs], [us, v1 + 1], []);
     rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: vs });
@@ -238,10 +254,18 @@ function buildHouseInterior(H) {
   } else rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: v1 });
   // furniture: kept inside the outline, a little off the walls
   const props = [], loot = [];
-  const place = (u, v, sx, sy, sz, c, solid = true) => {
+  // a clear walkway 1.8 m in from every door (and the doorways in the inside walls): furniture never sits in it
+  for (const d of H.doors) for (let k = 0.15; k <= 1.8; k += 0.3) { const x = d.x - d.nx * k, z = d.z - d.nz * k; keepClear.push([x * ux + z * uz, x * vx + z * vz]); }
+  const blocksDoor = (u, v, sx, sz) => keepClear.some(([pu, pv]) => Math.abs(pu - u) < sx / 2 + 0.5 && Math.abs(pv - v) < sz / 2 + 0.5);
+  const place = (u0, v, sx, sy, sz, c, solid = true) => {
+    let u = null; // try where it belongs first, then slide it along the wall out of the doorway
+    for (const du of [0, 1.3, -1.3, 2.2, -2.2, 3.1, -3.1]) {
+      const uu = u0 + du, [x, z] = W(uu, v);
+      if (!inRing(x, z, f) || blocksDoor(uu, v, sx, sz)) continue;
+      if ([[sx / 2, sz / 2], [-sx / 2, sz / 2], [sx / 2, -sz / 2], [-sx / 2, -sz / 2]].every(([ox, oz]) => { const [px, pz] = W(uu + ox, v + oz); return inRing(px, pz, f); })) { u = uu; break; }
+    }
+    if (u === null) return null;
     const [x, z] = W(u, v);
-    if (!inRing(x, z, f)) return null;
-    for (const [ox, oz] of [[sx / 2, sz / 2], [-sx / 2, sz / 2], [sx / 2, -sz / 2], [-sx / 2, -sz / 2]]) { const [px, pz] = W(u + ox, v + oz); if (!inRing(px, pz, f)) return null; }
     // boxInto is axis-aligned, so build the box in u/v and rotate it into place
     const s0 = B.pos.length; boxInto(B, 0, 0, 0, sx, sy, sz, c);
     for (let k = s0; k < B.pos.length; k += 3) { const pu = B.pos[k], pv = B.pos[k + 2]; B.pos[k] = x + pu * ux + pv * vx; B.pos[k + 1] += y0; B.pos[k + 2] = z + pu * uz + pv * vz; const nu = B.nor[k], nv = B.nor[k + 2]; B.nor[k] = nu * ux + nv * vx; B.nor[k + 2] = nu * uz + nv * vz; }
@@ -284,6 +308,14 @@ function buildHouseInterior(H) {
   scene.add(mesh);
   for (const L of loot) {
     const m = new THREE.Mesh(LOOT_GEO, lootMat(L.kind.col)); m.scale.set(L.kind.w, L.kind.h, L.kind.w * 0.7); m.position.set(L.x, L.y + L.kind.h / 2, L.z); scene.add(m); L.mesh = m;
+  }
+  // last word on getting in: nothing inside stays solid in the 1.8 m walk in from a door
+  for (const d of H.doors) for (let k = 0.2; k <= 1.8; k += 0.2) {
+    const x = d.x - d.nx * k, z = d.z - d.nz * k;
+    for (let o = 0; o < segs.length; o += 5) {
+      const ax = segs[o], az = segs[o + 1], ex = segs[o + 2] - ax, ez = segs[o + 3] - az, L2 = ex * ex + ez * ez || 1, t = clamp(((x - ax) * ex + (z - az) * ez) / L2, 0, 1);
+      if (Math.hypot(x - ax - ex * t, z - az - ez * t) < 0.4) { segs[o] = segs[o + 2] = 1e7; segs[o + 1] = segs[o + 3] = 1e7; }
+    }
   }
   const grid = makeGrid(segs, H.x0, H.z0, H.x1, H.z1); GRIDS.push(grid);
   // whoever's home: more of the household in at night

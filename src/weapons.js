@@ -76,7 +76,7 @@ function castShot(o, d, maxD, shooterPed) {
     const lx = rx * co - rz * s, lz = rx * s + rz * co, ly = o[1] - c.y;
     const dx = d[0] * co - d[2] * s, dz = d[0] * s + d[2] * co, dy = d[1];
     let t0 = 0, t1 = best;
-    for (const [p0, dd, lo, hi] of [[lx, dx, -c.spec.W / 2, c.spec.W / 2], [ly, dy, 0.15, c.spec.roof + 0.05], [lz, dz, -c.spec.L / 2, c.spec.L / 2]]) {
+    for (const [p0, dd, lo, hi] of [[lx, dx, -c.spec.W / 2, c.spec.W / 2], [ly, dy, 0.15, (c.spec.roof || 1.7) + 0.05], [lz, dz, -c.spec.L / 2, c.spec.L / 2]]) {
       if (Math.abs(dd) < 1e-6) { if (p0 < lo || p0 > hi) { t0 = 1e9; break; } continue; }
       let a = (lo - p0) / dd, b = (hi - p0) / dd; if (a > b) [a, b] = [b, a];
       t0 = Math.max(t0, a); t1 = Math.min(t1, b); if (t0 > t1) break;

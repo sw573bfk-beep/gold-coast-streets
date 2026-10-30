@@ -237,9 +237,9 @@ function setDriverLook(M, look) {
   if (!look) { M.driver.visible = false; return; }
   if (M.bike) { // the whole rider: leaning over the bars, knees in, helmet on a road bike
     const helmet = look.helmet === false ? look.hair : '#1d1d1d', shorts = look.shorts || '#2b2b2b';
-    const g = mergeGeos([box(0.4, 0.5, 0.26, 0, 0.3, 0.08, look.shirt).rotateX(0.35), box(0.24, 0.26, 0.26, 0, 0.74, 0.3, look.skin), box(0.28, 0.16, 0.3, 0, 0.86, 0.29, helmet),
-      box(0.1, 0.42, 0.1, 0.2, 0.42, 0.42, look.skin).rotateX(-1.0), box(0.1, 0.42, 0.1, -0.2, 0.42, 0.42, look.skin).rotateX(-1.0),
-      box(0.14, 0.14, 0.5, 0.14, 0.02, 0.16, shorts), box(0.14, 0.14, 0.5, -0.14, 0.02, 0.16, shorts), box(0.12, 0.5, 0.12, 0.16, -0.22, 0.38, look.skin), box(0.12, 0.5, 0.12, -0.16, -0.22, 0.38, look.skin)]);
+    const g = mergeGeos([box(0.4, 0.5, 0.26, 0, 0.3, 0.1, look.shirt), box(0.24, 0.26, 0.26, 0, 0.72, 0.18, look.skin), box(0.28, 0.16, 0.3, 0, 0.86, 0.17, helmet),
+      box(0.1, 0.1, 0.48, 0.22, 0.46, 0.4, look.skin), box(0.1, 0.1, 0.48, -0.22, 0.46, 0.4, look.skin), // arms out to the bars
+      box(0.14, 0.14, 0.5, 0.14, 0.02, 0.22, shorts), box(0.14, 0.14, 0.5, -0.14, 0.02, 0.22, shorts), box(0.12, 0.46, 0.12, 0.16, -0.2, 0.44, look.skin), box(0.12, 0.46, 0.12, -0.16, -0.2, 0.44, look.skin)]);
     M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true; return;
   }
   const g = mergeGeos([box(0.42, 0.5, 0.26, 0, 0.25, 0, look.shirt), box(0.22, 0.25, 0.24, 0, 0.66, 0, look.skin), box(0.24, 0.07, 0.26, 0, 0.81, -0.01, look.hair), box(0.11, 0.38, 0.12, 0.2, 0.25, 0.18, look.skin), box(0.11, 0.38, 0.12, -0.2, 0.25, 0.18, look.skin)]);
