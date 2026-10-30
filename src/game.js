@@ -836,7 +836,7 @@ function spawnTraffic(minD, maxD, kind) {
     edgePoint(E, dir, ai.s, tmpB);
     const off = kind === 'police' ? 0 : laneOffset(E, ai, false);
     const x = tmpB.x + tmpB.tz * off, z = tmpB.z - tmpB.tx * off;
-    if (!isLand(x, z)) continue;
+    if (!isLand(x, z) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue; // not on a road that runs through a car park or under a building
     if (cars.some((c) => Math.abs(c.x - x) < 9 && Math.abs(c.z - z) < 9)) continue;
     const c = new Car(kind === 'police' ? 'police' : randomCarType(), null, x, z, Math.atan2(tmpB.tx, tmpB.tz));
     c.kind = kind; c.setDriver(kind === 'police' ? 'cop' : 'ai', kind === 'police' ? COP_LOOK : randomLook()); c.ai = ai; c.siren = kind === 'police' && player.stars > 0;
@@ -868,7 +868,7 @@ function spawnPed(minD, maxD) {
     edgePoint(E, 1, s, tmpA);
     const off = (E.width / 2 + 1.7) * side, x = tmpA.x + tmpA.tz * off, z = tmpA.z - tmpA.tx * off;
     const d = Math.hypot(x - player.x, z - player.z);
-    if (d < minD || d > maxD || !isLand(x, z)) continue;
+    if (d < minD || d > maxD || !isLand(x, z) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue;
     const dir = rand() < 0.5 ? 1 : -1;
     const p = new Ped(x, z, ei, dir, dir > 0 ? s : E.len - s, side * dir);
     peds.push(p); return p;
@@ -1111,9 +1111,10 @@ function sidewalkNear(x, z) {
   edgePoint(E, 1, ne.s, tmpA);
   for (const side of [1, -1]) {
     const off = (E.width / 2 + 1.8) * side, px = tmpA.x + tmpA.tz * off, pz = tmpA.z - tmpA.tx * off;
-    if (isLand(px, pz) && !resolveCircle(px, pz, 0.5)) return { x: px, z: pz, h: Math.atan2(tmpA.tx, tmpA.tz) };
+    if (isLand(px, pz) && !resolveCircle(px, pz, 0.5) && !insideSolid(px, pz, solidBuildingsNear(px, pz, 2))) return { x: px, z: pz, h: Math.atan2(tmpA.tx, tmpA.tz) };
   }
-  return { x: tmpA.x, z: tmpA.z, h: 0 };
+  const P = freeSpotNear(tmpA.x, tmpA.z, 120);
+  return P ? { x: P[0], z: P[1], h: Math.atan2(tmpA.tx, tmpA.tz) } : { x: tmpA.x, z: tmpA.z, h: 0 };
 }
 function damagePlayer(n) {
   if (player.deadT > 0) return;
@@ -1870,11 +1871,12 @@ function initSetup() {
   // the north and south ends of every suburb, plus the big landmarks, each snapped onto a real street
   if (!REGION || SPAWN_PLACES.length) return;
   const sel = $('pick-spawn');
+  const B = REGION.bounds, inMap = (p) => p[0] > B[0] + 120 && p[0] < B[2] - 120 && p[1] > B[1] + 120 && p[1] < B[3] - 120; // not off the edge of the map
   const near = (x, z) => {
     let best = null, bd = 1e9;
     for (const r of REGION.roads) {
       if (r[0] < 1 || r[0] > 4) continue; // ordinary streets: primary down to residential (no motorway or highway)
-      for (let i = 1; i < r.length - 1; i += 2) { const d = Math.hypot(r[i] - x, r[i + 1] - z); if (d < bd) { bd = d; best = [r[i], r[i + 1], r[i + 2] !== undefined ? Math.atan2(r[i + 2] - r[i], r[i + 3] - r[i + 1]) : 0]; } }
+      for (let i = 1; i < r.length - 1; i += 2) { const d = Math.hypot(r[i] - x, r[i + 1] - z); if (d < bd && inMap([r[i], r[i + 1]])) { bd = d; best = [r[i], r[i + 1], r[i + 2] !== undefined ? Math.atan2(r[i + 2] - r[i], r[i + 3] - r[i + 1]) : 0]; } }
     }
     return best;
   };
@@ -1898,6 +1900,40 @@ function initSetup() {
   }
   try { const last = localStorage.getItem('gcs-spawn'); if (last && SPAWN_PLACES[+last]) sel.value = last; } catch (e) { /* storage blocked */ }
 }
+// ---------------------------------------------------------------- never stuck inside a building
+// solid buildings (car parks, offices, sheds) have walls but no inside, so standing within one means you're trapped
+function bbOf(b) {
+  if (!b.bb) { let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let q = 3; q < b.length; q += 2) { x0 = Math.min(x0, b[q]); x1 = Math.max(x1, b[q]); z0 = Math.min(z0, b[q + 1]); z1 = Math.max(z1, b[q + 1]); } b.bb = [x0, z0, x1, z1]; }
+  return b.bb;
+}
+function solidBuildingsNear(x, z, r) {
+  const list = [], scan = (arr) => { for (const b of arr) { if (b[1] > 2) continue; const bb = bbOf(b); if (x > bb[0] - r && x < bb[2] + r && z > bb[1] - r && z < bb[3] + r) list.push(b); } }; // raised parts (canopies, skybridges) can be walked under
+  if (x > MINX - r - 50 && x < MAXX + r + 50 && z > MINZ - r - 50 && z < MAXZ + r + 50) scan(MAP.buildings);
+  if (REGION) for (const T of TILES.values()) if (T.blds && x > T.x0 - r - 150 && x < T.x0 + REGION.tile + r + 150 && z > T.z0 - r - 150 && z < T.z0 + REGION.tile + r + 150) scan(T.blds);
+  return list;
+}
+function insideSolid(x, z, list) {
+  if (houseAt(x, z) || shopAt(x, z) || (TOWER && inRing(x, z, TOWER.f))) return false; // places with a real inside
+  for (const b of list) { const bb = bbOf(b); if (x > bb[0] && x < bb[2] && z > bb[1] && z < bb[3] && inRing(x, z, b.slice(3))) return true; }
+  return false;
+}
+// the nearest spot out in the open: on land, outside every solid building and clear of walls
+function freeSpotNear(x, z, maxR = 200) {
+  const list = solidBuildingsNear(x, z, maxR);
+  for (let r = 0; r <= maxR; r += 2) for (let a = 0, n = Math.max(1, Math.round(r * 0.8)); a < n; a++) {
+    const t = (a / n) * TAU, px = x + Math.cos(t) * r, pz = z + Math.sin(t) * r;
+    if (isLand(px, pz) && !insideSolid(px, pz, list) && !resolveCircle(px, pz, 0.6)) return [px, pz];
+  }
+  return null;
+}
+let stuckT = 0, stuckCheckT = 0;
+function updateUnstuck(dt) {
+  stuckCheckT -= dt; if (stuckCheckT > 0) return; stuckCheckT = 0.5;
+  if (player.state !== 'foot' || player.deadT > 0 || !insideSolid(player.x, player.z, solidBuildingsNear(player.x, player.z, 2))) { stuckT = 0; return; }
+  stuckT += 0.5; if (stuckT < 1) return;
+  const P = freeSpotNear(player.x, player.z); stuckT = 0;
+  if (P) { player.x = P[0]; player.z = P[1]; player.y = 0; toast('You were stuck inside a building — moved you outside'); }
+}
 // move to the chosen start and wait for the streets there to stream in
 async function goToSpawn(v) {
   try { localStorage.setItem('gcs-spawn', v); } catch (e) { /* storage blocked */ }
@@ -1908,6 +1944,21 @@ async function goToSpawn(v) {
   // step off the road onto the footpath
   const fx = Math.sin(player.h), fz = Math.cos(player.h);
   for (const side of [1, -1]) { const x = player.x + fz * 6 * side, z = player.z - fx * 6 * side; if (isLand(x, z) && !resolveCircle(x, z, 0.5)) { player.x = x; player.z = z; break; } }
+  // a landmark that is a building (a shopping centre, a hospital): start just outside its wall nearest the road
+  const name = P[0].split(' — ')[0]; let bld = null;
+  for (const T of TILES.values()) (T.blds || []).forEach((b, bi) => { if (!bld && T.bnames && T.bnames[bi] === name) bld = b; });
+  if (bld) {
+    const f = bld.slice(3), n = f.length / 2; let best = null, bd = 1e9;
+    for (let q = 0; q < n; q++) {
+      const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 6) continue;
+      let nx = (bz - az) / L, nz = -(bx - ax) / L; const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (inRing(mx + nx * 0.5, mz + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+      const px = mx + nx * 5, pz = mz + nz * 5, ne = nearestEdge(px, pz); if (ne.e < 0 || !EDGES[ne.e]) continue;
+      edgePoint(EDGES[ne.e], 1, ne.s, tmpA); const d = Math.hypot(tmpA.x - px, tmpA.z - pz);
+      if (d < bd) { bd = d; best = [px, pz, Math.atan2(-nx, -nz)]; }
+    }
+    if (best) { player.x = best[0]; player.z = best[1]; player.h = camYaw = best[2]; } // facing the building
+  }
+  const out = freeSpotNear(player.x, player.z); if (out) { player.x = out[0]; player.z = out[1]; } // some roads run through car parks and under buildings
   playerSpot = { x: player.x, z: player.z };
   for (const c of cars.slice()) if (c !== player.car && c.kind !== 'abandoned' && Math.hypot(c.x - player.x, c.z - player.z) > 400) c.remove();
   for (let i = 0; i < 20; i++) spawnTraffic(30, 330, 'traffic');
@@ -1937,7 +1988,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

@@ -454,6 +454,23 @@ window.runRegression = async () => {
     const got = player.money - m0; player.weapon = w0; quiet();
     expect(hinted, 'no prompt to pull a weapon'); expect(got > 0, 'no cash'); return `${sh.name}: +$${got}`;
   });
+  // ---------------------------------------------------------------- V9.5: never spawn or stay stuck inside a building
+  await test('Robina Town Centre spawn starts outside the centre, free to walk off', async () => {
+    quiet(); const i = SPAWN_PLACES.findIndex((q) => /Robina Town Centre/.test(q[0])); await goToSpawn(String(i));
+    const inside = insideSolid(player.x, player.z, solidBuildingsNear(player.x, player.z, 2));
+    let open = 0; for (let a = 0; a < 8; a++) { const t = a * Math.PI / 4; if (rayWalls(player.x, player.z, player.x + Math.sin(t) * 15, player.z + Math.cos(t) * 15, 1) >= 1) open++; }
+    const st = nearestStreet(player.x, player.z); home(); expect(!inside, 'spawned inside a building'); expect(open >= 2, 'boxed in'); return `on ${st}, ${open}/8 directions open`;
+  });
+  await test('every spawn spot is on the map', () => {
+    const B = REGION.bounds, off = SPAWN_PLACES.filter((q) => q[1] < B[0] || q[1] > B[2] || q[2] < B[1] || q[2] > B[3]);
+    expect(off.length === 0, off.map((q) => q[0]).join(', ')); return `${SPAWN_PLACES.length} spots`;
+  });
+  await test('stuck inside a solid building (the Blue Carpark): moved outside within a second or two', async () => {
+    quiet(); await goToTile(-28.0752, 153.3863); player.x = -3610; player.z = 8410; player.state = 'foot';
+    expect(insideSolid(player.x, player.z, solidBuildingsNear(player.x, player.z, 2)), 'test spot is not inside the car park');
+    for (let k = 0; k < 60 * 2; k++) updateUnstuck(1 / 60);
+    const out = !insideSolid(player.x, player.z, solidBuildingsNear(player.x, player.z, 2)); home(); expect(out, 'still inside'); return 'moved out';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');
