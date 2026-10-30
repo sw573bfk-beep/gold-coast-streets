@@ -678,6 +678,28 @@ window.runRegression = async () => {
     dropPeer(P); NET.peers.delete('test1'); const s = myState();
     expect(car && hit === 'peer' && onFoot && s.m === 'f', `car ${car}, shot ${hit}, on foot ${onFoot}, state ${s.m}`); return 'car, then on foot; a shot hits them; looks cleaned';
   });
+  // ---------------------------------------------------------------- V13: accounts, records, fishing, time trials
+  await test('fishing: a rod at the water’s edge casts a line; the Broadwater and the surf beach have their own fish', async () => {
+    quiet(); await tpXZ(-560, -3675); let spot = null;
+    for (let k = 0; k < 800 && !spot; k++) { const a = rand() * TAU, r = 10 + rand() * 250, x = player.x + Math.cos(a) * r, z = player.z + Math.sin(a) * r; if (!isLand(x, z)) continue; for (let q = 0; q < 16; q++) { const t = q / 16 * TAU; if (!isLand(x + Math.sin(t) * 3, z + Math.cos(t) * 3)) { spot = [x, z, t]; break; } } }
+    expect(spot, 'no water’s edge found'); player.x = spot[0]; player.z = spot[1]; player.h = spot[2]; const rod0 = player.items.rod; player.items.rod = 0;
+    const noRod = fishUse(); player.items.rod = 1; const fs = fishSpot(true), cast = fishUse(), panel = !$('shop').hidden && $('shop-title').textContent; closeShop(); player.items.rod = rod0;
+    const kinds = new Set(); let big = 0; for (let i = 0; i < 3000; i++) { const f = pickFish(true); kinds.add(f.name); big = Math.max(big, f.kg); }
+    const r = `no rod: ${noRod} · cast: ${cast} (${panel}) · ${kinds.size} ocean catches, biggest ${big.toFixed(0)} kg`; home();
+    expect(!noRod && cast && fs && !fs.ocean && /Broadwater/.test(panel) && kinds.size >= 7 && big < 400, r); return r;
+  });
+  await test('time trials: get to the start in a car, the clock starts when you drive off and stops at the finish', async () => {
+    quiet(); await tpXZ(727, 305); const R = TRIALS[0]; TRIAL = { R, phase: 'go', t: 0 };
+    const c = new Car('sports', null, R.a[0], R.a[1], 0); cars.push(c); c.setDriver('player'); player.car = c; player.state = 'car'; player.mode = 'car'; player.x = c.x; player.z = c.z;
+    updateTrial(0.1); const ready = TRIAL.phase; player.x = c.x = R.a[0] + 40; updateTrial(0.1); const run = TRIAL.phase;
+    updateTrial(42); player.x = c.x = R.b[0]; player.z = c.z = R.b[1]; updateTrial(0.1); const msg = $('toast').textContent, done = TRIAL === null;
+    c.remove(); home(); const r = `${ready} → ${run} → finished: ${msg}`; expect(ready === 'ready' && run === 'run' && done && /0:42/.test(msg), r); return r;
+  });
+  await test('single player keeps its own save, and records only count in public multiplayer worlds', () => {
+    expect(MODE === 'single', 'the test page should be single player'); expect(!recordable(), 'single player can set records');
+    const m0 = player.money; player.money = 4242; saveGame(); const local = JSON.parse(localStorage.getItem('gcs-save')).money; player.money = m0; saveGame();
+    expect(local === 4242, 'not saved on this device'); return 'saved locally · no records offline';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

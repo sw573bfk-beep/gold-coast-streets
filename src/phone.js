@@ -23,7 +23,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Getting around'); grid = null;
@@ -40,6 +40,8 @@ function phoneApp(app) {
     head('Money & life'); grid = null;
     tile('💼', 'Jobs', () => phoneApp('jobs'));
     tile('📸', 'Tour', startTour);
+    tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
+    tile('🏆', 'Records', () => phoneApp('records'));
     tile('🍔', 'Food', foodDelivery);
     tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
@@ -75,6 +77,9 @@ function phoneApp(app) {
       btn(`${J.name} · $${jobRate(k)} a task`, at ? `${at.name} · ${km(at.x, at.z)} · ${jobState(k).shifts} shifts done` : 'no workplace nearby', () => at && directions(at.name, at.x, at.z), !!at);
     }
   } else if (app === 'clips') { back(); showClip(); }
+  else if (app === 'records') { back(); recordsApp(btn, head); }
+  else if (app === 'board') { btn('← Records', '', () => phoneApp('records')); boardApp(btn, head); }
+  else if (app === 'trials') { back(); trialsApp(btn, head); }
   else if (app === 'online') { back(); onlineApp(btn, head); }
   else if (app === 'rocco') { back(); roccoApp(btn, head); }
   else if (app === 'realty') { back(); realtyApp(btn, head); }

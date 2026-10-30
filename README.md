@@ -8,6 +8,8 @@ A GTA-style open-world browser game set on the real Gold Coast, Queensland, buil
 - **Every house can be entered**: kick in the front door (the neighbours call the cops) or jump a side fence and sneak in the back. Rooms are fitted to the real outline, with loot.
 - **Hotels, towers and shopping centres**: walk up and press E. Lobby, a lift to every floor (Q1 has all 77) and the roof; shopping centres like Pacific Fair are lined with the shops really inside them.
 - **Real roof colours** sampled from Queensland Government aerial photos, plus pools and tree crowns where the photos show them.
+- **Single player or multiplayer** from the start screen. Multiplayer needs an account (a name and a password, no email); multiplayer progress is saved to the account, apart from single player.
+- **Leaderboards** (phone → Records) for public worlds: the richest, time trials between real places, the biggest fish and the best wave. **Fishing**: buy a rod at a servo and cast from the water's edge.
 - **Online**: phone → Online. Join a public world anyone can drop into, or start a friends-only one and share its code (up to 16 players). Drive, fly, race and fight each other, with quick preset messages.
 - **Getting around**: ride the G:link tram the whole real route (Burleigh to Parkwood) or a bus for $5, take a jet ski or speedboat out on the Broadwater, fly planes, surf.
 - **Story missions** for Rocco (a made-up crime boss) on your phone, ending in a heist at The Star.
@@ -47,12 +49,13 @@ Regression tests run in the browser console on the served page: `(0, eval)(await
 
 ## Online server
 
-The online worlds run on a Cloudflare Worker with Durable Objects (`server/`). It only relays players: each game still runs its own traffic, pedestrians and police.
+The online worlds run on a Cloudflare Worker with Durable Objects, and accounts, saves and leaderboards in a D1 database (`server/`). Passwords are stored only as PBKDF2 hashes. It only relays players: each game still runs its own traffic, pedestrians and police.
 
 ```bash
 cd server
 npm install
 npx wrangler login     # opens Cloudflare in your browser: click Allow
+npx wrangler d1 migrations apply gold-coast-streets-db --remote   # the accounts and leaderboard tables
 npx wrangler deploy    # prints the server's address; put it in ONLINE_URL at the top of src/online.js
 ```
 

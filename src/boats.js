@@ -63,7 +63,9 @@ function spawnBoats(dt) {
     let shore = null; for (let k = 0; k < 8; k++) { const t = k / 8 * TAU; if (isLand(x + Math.cos(t) * 5, z + Math.sin(t) * 5)) { shore = t; break; } } // right by the bank...
     if (shore === null || isLand(x - Math.cos(shore) * 12, z - Math.sin(shore) * 12)) continue; // ...with open water off it
     if (BOATS.some((b) => Math.hypot(b.x - x, b.z - z) < 12)) continue;
-    new Boat(rand() < 0.65 ? 'jetski' : 'speedboat', x, z, Math.atan2(-Math.cos(shore), -Math.sin(shore)) + rr(-0.6, 0.6)); break; // nosed out towards open water
+    let h = 0, run = -1; // nosed towards the longest clear stretch of water (canals are narrow)
+    for (let q = 0; q < 16; q++) { const a = q / 16 * TAU, fx = Math.sin(a), fz = Math.cos(a); let d = 4; while (d < 80 && !isLand(x + fx * d, z + fz * d)) d += 4; if (d > run) { run = d; h = a; } }
+    new Boat(rand() < 0.65 ? 'jetski' : 'speedboat', x, z, h); break;
   }
 }
 function nearestBoat(maxD) { let best = null, bd = maxD; for (const b of BOATS) { const d = Math.hypot(b.x - player.x, b.z - player.z) - b.sp.L * 0.3; if (d < bd && !b.driven) { bd = d; best = b; } } return best; }

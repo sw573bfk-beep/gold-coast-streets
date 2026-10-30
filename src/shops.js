@@ -14,7 +14,7 @@ const ITEMS = {
   brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
   sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
   entry: { name: 'Club entry — dance till late (+energy, time flies)', price: 20, club: true },
-  sixpack: { name: 'Six-pack (for later)', price: 22, keep: true }, ice: { name: 'Bag of ice', price: 4, heal: 3 },
+  sixpack: { name: 'Six-pack (for later)', price: 22, keep: true }, rod: { name: 'Fishing rod (E at the water’s edge)', price: 60, keep: true }, ice: { name: 'Bag of ice', price: 4, heal: 3 },
   respray: { name: 'Respray your car (loses 1–2 star wanted levels)', price: 150, respray: true },
   room: { name: 'Book a room for the night (becomes your home)', price: 80, room: true },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
@@ -91,7 +91,7 @@ function menuFor(shop) {
     case 'icecream': return ['icecream', 'shake', 'cake'];
     case 'cafe': return cafeMenu(shop);
     case 'bar': return ['mocktail', 'fries', 'soda'];
-    case 'convenience': return ['energy', 'soda', 'fries', 'medkit'];
+    case 'convenience': return ['energy', 'soda', 'fries', 'medkit', 'rod'];
     case 'clothes': return ['outfit', 'sunnies', 'cap'];
     case 'ripley': return ['specs', 'spiral', 'cube', 'head', 'eye'];
     case 'arcade': return ['crocWhack', 'waveRider', 'stacker', 'prize', 'soda'];
@@ -101,7 +101,7 @@ function menuFor(shop) {
     case 'bottle': return ['sixpack', 'ice', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
-    case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit'];
+    case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit', 'rod'];
     default: return /souvenir|gift|koala|paradise/.test(n) ? ['globe', 'koala', 'magnet', 'sunnies'] : ['soda', 'energy', 'globe', 'magnet'];
   }
 }
@@ -402,11 +402,17 @@ function initShopUI() { $('shop-close').addEventListener('click', closeShop); $(
 
 // ---------------------------------------------------------------- saving
 function saveGame() {
-  try { localStorage.setItem('gcs-save', JSON.stringify(Object.assign({ money: player.money, items: player.items, weapons: player.weapons, weapon: player.weapon, look: player.look }, economySave()))); } catch (e) { /* storage blocked */ }
+  const s = Object.assign({ money: player.money, items: player.items, weapons: player.weapons, weapon: player.weapon, look: player.look }, economySave());
+  if (MODE === 'multi') return cloudSave(s); // multiplayer progress lives on the account
+  try { localStorage.setItem('gcs-save', JSON.stringify(s)); } catch (e) { /* storage blocked */ }
 }
 function loadGame() {
+  if (MODE === 'multi') return; // loaded from the account (loadAccount)
+  try { applySave(JSON.parse(localStorage.getItem('gcs-save') || 'null')); } catch (e) { /* storage blocked */ }
+}
+function applySave(s) {
   try {
-    const s = JSON.parse(localStorage.getItem('gcs-save') || 'null'); if (!s) return;
+    if (!s) return;
     if (typeof s.money === 'number') player.money = s.money;
     Object.assign(player.items, s.items || {}); Object.assign(player.weapons, s.weapons || {});
     if (s.weapon && (s.weapon === 'fist' || player.weapons[s.weapon] !== undefined)) player.weapon = s.weapon;

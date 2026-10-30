@@ -15,3 +15,10 @@ class_name = "Lobby"
 [[migrations]]
 tag = "v1"
 new_sqlite_classes = ["World", "Lobby"]
+
+# accounts, cloud saves and the leaderboards
+[[d1_databases]]
+binding = "DB"
+database_name = "gold-coast-streets-db"
+database_id = "1c8b1dab-5f8c-472c-bb2e-2c446a78ec0e"
+migrations_dir = "migrations"

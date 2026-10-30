@@ -120,7 +120,7 @@ function finishRide(wiped) {
   const R = SURF.ride; SURF.ride = null; SURF.mode = wiped ? 'wipe' : 'paddle'; SURF.wipeT = wiped ? 2.2 : 0;
   if (!R) return;
   const pts = Math.round(R.pts), cash = Math.round(pts / 25);
-  SURF.best = Math.max(SURF.best, pts);
+  SURF.best = Math.max(SURF.best, pts); if (pts > 0) submitRecord('wave', pts, wiped ? 'wiped out' : `${R.t.toFixed(1)} s ride`);
   if (wiped) { toast(`Wipeout! ${pts} pts${cash ? ` · +$${cash}` : ''}`); sfxNoise(0.6, 600, 0.4); }
   else toast(`Nice ride — ${R.t.toFixed(1)} s · ${pts} pts · +$${cash}`);
   player.money += cash; if (cash) saveGame();

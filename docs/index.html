@@ -184,6 +184,13 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
 #net { position: fixed; left: 18px; top: 14px; z-index: 5; font: 600 15px var(--hud); color: #5ee0c8; background: rgba(8,14,18,.7); padding: 4px 10px; border-radius: 8px; pointer-events: none; } body.touch #net { top: 140px; }
 .pinput { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
 .psays { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; } .psays button { border: 0; border-radius: 16px; padding: 7px 11px; background: #26343d; color: #fff; font: 600 14px var(--hud); cursor: pointer; }
+#modes { margin: 6px 0 10px; } #play-mp { margin-left: 10px; }
+.acct { background: rgba(8,14,18,.85); border: 2px solid var(--gold); border-radius: 12px; padding: 12px; max-width: 360px; }
+.acct-tabs { display: flex; gap: 6px; margin-bottom: 8px; } .acct-tabs button { flex: 1; padding: 8px; border-radius: 8px; border: 0; background: #26343d; color: #fff; font: 600 15px var(--hud); cursor: pointer; } .acct-tabs button.on { background: var(--gold); color: #111; }
+.acct input { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px; border-radius: 8px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
+#acct-go { width: 100%; } #acct-msg { color: #ff8a7a; font: 600 14px var(--hud); min-height: 18px; margin-top: 6px; } .acct-note { color: #9fb0b8; font: 500 13px var(--hud); }
+.acct-who { font: 700 18px var(--hud); color: #5ee0c8; margin-bottom: 6px; } .acct-row { display: flex; gap: 8px; } .acct-row button { padding: 6px 10px; border-radius: 8px; border: 0; background: #26343d; color: #fff; cursor: pointer; font: 600 14px var(--hud); }
+.lrow { display: flex; align-items: baseline; gap: 8px; padding: 7px 10px; border-radius: 10px; background: #1b262d; margin-bottom: 5px; color: #fff; font: 600 15px var(--hud); } .lrow span { flex: 1; color: #8fa3ab; font-size: 13px; } .lrow em { font-style: normal; color: var(--gold); } .lrow.me { outline: 2px solid #5ee0c8; }
 </style>
 <div id="view"></div>
 <div class="hud" id="tr">
@@ -2681,7 +2688,7 @@ const ITEMS = {
   brekky: { name: 'Big breakfast', price: 22, heal: 70 }, avo: { name: 'Smashed avo on toast', price: 18, heal: 45 }, pie: { name: 'Meat pie', price: 7, heal: 28 },
   sausageroll: { name: 'Sausage roll', price: 5, heal: 18 }, muffin: { name: 'Blueberry muffin', price: 5, heal: 14 }, juice: { name: 'Fresh juice', price: 8, heal: 18 },
   entry: { name: 'Club entry — dance till late (+energy, time flies)', price: 20, club: true },
-  sixpack: { name: 'Six-pack (for later)', price: 22, keep: true }, ice: { name: 'Bag of ice', price: 4, heal: 3 },
+  sixpack: { name: 'Six-pack (for later)', price: 22, keep: true }, rod: { name: 'Fishing rod (E at the water’s edge)', price: 60, keep: true }, ice: { name: 'Bag of ice', price: 4, heal: 3 },
   respray: { name: 'Respray your car (loses 1–2 star wanted levels)', price: 150, respray: true },
   room: { name: 'Book a room for the night (becomes your home)', price: 80, room: true },
   burger: { name: 'Burger', price: 12, heal: 35 }, fries: { name: 'Chips', price: 6, heal: 15 }, soda: { name: 'Soft drink', price: 4, heal: 8 },
@@ -2758,7 +2765,7 @@ function menuFor(shop) {
     case 'icecream': return ['icecream', 'shake', 'cake'];
     case 'cafe': return cafeMenu(shop);
     case 'bar': return ['mocktail', 'fries', 'soda'];
-    case 'convenience': return ['energy', 'soda', 'fries', 'medkit'];
+    case 'convenience': return ['energy', 'soda', 'fries', 'medkit', 'rod'];
     case 'clothes': return ['outfit', 'sunnies', 'cap'];
     case 'ripley': return ['specs', 'spiral', 'cube', 'head', 'eye'];
     case 'arcade': return ['crocWhack', 'waveRider', 'stacker', 'prize', 'soda'];
@@ -2768,7 +2775,7 @@ function menuFor(shop) {
     case 'bottle': return ['sixpack', 'ice', 'soda'];
     case 'pharmacy': return ['medkit', 'energy'];
     case 'bank': return [];
-    case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit'];
+    case 'fuel': return ['repair', 'respray', 'energy', 'soda', 'fries', 'medkit', 'rod'];
     default: return /souvenir|gift|koala|paradise/.test(n) ? ['globe', 'koala', 'magnet', 'sunnies'] : ['soda', 'energy', 'globe', 'magnet'];
   }
 }
@@ -3069,11 +3076,17 @@ function initShopUI() { $('shop-close').addEventListener('click', closeShop); $(
 
 // ---------------------------------------------------------------- saving
 function saveGame() {
-  try { localStorage.setItem('gcs-save', JSON.stringify(Object.assign({ money: player.money, items: player.items, weapons: player.weapons, weapon: player.weapon, look: player.look }, economySave()))); } catch (e) { /* storage blocked */ }
+  const s = Object.assign({ money: player.money, items: player.items, weapons: player.weapons, weapon: player.weapon, look: player.look }, economySave());
+  if (MODE === 'multi') return cloudSave(s); // multiplayer progress lives on the account
+  try { localStorage.setItem('gcs-save', JSON.stringify(s)); } catch (e) { /* storage blocked */ }
 }
 function loadGame() {
+  if (MODE === 'multi') return; // loaded from the account (loadAccount)
+  try { applySave(JSON.parse(localStorage.getItem('gcs-save') || 'null')); } catch (e) { /* storage blocked */ }
+}
+function applySave(s) {
   try {
-    const s = JSON.parse(localStorage.getItem('gcs-save') || 'null'); if (!s) return;
+    if (!s) return;
     if (typeof s.money === 'number') player.money = s.money;
     Object.assign(player.items, s.items || {}); Object.assign(player.weapons, s.weapons || {});
     if (s.weapon && (s.weapon === 'fist' || player.weapons[s.weapon] !== undefined)) player.weapon = s.weapon;
@@ -3700,7 +3713,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Getting around'); grid = null;
@@ -3717,6 +3730,8 @@ function phoneApp(app) {
     head('Money & life'); grid = null;
     tile('💼', 'Jobs', () => phoneApp('jobs'));
     tile('📸', 'Tour', startTour);
+    tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
+    tile('🏆', 'Records', () => phoneApp('records'));
     tile('🍔', 'Food', foodDelivery);
     tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
@@ -3752,6 +3767,9 @@ function phoneApp(app) {
       btn(`${J.name} · $${jobRate(k)} a task`, at ? `${at.name} · ${km(at.x, at.z)} · ${jobState(k).shifts} shifts done` : 'no workplace nearby', () => at && directions(at.name, at.x, at.z), !!at);
     }
   } else if (app === 'clips') { back(); showClip(); }
+  else if (app === 'records') { back(); recordsApp(btn, head); }
+  else if (app === 'board') { btn('← Records', '', () => phoneApp('records')); boardApp(btn, head); }
+  else if (app === 'trials') { back(); trialsApp(btn, head); }
   else if (app === 'online') { back(); onlineApp(btn, head); }
   else if (app === 'rocco') { back(); roccoApp(btn, head); }
   else if (app === 'realty') { back(); realtyApp(btn, head); }
@@ -4372,7 +4390,7 @@ function finishRide(wiped) {
   const R = SURF.ride; SURF.ride = null; SURF.mode = wiped ? 'wipe' : 'paddle'; SURF.wipeT = wiped ? 2.2 : 0;
   if (!R) return;
   const pts = Math.round(R.pts), cash = Math.round(pts / 25);
-  SURF.best = Math.max(SURF.best, pts);
+  SURF.best = Math.max(SURF.best, pts); if (pts > 0) submitRecord('wave', pts, wiped ? 'wiped out' : `${R.t.toFixed(1)} s ride`);
   if (wiped) { toast(`Wipeout! ${pts} pts${cash ? ` · +$${cash}` : ''}`); sfxNoise(0.6, 600, 0.4); }
   else toast(`Nice ride — ${R.t.toFixed(1)} s · ${pts} pts · +$${cash}`);
   player.money += cash; if (cash) saveGame();
@@ -4705,7 +4723,9 @@ function spawnBoats(dt) {
     let shore = null; for (let k = 0; k < 8; k++) { const t = k / 8 * TAU; if (isLand(x + Math.cos(t) * 5, z + Math.sin(t) * 5)) { shore = t; break; } } // right by the bank...
     if (shore === null || isLand(x - Math.cos(shore) * 12, z - Math.sin(shore) * 12)) continue; // ...with open water off it
     if (BOATS.some((b) => Math.hypot(b.x - x, b.z - z) < 12)) continue;
-    new Boat(rand() < 0.65 ? 'jetski' : 'speedboat', x, z, Math.atan2(-Math.cos(shore), -Math.sin(shore)) + rr(-0.6, 0.6)); break; // nosed out towards open water
+    let h = 0, run = -1; // nosed towards the longest clear stretch of water (canals are narrow)
+    for (let q = 0; q < 16; q++) { const a = q / 16 * TAU, fx = Math.sin(a), fz = Math.cos(a); let d = 4; while (d < 80 && !isLand(x + fx * d, z + fz * d)) d += 4; if (d > run) { run = d; h = a; } }
+    new Boat(rand() < 0.65 ? 'jetski' : 'speedboat', x, z, h); break;
   }
 }
 function nearestBoat(maxD) { let best = null, bd = maxD; for (const b of BOATS) { const d = Math.hypot(b.x - player.x, b.z - player.z) - b.sp.L * 0.3; if (d < bd && !b.driven) { bd = d; best = b; } } return best; }
@@ -5260,8 +5280,6 @@ const ONLINE_URL = (() => { try { return localStorage.getItem('gcs-server') || '
 const NET = { ws: null, id: null, world: null, peers: new Map(), sendT: 0, status: 'off', lastHitBy: null, race: null, list: null };
 const SAYINGS = ['👋 G’day!', 'Follow me', 'Race?', 'Help!', 'Nice one!', 'Get in', 'Over here', 'Watch this', '😂', 'Bye!', '🏁 Finished!'];
 const NET_RATE = 1 / 8; // state updates a second: smooth enough, and kind to the free server plan
-function netName() { try { return localStorage.getItem('gcs-name') || ''; } catch (e) { return ''; } }
-function setNetName(n) { try { localStorage.setItem('gcs-name', n); } catch (e) { /* storage blocked */ } }
 const HEX = /^#[0-9a-f]{6}$/i;
 function safeLook(L) { // other players' looks are data: only known keys and plain colours get through
   if (!L || typeof L !== 'object') L = {};
@@ -5276,8 +5294,8 @@ function safeLook(L) { // other players' looks are data: only known keys and pla
 function netCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = 'GC-'; for (let k = 0; k < 4; k++) s += A[Math.floor(Math.random() * A.length)]; return s; }
 function netJoin(code, opts = {}) {
   netLeave(true);
-  const name = netName() || 'Player';
-  const q = new URLSearchParams({ world: code, name, public: opts.public ? '1' : '0', title: opts.title || name + '’s world' });
+  if (MODE !== 'multi' || !ACCT.token) { toast('Pick Multiplayer on the main menu first'); return; }
+  const q = new URLSearchParams({ world: code, token: ACCT.token, public: opts.public ? '1' : '0', title: opts.title || ACCT.name + '’s world' });
   let ws; try { ws = new WebSocket(ONLINE_URL.replace(/^http/, 'ws') + '/ws?' + q); } catch (e) { toast('Couldn’t reach the online server'); return; }
   NET.ws = ws; NET.status = 'connecting'; toast(`Joining ${code}…`);
   ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch (err) { return; } netMessage(m); };
@@ -5414,7 +5432,7 @@ function onlineApp(btn, head) {
     head(`${NET.world.title} · code ${NET.world.code}`);
     btn(NET.world.public ? 'Public world' : 'Friends-only world', `tell friends the code: ${NET.world.code}`, () => {}, false);
     head(`Here now (${NET.peers.size + 1})`);
-    btn(`🙂 ${netName() || 'You'} (you)`, '', () => {}, false);
+    btn(`🙂 ${ACCT.name || 'You'} (you)`, '', () => {}, false);
     for (const P of NET.peers.values()) btn(`🧍 ${P.name}`, P.s ? km(P.x, P.z) + ' away · tap for directions' : 'just arrived', () => P.s && directions(P.name, P.x, P.z));
     head('Quick messages');
     const row = document.createElement('div'); row.className = 'psays';
@@ -5425,10 +5443,9 @@ function onlineApp(btn, head) {
     return;
   }
   if (NET.status === 'connecting') { btn('Connecting…', '', () => {}, false); return; }
-  head('Your name');
-  const nm = document.createElement('input'); nm.className = 'pinput'; nm.maxLength = 16; nm.placeholder = 'Pick a name'; nm.value = netName();
-  nm.addEventListener('change', () => setNetName(nm.value.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 16))); body.appendChild(nm);
-  const ready = () => { setNetName(nm.value.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 16)); if (!netName()) { toast('Pick a name first'); return false; } return true; };
+  if (MODE !== 'multi') { btn('🌐 Switch to multiplayer', 'online play needs an account: you’ll go back to the main menu (single player is saved)', () => { saveGame(); location.reload(); }); return; }
+  head(`Signed in as ${ACCT.name}`);
+  const ready = () => true;
   head('Join a public world');
   const list = document.createElement('div'); body.appendChild(list); list.textContent = 'Looking for worlds…';
   fetch(ONLINE_URL + '/worlds').then((r) => r.json()).then((d) => {
@@ -5437,12 +5454,225 @@ function onlineApp(btn, head) {
     for (const w of d.worlds) { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = `🌏 ${w.title}`; b.lastChild.textContent = `${w.players}/${w.max} players · ${w.code}`; b.disabled = w.players >= w.max; b.addEventListener('click', () => { if (ready()) { netJoin(w.code); closePhone(); } }); list.appendChild(b); }
   }).catch(() => { list.textContent = 'Couldn’t reach the online server.'; });
   head('Start a world');
-  btn('🌏 Start a public world', 'anyone can find it and join (up to 16)', () => { if (ready()) { netJoin(netCode(), { public: true, title: netName() + '’s world' }); closePhone(); } });
-  btn('🔒 Start a friends-only world', 'not listed: share the code with your friends', () => { if (ready()) { netJoin(netCode(), { public: false, title: netName() + '’s world' }); closePhone(); } });
+  btn('🌏 Start a public world', 'anyone can find it and join (up to 16)', () => { if (ready()) { netJoin(netCode(), { public: true, title: ACCT.name + '’s world' }); closePhone(); } });
+  btn('🔒 Start a friends-only world', 'not listed: share the code with your friends', () => { if (ready()) { netJoin(netCode(), { public: false, title: ACCT.name + '’s world' }); closePhone(); } });
   head('Join with a code');
   const code = document.createElement('input'); code.className = 'pinput'; code.maxLength = 8; code.placeholder = 'GC-XXXX'; body.appendChild(code);
   btn('Join', 'the code your friend gave you', () => { const c = code.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); if (c.length < 4) { toast('Type the code first'); return; } if (ready()) { netJoin(c.startsWith('GC-') || c.includes('-') ? c : 'GC-' + c); closePhone(); } });
   const note = document.createElement('div'); note.className = 'pfoot'; note.textContent = 'Only quick messages, no typed chat. Be kind!'; body.appendChild(note);
+}
+
+// ============================================================================
+// Gold Coast Streets — single player or multiplayer. Single player saves on this device, like always. Multiplayer
+// needs an account (a name and a password, nothing else): your multiplayer money, cars, houses and look are saved
+// to the account so you can carry on anywhere, and kept apart from single player (no bringing offline money online).
+// Records set in public worlds go on the leaderboards: the richest, the fastest time trials, the biggest fish and the
+// best wave (phone → Records).
+// ============================================================================
+const MODE = (() => { try { return sessionStorage.getItem('gcs-mode') === 'multi' ? 'multi' : 'single'; } catch (e) { return 'single'; } })();
+const ACCT = { token: null, name: null, loaded: false, saveT: 0, dirty: false, lastSave: 0 };
+try { ACCT.token = localStorage.getItem('gcs-token'); ACCT.name = localStorage.getItem('gcs-acct'); } catch (e) { /* storage blocked */ }
+function api(path, body, method) {
+  const headers = { 'Content-Type': 'application/json' }; if (ACCT.token) headers.Authorization = 'Bearer ' + ACCT.token;
+  return fetch(ONLINE_URL + path, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined })
+    .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Server error'); return d; });
+}
+function setMode(m) { try { if (m === 'multi') sessionStorage.setItem('gcs-mode', 'multi'); else sessionStorage.removeItem('gcs-mode'); } catch (e) { /* storage blocked */ } location.reload(); }
+function signedIn(d) { ACCT.token = d.token; ACCT.name = d.name; try { localStorage.setItem('gcs-token', d.token); localStorage.setItem('gcs-acct', d.name); } catch (e) { /* storage blocked */ } }
+function signOut() {
+  if (ACCT.token) api('/logout', {}).catch(() => {});
+  try { localStorage.removeItem('gcs-token'); localStorage.removeItem('gcs-acct'); } catch (e) { /* storage blocked */ }
+  setMode('single');
+}
+// ---------------------------------------------------------------- the start screen
+function initModeMenu() {
+  const play = $('play'), box = document.createElement('div'); box.id = 'modes';
+  play.parentNode.insertBefore(box, play);
+  if (MODE === 'single') {
+    play.dataset.label = '▶ Single player';
+    const mp = document.createElement('button'); mp.type = 'button'; mp.id = 'play-mp'; mp.textContent = '🌐 Multiplayer';
+    mp.addEventListener('click', () => { if (ACCT.token) api('/me').then(() => setMode('multi')).catch(() => accountForm(box)); else accountForm(box); });
+    play.after(mp);
+  } else {
+    play.dataset.label = '▶ Play online';
+    box.innerHTML = '<div class="acct-who"></div>'; box.firstChild.textContent = `🌐 Multiplayer · signed in as ${ACCT.name || '…'}`;
+    const row = document.createElement('div'); row.className = 'acct-row';
+    const sp = document.createElement('button'); sp.type = 'button'; sp.textContent = 'Back to single player'; sp.addEventListener('click', () => setMode('single'));
+    const out = document.createElement('button'); out.type = 'button'; out.textContent = 'Log out'; out.addEventListener('click', signOut);
+    row.append(sp, out); box.appendChild(row);
+  }
+}
+function accountForm(box) {
+  box.innerHTML = `<div class="acct"><div class="acct-tabs"><button type="button" data-t="login" class="on">Log in</button><button type="button" data-t="signup">Create account</button></div>
+    <input id="acct-name" maxlength="16" placeholder="Name (3–16 letters or numbers)" autocomplete="username">
+    <input id="acct-pass" type="password" maxlength="64" placeholder="Password (6+ characters)" autocomplete="current-password">
+    <button type="button" id="acct-go">Log in</button><div id="acct-msg"></div>
+    <div class="acct-note">No email needed. Write your password down — without an email it can’t be reset.</div></div>`;
+  let tab = 'login';
+  box.querySelectorAll('.acct-tabs button').forEach((b) => b.addEventListener('click', () => {
+    tab = b.dataset.t; box.querySelectorAll('.acct-tabs button').forEach((o) => o.classList.toggle('on', o === b));
+    $('acct-go').textContent = tab === 'login' ? 'Log in' : 'Create account'; $('acct-pass').autocomplete = tab === 'login' ? 'current-password' : 'new-password';
+  }));
+  const go = () => {
+    const name = $('acct-name').value.trim(), password = $('acct-pass').value; $('acct-msg').textContent = '…';
+    api(tab === 'login' ? '/login' : '/signup', { name, password }).then((d) => { signedIn(d); setMode('multi'); }).catch((e) => { $('acct-msg').textContent = e.message; });
+  };
+  $('acct-go').addEventListener('click', go); $('acct-pass').addEventListener('keydown', (e) => { if (e.key === 'Enter') go(); });
+  $('acct-name').focus();
+}
+// multiplayer progress comes from the account, not this device
+function loadAccount() {
+  if (MODE !== 'multi') return;
+  $('play').disabled = true; $('play').textContent = 'Loading your account…';
+  api('/save').then((d) => {
+    if (d.data) applySave(d.data);
+    rebuildPlayer(); ACCT.loaded = true; $('play').disabled = false; $('play').textContent = $('play').dataset.label;
+  }).catch((e) => { $('play').textContent = e.message === 'log in first' ? 'Signed out — log in again' : 'Couldn’t reach the server'; if (e.message === 'log in first') signOut(); });
+}
+function cloudSave(obj) { // called by saveGame in multiplayer: sent at most every 15 s
+  ACCT.pending = obj; if (ACCT.saveT > 0) return;
+  const wait = Math.max(0, 15000 - (Date.now() - ACCT.lastSave)); ACCT.saveT = 1;
+  setTimeout(() => {
+    ACCT.saveT = 0; ACCT.lastSave = Date.now(); const data = ACCT.pending; ACCT.pending = null; if (!data || !ACCT.loaded) return;
+    api('/save', { data, world: NET.world && NET.world.public ? NET.world.code : null }).catch(() => {});
+  }, wait);
+}
+// ---------------------------------------------------------------- records (public worlds only)
+const BOARDS = [['money', '💰 Richest', (v) => '$' + Math.round(v).toLocaleString()], ['fish', '🎣 Biggest fish', (v) => v.toFixed(2) + ' kg'], ['wave', '🏄 Best wave', (v) => Math.round(v).toLocaleString() + ' pts']];
+function recordable() { return MODE === 'multi' && NET.status === 'on' && NET.world && NET.world.public; }
+function submitRecord(board, value, detail) {
+  if (!recordable()) return;
+  api('/record', { board, value, detail, world: NET.world.code }).then((d) => { if (d.best) { toast('🏆 New personal best on the leaderboard!'); sfxTone([784, 1046, 1318], 0.4, 0.06, 'triangle'); } }).catch(() => {});
+}
+function recordsApp(btn, head) {
+  head(recordable() ? 'Records count in this public world' : MODE === 'multi' ? 'Join a public world to set records' : 'Records are set in public multiplayer worlds');
+  for (const [b, label] of BOARDS) btn(label, 'top 20', () => { PHONE.board = b; phoneApp('board'); });
+  head('Time trials (fastest)');
+  for (const R of TRIALS) btn(`⏱ ${R.name}`, 'top 20', () => { PHONE.board = 'trial:' + R.id; phoneApp('board'); });
+}
+function boardApp(btn, head) {
+  const b = PHONE.board, B = BOARDS.find((q) => q[0] === b), R = b.startsWith('trial:') && TRIALS.find((q) => 'trial:' + q.id === b);
+  const fmt = B ? B[2] : (v) => fmtTime(v);
+  head(B ? B[1] : '⏱ ' + R.name);
+  const list = document.createElement('div'); list.textContent = 'Loading…'; $('phone-body').appendChild(list);
+  api('/leaders?board=' + encodeURIComponent(b)).then((d) => {
+    if (PHONE.app !== 'board') return; list.textContent = '';
+    if (!d.leaders.length) list.textContent = 'No records yet — be the first!';
+    d.leaders.forEach((L, i) => { const r = document.createElement('div'); r.className = 'lrow' + (L.name === ACCT.name ? ' me' : ''); r.innerHTML = '<b></b><span></span><em></em>'; r.children[0].textContent = `${i + 1}. ${L.name}`; r.children[1].textContent = L.detail || ''; r.children[2].textContent = fmt(L.value); list.appendChild(r); });
+    if (d.me && d.me.rank > 20) { const r = document.createElement('div'); r.className = 'lrow me'; r.innerHTML = '<b></b><span></span><em></em>'; r.children[0].textContent = `${d.me.rank}. you`; r.children[1].textContent = d.me.detail || ''; r.children[2].textContent = fmt(d.me.value); list.appendChild(r); }
+  }).catch(() => { list.textContent = 'Couldn’t reach the server.'; });
+}
+const fmtTime = (s) => `${Math.floor(s / 60)}:${(s % 60).toFixed(2).padStart(5, '0')}`;
+// ---------------------------------------------------------------- time trials: drive between real places against the clock
+const TRIALS = [
+  { id: 'cavill-pacificfair', name: 'Cavill Mall → Pacific Fair', a: [727, 305], b: [440, 4067] },
+  { id: 'star-southport', name: 'The Star → Australia Fair', a: [498, 3640], b: [-735, -3470] },
+  { id: 'robina-surfers', name: 'Robina Town Centre → Cavill Mall', a: [-3704, 8614], b: [727, 305] },
+  { id: 'southport-burleigh', name: 'Australia Fair → Burleigh Heads', a: [-735, -3470], b: [1580, 11349] },
+];
+let TRIAL = null; // { R, phase: 'go' (to the start) | 'run', t }
+function trialsApp(btn, head) {
+  head('Drive it as fast as you can');
+  if (TRIAL) btn('Cancel the time trial', TRIAL.R.name, () => { endTrial('Time trial cancelled'); phoneApp('trials'); });
+  for (const R of TRIALS) btn(`⏱ ${R.name}`, `${(Math.hypot(R.a[0] - R.b[0], R.a[1] - R.b[1]) / 1000).toFixed(1)} km as the crow flies · start ${km(R.a[0], R.a[1])} away`, () => {
+    if (STORY.M || MISSION || HEIST.stage) { toast('Finish what you’re doing first'); return; }
+    TRIAL = { R, phase: 'go', t: 0 }; WAYPOINT = { name: 'Time trial start', x: R.a[0], z: R.a[1] }; GPS.t = 0; closePhone();
+    toast(`Get to the start in any car — the clock starts when you drive off`);
+  });
+}
+function endTrial(msg) { TRIAL = null; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true; if (msg) toast(msg); }
+function updateTrial(dt) {
+  const T = TRIAL; if (!T) return;
+  const R = T.R, dA = Math.hypot(R.a[0] - player.x, R.a[1] - player.z), dB = Math.hypot(R.b[0] - player.x, R.b[1] - player.z), inCar = player.state === 'car';
+  if (player.deadT > 0) return endTrial('Time trial over');
+  $('jobhud').hidden = false;
+  if (T.phase === 'go') {
+    $('jobhud').textContent = `⏱ ${R.name} · get to the start (${Math.round(dA)} m)${inCar ? '' : ' · you need a car'}`;
+    if (dA < 25 && inCar) { T.phase = 'ready'; toast('On your marks… drive off to start the clock'); sfxTone([440], 0.2, 0.06); }
+  } else if (T.phase === 'ready') {
+    $('jobhud').textContent = `⏱ ${R.name} · drive off to start`;
+    if (dA > 25) { if (!inCar) return endTrial('You need to drive it'); T.phase = 'run'; T.t = 0; WAYPOINT = { name: 'Finish: ' + R.name.split('→ ')[1], x: R.b[0], z: R.b[1] }; GPS.t = 0; sfxTone([880], 0.3, 0.07); }
+  } else {
+    T.t += dt; $('jobhud').textContent = `⏱ ${fmtTime(T.t)} · ${Math.round(dB)} m to go${recordable() ? '' : ' · (records only count in public worlds)'}`;
+    if (!inCar && player.state !== 'exit' && player.state !== 'enter') return endTrial('You left the car — time trial over');
+    if (dB < 25) { const t = Math.round(T.t * 100) / 100; endTrial(`🏁 ${R.name}: ${fmtTime(t)}`); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); submitRecord('trial:' + R.id, t, CAR_LABEL[player.car && player.car.type] || (player.car && player.car.type) || ''); }
+  }
+}
+
+// ============================================================================
+// Gold Coast Streets — fishing. Buy a rod at a servo or convenience store, stand at the water's edge facing the
+// water (a beach, the Broadwater, a canal) and press E to cast. Wait for a bite, strike, then reel it in: hold REEL
+// to keep the line tension in the green while the fish fights. The fish market buys whatever you land; in a public
+// multiplayer world your biggest fish goes on the leaderboard.
+// ============================================================================
+// [name, min kg, max kg, $ per kg, chance]
+const FISH_OCEAN = [['Sand whiting', 0.2, 0.9, 18, 30], ['Dusky flathead', 0.5, 3.5, 16, 18], ['Tailor', 0.5, 3, 10, 14], ['Snapper', 1, 9, 22, 10], ['Spanish mackerel', 5, 28, 14, 6], ['Longtail tuna', 8, 35, 12, 4], ['Bronze whaler shark', 30, 160, 3, 2], ['Old boot', 0, 0, 0, 4], ['Seaweed', 0, 0, 0, 4]];
+const FISH_INSHORE = [['Bream', 0.3, 1.6, 16, 30], ['Sand whiting', 0.2, 0.8, 18, 18], ['Dusky flathead', 0.5, 4.5, 16, 20], ['Mangrove jack', 1, 5, 24, 9], ['Mud crab', 0.5, 2.2, 40, 7], ['Giant trevally', 1, 9, 9, 5], ['Bull shark', 40, 200, 3, 2], ['Shopping trolley', 0, 0, 0, 4], ['Old boot', 0, 0, 0, 5]];
+const FISH = { on: false };
+// the water just ahead of you, from dry land
+const openSea = (x, z) => onBeach(x, z) || onBeachSand(x, z); // standing on the surf beach: the Pacific, not the Broadwater
+function fishSpot(which) { // which: also work out whether it's the ocean (only when casting)
+  if (player.state !== 'foot' || player.deadT > 0 || !REGION || !isLand(player.x, player.z)) return null;
+  const fx = Math.sin(player.h), fz = Math.cos(player.h);
+  for (const d of [2, 3.5, 5, 7]) { const x = player.x + fx * d, z = player.z + fz * d; if (!isLand(x, z)) return { x, z, ocean: !!which && openSea(player.x, player.z) }; }
+  return null;
+}
+function pickFish(ocean) {
+  const T = ocean ? FISH_OCEAN : FISH_INSHORE, sum = T.reduce((a, f) => a + f[4], 0); let r = rand() * sum;
+  for (const f of T) { r -= f[4]; if (r <= 0) { const k = Math.pow(rand(), 2.2); return { name: f[0], kg: f[1] + (f[2] - f[1]) * k, price: f[3], fight: f[2] > 20 ? 1.8 : f[2] > 6 ? 1.35 : 1 }; } } // big ones are rare even within a kind
+  return { name: T[0][0], kg: T[0][1], price: T[0][3], fight: 1 };
+}
+function fishUse() { // E at the water's edge with a rod
+  if (!(player.items.rod > 0)) return false;
+  const S = fishSpot(true); if (!S) return false;
+  startFishing(S); return true;
+}
+function startFishing(S) {
+  uiOpen = true; if (document.pointerLockElement) document.exitPointerLock(); FISH.on = true;
+  $('shop').hidden = false; $('shop-title').textContent = S.ocean ? 'Fishing off the beach' : 'Fishing the Broadwater'; $('shop-money').textContent = '$' + player.money.toLocaleString();
+  const body = $('shop-body'); body.innerHTML = '';
+  const info = document.createElement('p'), bar = document.createElement('div'), zone = document.createElement('div'), mark = document.createElement('div'), prog = document.createElement('div'), btn = document.createElement('button');
+  bar.style.cssText = 'position:relative;height:30px;background:#2b3238;border-radius:6px;margin:10px 0;overflow:hidden';
+  zone.style.cssText = 'position:absolute;left:40%;width:30%;top:0;bottom:0;background:#33d17a'; mark.style.cssText = 'position:absolute;width:6px;top:0;bottom:0;background:#fff;left:20%';
+  prog.style.cssText = 'height:8px;border-radius:4px;background:#f6c445;width:0'; bar.append(zone, mark); bar.hidden = true; prog.hidden = true;
+  btn.type = 'button'; btn.textContent = 'Waiting…'; btn.disabled = true; btn.style.cssText = 'width:100%;padding:14px;font-size:20px;touch-action:manipulation';
+  body.append(info, bar, prog, btn);
+  $('shop-sub').textContent = 'Line’s in the water…'; info.textContent = '🎣 Watch the float. Strike when it goes under!';
+  const fish = pickFish(S.ocean); let phase = 'wait', t = 0, tension = 30, progress = 0, slack = 0, hold = false, raf = 0, last = performance.now();
+  const biteAt = 2 + rand() * 6;
+  const done = (msg) => { cancelAnimationFrame(raf); FISH.on = false; phase = 'done'; btn.disabled = false; btn.textContent = 'Cast again'; bar.hidden = true; prog.hidden = true; info.textContent = msg; $('shop-money').textContent = '$' + player.money.toLocaleString(); };
+  btn.addEventListener('pointerdown', (e) => {
+    e.preventDefault();
+    if (phase === 'bite') { phase = 'reel'; bar.hidden = false; prog.hidden = false; btn.textContent = 'HOLD TO REEL'; $('shop-sub').textContent = 'Keep the tension in the green until it’s landed. Too much and the line snaps!'; sfxTone([660], 0.08, 0.05); }
+    else if (phase === 'reel') hold = true;
+    else if (phase === 'done') startFishing(S);
+  });
+  const up = () => { hold = false; }; btn.addEventListener('pointerup', up); btn.addEventListener('pointerleave', up); btn.addEventListener('pointercancel', up);
+  const tick = (now) => {
+    if ($('shop').hidden) { FISH.on = false; return; } // walked away (closed the panel)
+    const dt = Math.min(0.05, (now - last) / 1000); last = now; t += dt;
+    if (phase === 'wait') { info.textContent = '🎣 ' + '~'.repeat(1 + Math.floor(t * 2) % 4) + ' the float bobs…'; if (t > biteAt) { phase = 'bite'; t = 0; btn.disabled = false; btn.textContent = 'STRIKE!'; info.textContent = '❗ Something’s on — strike now!'; sfxTone([880, 1100], 0.15, 0.06, 'square'); } }
+    else if (phase === 'bite') { if (t > 1.1) return done('Too slow — it spat the hook. Cast again?'); }
+    else if (phase === 'reel') {
+      const pull = (Math.sin(t * 2.3) * 0.5 + Math.sin(t * 5.1) * 0.5 + 0.6) * 38 * fish.fight; // the fish runs and rests
+      tension += ((hold ? 70 : -55) + pull - 25) * dt; tension = clamp(tension, 0, 100);
+      mark.style.left = tension + '%';
+      const inZone = tension > 40 && tension < 70;
+      progress += (inZone ? 16 / fish.fight : -4) * dt; progress = clamp(progress, 0, 100); prog.style.width = progress + '%';
+      slack = tension < 12 ? slack + dt : 0;
+      info.textContent = inZone ? 'Good — keep it there' : tension > 70 ? 'Too tight! Ease off' : 'Line’s slack — reel!';
+      if (tension >= 99) return done('SNAP! The line broke. Cast again?');
+      if (slack > 2) return done('It got off the hook. Cast again?');
+      if (progress >= 100) {
+        if (!fish.kg) { sfxNoise(0.2, 500, 0.2); return done(`You reeled in… a ${fish.name.toLowerCase()}. Classic.`); }
+        const kg = Math.round(fish.kg * 100) / 100, cash = Math.max(1, Math.round(kg * fish.price)); player.money += cash; saveGame();
+        sfxTone([523, 659, 784], 0.35, 0.06, 'triangle'); submitRecord('fish', kg, fish.name);
+        return done(`🐟 ${fish.name}, ${kg.toFixed(2)} kg! The fish market paid $${cash}.`);
+      }
+    }
+    raf = requestAnimationFrame(tick);
+  };
+  raf = requestAnimationFrame(tick);
 }
 
 // ============================================================================
@@ -9396,6 +9626,7 @@ function useKey() {
   if (boardRide()) return; // a tram or bus stopped beside you
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
   const c = nearestEnterableCar(); if (c) return startEnter(c);
+  if (fishUse()) return; // facing the water with a rod
   surfUse(); // on a beach: hire a board
 }
 function updatePlayer(dt) {
@@ -9918,6 +10149,7 @@ function updateHUD(dt) {
   else if (player.state === 'foot' && player.deadT === 0) {
     const shop = nearShop();
     if (shop) prompt = `Press <b>F</b> to try on clothes at ${shop.name}`;
+    else if (player.items.rod > 0 && fishSpot()) prompt = 'Press <b>E</b> to cast a line';
     else { const c = nearestEnterableCar(); if (c) prompt = c.driver ? `Press <b>F</b> to carjack` : `Press <b>F</b> to get in`; }
   } else if (player.state === 'car' && player.car.speed < 0.5) prompt = 'Press <b>F</b> to get out';
   const pe = $('prompt'); if (pe.innerHTML !== prompt) pe.innerHTML = prompt; pe.style.opacity = prompt ? 1 : 0;
@@ -10026,7 +10258,7 @@ window.addEventListener('keydown', (e) => {
   if (paused) return;
   if (code === 'KeyF' || code === 'KeyE') useKey();
   if (code === 'KeyQ') punch();
-  if (code === 'Backquote') devToggle();
+  if (code === 'Backquote' && MODE !== 'multi') devToggle(); // no dev tools or time skipping in multiplayer
   if (code === 'KeyB') openBag();
   if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(code)) selectWeapon(WEAPON_ORDER[+code.slice(5) - 1]);
   if (code === 'KeyH') { sfxTone([392, 494], 0.35, 0.07); for (const p of peds) if (Math.hypot(p.x - player.x, p.z - player.z) < 12) p.scare(player.x, player.z, 1.2); }
@@ -10035,7 +10267,7 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyG') surrender();
   if (code === 'KeyX') cancelDestination();
   if (code === 'KeyP') openPhone();
-  if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
+  if (code === 'KeyT' && MODE !== 'multi') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
   if (code === 'KeyR' && (['car', 'plane', 'boat', 'ride'].includes(player.state) || hasGear('headphones'))) changeStation();
 });
@@ -10055,8 +10287,9 @@ function setPaused(p) {
 }
 $('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
-  if (!started) await goToSpawn($('pick-spawn').value);
+  const first = !started; if (first) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
+  if (first && MODE === 'multi') { openPhone(); phoneApp('online'); } // straight to picking a world
 });
 
 // ---------------------------------------------------------------- the start screen: how you look, and where you start
@@ -10199,7 +10432,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
@@ -10283,7 +10516,7 @@ async function boot() {
     say('');
     ready = true;
     initSetup();
-    $('play').disabled = false; $('play').textContent = 'Play';
+    initModeMenu(); $('play').disabled = false; $('play').textContent = $('play').dataset.label; loadAccount();
   } catch (err) {
     console.error(err);
     say('Something went wrong while building the city: ' + err.message);

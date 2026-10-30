@@ -1366,6 +1366,7 @@ function useKey() {
   if (boardRide()) return; // a tram or bus stopped beside you
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
   const c = nearestEnterableCar(); if (c) return startEnter(c);
+  if (fishUse()) return; // facing the water with a rod
   surfUse(); // on a beach: hire a board
 }
 function updatePlayer(dt) {
@@ -1888,6 +1889,7 @@ function updateHUD(dt) {
   else if (player.state === 'foot' && player.deadT === 0) {
     const shop = nearShop();
     if (shop) prompt = `Press <b>F</b> to try on clothes at ${shop.name}`;
+    else if (player.items.rod > 0 && fishSpot()) prompt = 'Press <b>E</b> to cast a line';
     else { const c = nearestEnterableCar(); if (c) prompt = c.driver ? `Press <b>F</b> to carjack` : `Press <b>F</b> to get in`; }
   } else if (player.state === 'car' && player.car.speed < 0.5) prompt = 'Press <b>F</b> to get out';
   const pe = $('prompt'); if (pe.innerHTML !== prompt) pe.innerHTML = prompt; pe.style.opacity = prompt ? 1 : 0;
@@ -1996,7 +1998,7 @@ window.addEventListener('keydown', (e) => {
   if (paused) return;
   if (code === 'KeyF' || code === 'KeyE') useKey();
   if (code === 'KeyQ') punch();
-  if (code === 'Backquote') devToggle();
+  if (code === 'Backquote' && MODE !== 'multi') devToggle(); // no dev tools or time skipping in multiplayer
   if (code === 'KeyB') openBag();
   if (['Digit1', 'Digit2', 'Digit3', 'Digit4'].includes(code)) selectWeapon(WEAPON_ORDER[+code.slice(5) - 1]);
   if (code === 'KeyH') { sfxTone([392, 494], 0.35, 0.07); for (const p of peds) if (Math.hypot(p.x - player.x, p.z - player.z) < 12) p.scare(player.x, player.z, 1.2); }
@@ -2005,7 +2007,7 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyG') surrender();
   if (code === 'KeyX') cancelDestination();
   if (code === 'KeyP') openPhone();
-  if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
+  if (code === 'KeyT' && MODE !== 'multi') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
   if (code === 'KeyR' && (['car', 'plane', 'boat', 'ride'].includes(player.state) || hasGear('headphones'))) changeStation();
 });
@@ -2025,8 +2027,9 @@ function setPaused(p) {
 }
 $('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
-  if (!started) await goToSpawn($('pick-spawn').value);
+  const first = !started; if (first) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
+  if (first && MODE === 'multi') { openPhone(); phoneApp('online'); } // straight to picking a world
 });
 
 // ---------------------------------------------------------------- the start screen: how you look, and where you start
@@ -2169,7 +2172,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
@@ -2253,7 +2256,7 @@ async function boot() {
     say('');
     ready = true;
     initSetup();
-    $('play').disabled = false; $('play').textContent = 'Play';
+    initModeMenu(); $('play').disabled = false; $('play').textContent = $('play').dataset.label; loadAccount();
   } catch (err) {
     console.error(err);
     say('Something went wrong while building the city: ' + err.message);

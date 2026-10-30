@@ -8,8 +8,6 @@ const ONLINE_URL = (() => { try { return localStorage.getItem('gcs-server') || '
 const NET = { ws: null, id: null, world: null, peers: new Map(), sendT: 0, status: 'off', lastHitBy: null, race: null, list: null };
 const SAYINGS = ['👋 G’day!', 'Follow me', 'Race?', 'Help!', 'Nice one!', 'Get in', 'Over here', 'Watch this', '😂', 'Bye!', '🏁 Finished!'];
 const NET_RATE = 1 / 8; // state updates a second: smooth enough, and kind to the free server plan
-function netName() { try { return localStorage.getItem('gcs-name') || ''; } catch (e) { return ''; } }
-function setNetName(n) { try { localStorage.setItem('gcs-name', n); } catch (e) { /* storage blocked */ } }
 const HEX = /^#[0-9a-f]{6}$/i;
 function safeLook(L) { // other players' looks are data: only known keys and plain colours get through
   if (!L || typeof L !== 'object') L = {};
@@ -24,8 +22,8 @@ function safeLook(L) { // other players' looks are data: only known keys and pla
 function netCode() { const A = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; let s = 'GC-'; for (let k = 0; k < 4; k++) s += A[Math.floor(Math.random() * A.length)]; return s; }
 function netJoin(code, opts = {}) {
   netLeave(true);
-  const name = netName() || 'Player';
-  const q = new URLSearchParams({ world: code, name, public: opts.public ? '1' : '0', title: opts.title || name + '’s world' });
+  if (MODE !== 'multi' || !ACCT.token) { toast('Pick Multiplayer on the main menu first'); return; }
+  const q = new URLSearchParams({ world: code, token: ACCT.token, public: opts.public ? '1' : '0', title: opts.title || ACCT.name + '’s world' });
   let ws; try { ws = new WebSocket(ONLINE_URL.replace(/^http/, 'ws') + '/ws?' + q); } catch (e) { toast('Couldn’t reach the online server'); return; }
   NET.ws = ws; NET.status = 'connecting'; toast(`Joining ${code}…`);
   ws.onmessage = (e) => { let m; try { m = JSON.parse(e.data); } catch (err) { return; } netMessage(m); };
@@ -162,7 +160,7 @@ function onlineApp(btn, head) {
     head(`${NET.world.title} · code ${NET.world.code}`);
     btn(NET.world.public ? 'Public world' : 'Friends-only world', `tell friends the code: ${NET.world.code}`, () => {}, false);
     head(`Here now (${NET.peers.size + 1})`);
-    btn(`🙂 ${netName() || 'You'} (you)`, '', () => {}, false);
+    btn(`🙂 ${ACCT.name || 'You'} (you)`, '', () => {}, false);
     for (const P of NET.peers.values()) btn(`🧍 ${P.name}`, P.s ? km(P.x, P.z) + ' away · tap for directions' : 'just arrived', () => P.s && directions(P.name, P.x, P.z));
     head('Quick messages');
     const row = document.createElement('div'); row.className = 'psays';
@@ -173,10 +171,9 @@ function onlineApp(btn, head) {
     return;
   }
   if (NET.status === 'connecting') { btn('Connecting…', '', () => {}, false); return; }
-  head('Your name');
-  const nm = document.createElement('input'); nm.className = 'pinput'; nm.maxLength = 16; nm.placeholder = 'Pick a name'; nm.value = netName();
-  nm.addEventListener('change', () => setNetName(nm.value.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 16))); body.appendChild(nm);
-  const ready = () => { setNetName(nm.value.replace(/[^A-Za-z0-9 _-]/g, '').slice(0, 16)); if (!netName()) { toast('Pick a name first'); return false; } return true; };
+  if (MODE !== 'multi') { btn('🌐 Switch to multiplayer', 'online play needs an account: you’ll go back to the main menu (single player is saved)', () => { saveGame(); location.reload(); }); return; }
+  head(`Signed in as ${ACCT.name}`);
+  const ready = () => true;
   head('Join a public world');
   const list = document.createElement('div'); body.appendChild(list); list.textContent = 'Looking for worlds…';
   fetch(ONLINE_URL + '/worlds').then((r) => r.json()).then((d) => {
@@ -185,8 +182,8 @@ function onlineApp(btn, head) {
     for (const w of d.worlds) { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = `🌏 ${w.title}`; b.lastChild.textContent = `${w.players}/${w.max} players · ${w.code}`; b.disabled = w.players >= w.max; b.addEventListener('click', () => { if (ready()) { netJoin(w.code); closePhone(); } }); list.appendChild(b); }
   }).catch(() => { list.textContent = 'Couldn’t reach the online server.'; });
   head('Start a world');
-  btn('🌏 Start a public world', 'anyone can find it and join (up to 16)', () => { if (ready()) { netJoin(netCode(), { public: true, title: netName() + '’s world' }); closePhone(); } });
-  btn('🔒 Start a friends-only world', 'not listed: share the code with your friends', () => { if (ready()) { netJoin(netCode(), { public: false, title: netName() + '’s world' }); closePhone(); } });
+  btn('🌏 Start a public world', 'anyone can find it and join (up to 16)', () => { if (ready()) { netJoin(netCode(), { public: true, title: ACCT.name + '’s world' }); closePhone(); } });
+  btn('🔒 Start a friends-only world', 'not listed: share the code with your friends', () => { if (ready()) { netJoin(netCode(), { public: false, title: ACCT.name + '’s world' }); closePhone(); } });
   head('Join with a code');
   const code = document.createElement('input'); code.className = 'pinput'; code.maxLength = 8; code.placeholder = 'GC-XXXX'; body.appendChild(code);
   btn('Join', 'the code your friend gave you', () => { const c = code.value.toUpperCase().replace(/[^A-Z0-9-]/g, ''); if (c.length < 4) { toast('Type the code first'); return; } if (ready()) { netJoin(c.startsWith('GC-') || c.includes('-') ? c : 'GC-' + c); closePhone(); } });

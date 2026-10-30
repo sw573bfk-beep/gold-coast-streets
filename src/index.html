@@ -182,6 +182,13 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
 #net { position: fixed; left: 18px; top: 14px; z-index: 5; font: 600 15px var(--hud); color: #5ee0c8; background: rgba(8,14,18,.7); padding: 4px 10px; border-radius: 8px; pointer-events: none; } body.touch #net { top: 140px; }
 .pinput { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px 12px; border-radius: 12px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
 .psays { display: flex; flex-wrap: wrap; gap: 6px; margin-bottom: 10px; } .psays button { border: 0; border-radius: 16px; padding: 7px 11px; background: #26343d; color: #fff; font: 600 14px var(--hud); cursor: pointer; }
+#modes { margin: 6px 0 10px; } #play-mp { margin-left: 10px; }
+.acct { background: rgba(8,14,18,.85); border: 2px solid var(--gold); border-radius: 12px; padding: 12px; max-width: 360px; }
+.acct-tabs { display: flex; gap: 6px; margin-bottom: 8px; } .acct-tabs button { flex: 1; padding: 8px; border-radius: 8px; border: 0; background: #26343d; color: #fff; font: 600 15px var(--hud); cursor: pointer; } .acct-tabs button.on { background: var(--gold); color: #111; }
+.acct input { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px; border-radius: 8px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
+#acct-go { width: 100%; } #acct-msg { color: #ff8a7a; font: 600 14px var(--hud); min-height: 18px; margin-top: 6px; } .acct-note { color: #9fb0b8; font: 500 13px var(--hud); }
+.acct-who { font: 700 18px var(--hud); color: #5ee0c8; margin-bottom: 6px; } .acct-row { display: flex; gap: 8px; } .acct-row button { padding: 6px 10px; border-radius: 8px; border: 0; background: #26343d; color: #fff; cursor: pointer; font: 600 14px var(--hud); }
+.lrow { display: flex; align-items: baseline; gap: 8px; padding: 7px 10px; border-radius: 10px; background: #1b262d; margin-bottom: 5px; color: #fff; font: 600 15px var(--hud); } .lrow span { flex: 1; color: #8fa3ab; font-size: 13px; } .lrow em { font-style: normal; color: var(--gold); } .lrow.me { outline: 2px solid #5ee0c8; }
 </style>
 <div id="view"></div>
 <div class="hud" id="tr">
