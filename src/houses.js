@@ -410,6 +410,7 @@ function houseUse() {
   }
   const d = nearestDoor(player.x, player.z, 1.6); if (!d) return false;
   if (d.target > 0) { d.target = 0; return true; } // close it behind you
+  if (ownsProp(d.house.id)) { d.target = 1; d.locked = false; toast('Home sweet home'); return true; } // your key
   if (d.type === 'front' && !d.kicked) {
     d.kicked = true; d.target = 1; player.punchT = 0.32; shake = Math.min(1, shake + 0.4); sfxNoise(0.25, 500, 0.6);
     addCrime(2, 'breakin', true); toast('You kicked the front door in — the neighbours called the cops!');

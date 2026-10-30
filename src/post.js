@@ -5,9 +5,9 @@
 // Graphics settings live on the start screen and are remembered in this browser.
 // ============================================================================
 const GFX_LEVELS = {
-  low: { post: false, ratio: 1, shadow: 1024, grass: 0, bloom: 0 },
-  high: { post: true, ratio: 1.5, shadow: 2048, grass: 42, bloom: 0.32 },
-  ultra: { post: true, ratio: 2, shadow: 4096, grass: 64, bloom: 0.4 },
+  low: { post: false, ratio: 1, shadow: 1024, grass: 0, bloom: 0, crowd: 0.5 },
+  high: { post: true, ratio: 1.5, shadow: 2048, grass: 42, bloom: 0.32, crowd: 1 },
+  ultra: { post: true, ratio: 2, shadow: 4096, grass: 64, bloom: 0.4, crowd: 1.25 }, // crowd: how many people on the streets and in the shops
 };
 const GFX = { level: 'high', cfg: GFX_LEVELS.high };
 try { const v = localStorage.getItem('gcs-gfx'); if (GFX_LEVELS[v]) GFX.level = v; } catch (e) { /* storage blocked */ }

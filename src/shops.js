@@ -36,6 +36,7 @@ const ITEMS = {
   rest: { name: 'Room for the night (full health, wake at 8am)', price: 90, rest: true },
   pistol: { name: 'Pistol + 36 rounds', price: 300, weapon: 'pistol', ammo: 36 }, smg: { name: 'SMG + 120 rounds', price: 1200, weapon: 'smg', ammo: 120 },
   shotgun: { name: 'Shotgun + 16 shells', price: 900, weapon: 'shotgun', ammo: 16 },
+  range: { name: 'Shooting range out the back (10 targets)', price: 40, range: true },
   ammoP: { name: 'Pistol ammo ×36', price: 40, ammoFor: 'pistol', ammo: 36 }, ammoS: { name: 'SMG ammo ×120', price: 80, ammoFor: 'smg', ammo: 120 },
   ammoG: { name: 'Shotgun shells ×16', price: 60, ammoFor: 'shotgun', ammo: 16 },
 };
@@ -313,7 +314,8 @@ function openShop(sh) {
   if (sh.kind === 'stripclub') { toast(`The bouncer at ${sh.name} shakes his head: "Members only, mate."`); return; }
   if (sh.kind === 'bank') return openBank(sh);
   if (sh.kind === 'gym') return openGym(sh);
-  const list = sh.dealer ? ['pistol', 'smg', 'shotgun', 'ammoP', 'ammoS', 'ammoG'] : menuFor(sh);
+  const svc = !sh.dealer && serviceFor(sh); if (svc) return svc(sh); // barbers, tattooists, electronics, the pistol club
+  const list = sh.dealer ? ['pistol', 'smg', 'shotgun', 'ammoP', 'ammoS', 'ammoG', 'range'] : menuFor(sh);
   if (!list.length) { toast(sh.kind === 'bank' ? "The teller isn't handing over cash for free…" : 'Nothing for sale here'); return; }
   uiOpen = true; openShopRef = sh;
   if (document.pointerLockElement) document.exitPointerLock();
@@ -351,6 +353,7 @@ function buy(id) {
     player.money -= it.price; repaintCar(c, pick(CAR_COLORS)); const had = player.stars; player.stars = 0;
     toast(had ? 'Fresh paint — the cops are looking for a different car' : 'Fresh paint job'); return;
   }
+  if (it.range) { openRange(openShopRef); return; } // pays per round on its own panel
   if (it.room) { if (openShopRef && bookRoom(openShopRef)) closeShop(); return; }
   if (it.outfit) { player.money -= it.price; closeShop(); openWardrobe({ name: 'Change rooms' }); return; }
   if (it.game) { player.money -= it.price; closeShop(); startMiniGame(it.game); return; }

@@ -356,7 +356,8 @@ const RAIL = []; // { p, cum, len }
 const trams = [];
 function railLine(p) { const cum = [0]; for (let i = 2; i < p.length; i += 2) cum.push(cum[cum.length - 1] + Math.hypot(p[i] - p[i - 2], p[i + 1] - p[i - 1])); return { p, cum, len: cum[cum.length - 1] }; }
 function railPoint(L, s, out) {
-  s = clamp(s, 0, L.len); let i = 0; const c = L.cum; while (i < c.length - 2 && c[i + 1] < s) i++;
+  s = clamp(s, 0, L.len); const c = L.cum; let i = 0, hi = c.length - 2; // binary search: the full G:link line has thousands of points
+  while (i < hi) { const m = (i + hi + 1) >> 1; if (c[m] <= s) i = m; else hi = m - 1; }
   const t = (s - c[i]) / ((c[i + 1] - c[i]) || 1), p = L.p;
   out.x = p[2 * i] + (p[2 * i + 2] - p[2 * i]) * t; out.z = p[2 * i + 1] + (p[2 * i + 3] - p[2 * i + 1]) * t;
   const l = Math.hypot(p[2 * i + 2] - p[2 * i], p[2 * i + 3] - p[2 * i + 1]) || 1;
@@ -423,8 +424,11 @@ function buildRail() {
   }
   pool.meshes((t) => nightMat(new THREE.MeshStandardMaterial({ map: t, emissiveMap: t, emissive: col('#ffffff'), emissiveIntensity: 0 }), 0, 0.8));
   RAIL.forEach((L) => { L.stops = D.stations.map(([x, z]) => railProject(L, x, z)).filter((p) => p.d < 40).map((p) => p.s).sort((a, b) => a - b); });
-  // two trams, one on each track
-  RAIL.forEach((L, li) => trams.push(new Tram(L, li === 0 ? L.len * 0.3 : L.len * 0.7, li === 0 ? 1 : -1)));
+  // two trams running the whole G:link route (Burleigh to Parkwood) when it's loaded, otherwise the Surfers tracks
+  if (window.TRAM_DATA) {
+    const G = railLine(TRAM_DATA.line); G.stops = TRAM_DATA.stops.map((st) => st[0]); G.names = TRAM_DATA.stops.map((st) => st[1]); G.lane = 1.9;
+    trams.push(new Tram(G, G.len * 0.3, 1), new Tram(G, G.len * 0.7, -1));
+  } else RAIL.forEach((L, li) => trams.push(new Tram(L, li === 0 ? L.len * 0.3 : L.len * 0.7, li === 0 ? 1 : -1)));
 }
 const TRAM_MOD = 8.7, TRAM_N = 5;
 let tramGeos = null;
@@ -453,13 +457,15 @@ class Tram {
   }
   place() {
     const P = {};
+    const lane = this.L.lane || 0; // one centreline for both directions: each tram keeps to its own (left) track
     this.mods.forEach((md, k) => {
       const s = this.s - this.dir * (k * TRAM_MOD + TRAM_MOD / 2);
       railPoint(this.L, s, P);
-      md.x = P.x; md.z = P.z; md.tx = P.tx * this.dir; md.tz = P.tz * this.dir;
-      md.m.position.set(P.x, 0.12, P.z);
+      md.tx = P.tx * this.dir; md.tz = P.tz * this.dir; md.x = P.x - md.tz * lane; md.z = P.z + md.tx * lane;
+      md.m.position.set(md.x, (lane ? groundAt(md.x, md.z) : 0) + 0.12, md.z);
       md.m.rotation.y = Math.atan2(md.tx, md.tz) + (k === TRAM_N - 1 ? Math.PI : 0);
     });
+    const m0 = this.mods[0]; this.x = m0.x; this.z = m0.z; this.h = Math.atan2(m0.tx, m0.tz);
   }
   update(dt) {
     const L = this.L;
@@ -477,7 +483,7 @@ class Tram {
     // something on the track ahead
     const P = {};
     for (const d of [6, 14, 24]) {
-      railPoint(L, this.s + this.dir * d, P);
+      railPoint(L, this.s + this.dir * d, P); if (L.lane) { const tx = P.tx * this.dir, tz = P.tz * this.dir; P.x -= tz * L.lane; P.z += tx * L.lane; }
       const blocked = (x, z) => Math.abs(x - P.x) < 2.6 && Math.abs(z - P.z) < 2.6;
       if ((player.deadT === 0 && blocked(player.x, player.z)) || cars.some((c) => blocked(c.x, c.z))) { vt = Math.min(vt, Math.max(0, d - 6) * 0.4); if (rand() < dt * 0.6 && d < 15) sfxTone([900, 1100], 0.2, 0.03, 'sine'); break; }
     }

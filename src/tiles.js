@@ -242,7 +242,7 @@ function tileGround(T, data) {
 // ---------------------------------------------------------------- roads
 const TILE_ROAD_MATS = (() => {
   const asphalt = noiseTexture(256, '#57595d', 40, 9000);
-  const mk = (color, po) => new THREE.MeshStandardMaterial({ map: asphalt, color: col(color), roughness: 0.92, polygonOffset: true, polygonOffsetFactor: po, polygonOffsetUnits: po * 2, envMapIntensity: 0.3 });
+  const mk = (color, po) => { const m = new THREE.MeshStandardMaterial({ map: asphalt, color: col(color), roughness: 0.92, polygonOffset: true, polygonOffsetFactor: po, polygonOffsetUnits: po * 2, envMapIntensity: 0.3 }); WET_MATS.push(m); return m; };
   const line = (alpha) => new THREE.MeshStandardMaterial({ color: col('#f1efe6'), roughness: 0.7, alphaMap: alpha || null, alphaTest: alpha ? 0.5 : 0, polygonOffset: true, polygonOffsetFactor: -4, polygonOffsetUnits: -8, envMapIntensity: 0.3 });
   const dc = document.createElement('canvas'); dc.width = 4; dc.height = 64;
   const dx = dc.getContext('2d'); dx.fillStyle = '#000'; dx.fillRect(0, 0, 4, 64); dx.fillStyle = '#fff'; dx.fillRect(0, 0, 4, 16);

@@ -23,7 +23,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Getting around'); grid = null;
@@ -35,12 +35,15 @@ function phoneApp(app) {
     tile('🏦', 'Bank heist', () => phoneApp('heist'), HEIST.stage ? '!' : '');
     tile('🔫', 'Hold-ups', () => phoneApp('holdups'));
     tile('🏁', 'Street race', startRace);
+    tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
     head('Money & life'); grid = null;
     tile('💼', 'Jobs', () => phoneApp('jobs'));
     tile('📸', 'Tour', startTour);
     tile('🍔', 'Food', foodDelivery);
+    tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
     tile('📱', 'TikTak', () => phoneApp('clips'));
+    if (hasGear('prophone')) tile('📷', 'Camera', photoMode);
     const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}`; body.appendChild(foot);
   } else if (app === 'travel') {
     back();
@@ -71,6 +74,9 @@ function phoneApp(app) {
       btn(`${J.name} · $${jobRate(k)} a task`, at ? `${at.name} · ${km(at.x, at.z)} · ${jobState(k).shifts} shifts done` : 'no workplace nearby', () => at && directions(at.name, at.x, at.z), !!at);
     }
   } else if (app === 'clips') { back(); showClip(); }
+  else if (app === 'rocco') { back(); roccoApp(btn, head); }
+  else if (app === 'realty') { back(); realtyApp(btn, head); }
+  else if (app === 'listing') { btn('← Listings', '', () => phoneApp('realty')); listingApp(btn, head); }
 }
 function nearest(list) { let best = null, bd = 1e9; for (const q of list) { const d = Math.hypot(q.x - player.x, q.z - player.z); if (d < bd) { bd = d; best = q; } } return best; }
 // what you're in the middle of, on top of the home screen
@@ -81,6 +87,8 @@ function activeCard(body) {
     sub = HEIST.stage === 3 ? `take $${HEIST.take.toLocaleString()}${player.stars ? ' · lose the cops first' : ''}` : HEIST.bank.name;
     where = HEIST.stage === 3 ? { name: 'Safehouse', x: HEIST.safe.x, z: HEIST.safe.z } : { name: HEIST.bank.name, x: HEIST.bank.x, z: HEIST.bank.z };
     if (HEIST.stage === 1) quit = () => { HEIST.stage = 0; HEIST.crew = {}; phoneApp('home'); };
+  } else if (STORY.M) {
+    const C = CHAPTERS[STORY.M.i]; title = C.title; sub = STORY.M.hud; where = WAYPOINT; quit = () => { endChapter(false, 'Job abandoned.'); phoneApp('home'); };
   } else if (MISSION) {
     const T = MISSION.targets[0]; title = MISSION.title; sub = `${T[0]} · ${Math.max(0, Math.ceil(MISSION.t))}s left`; where = { name: T[0], x: T[2], z: T[3] };
     quit = () => { endMission(false, 'Mission abandoned.'); phoneApp('home'); };
@@ -91,7 +99,7 @@ function activeCard(body) {
   const add = (label, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (primary) b.className = 'go'; b.addEventListener('click', fn); card.children[2].appendChild(b); };
   if (where) add('Directions', () => directions(where.name, where.x, where.z), true);
   if (HEIST.stage === 1) add('Crew & start', () => phoneApp('heist'), true);
-  if (quit) add(WAYPOINT && !MISSION && !HEIST.stage ? 'Cancel' : 'Give up', quit);
+  if (quit) add(WAYPOINT && !MISSION && !HEIST.stage && !STORY.M ? 'Cancel' : 'Give up', quit);
   body.appendChild(card);
 }
 
@@ -108,7 +116,7 @@ async function taxi() {
 function mechanic() {
   const c = player.car || cars.filter((q) => (q.owned || q.kind === 'abandoned') && !q.dead && Math.hypot(q.x - player.x, q.z - player.z) < 30)[0];
   if (!c) { toast('No car of yours nearby for the mechanic to fix'); return; }
-  if (!pay(80, 'the mechanic')) return; c.health = 100; c.burn = -1; closePhone(); toast('The mechanic patched it up — good as new'); sfxTone([523, 784], 0.2, 0.06, 'triangle');
+  if (!pay(80, 'the mechanic')) return; c.health = 100; c.burn = -1; c.flat = false; closePhone(); toast('The mechanic patched it up — good as new'); sfxTone([523, 784], 0.2, 0.06, 'triangle');
 }
 function foodDelivery() {
   if (!pay(18, 'food delivery')) return; closePhone(); toast('Order placed — it’ll be here in 20 seconds');

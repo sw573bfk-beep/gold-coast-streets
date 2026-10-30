@@ -1,7 +1,7 @@
 // Gold Coast Streets — the city economy: jobs with real tasks, car dealerships and owned cars, a bank account,
 // hotel rooms as a home, and gym training. Everything uses the one player balance and the one save.
 
-const ECON = { bank: 0, garage: [], jobs: {}, home: null, fitness: 0, gymDay: -1, shift: null, called: null, testDrive: null, lastBuy: 0 };
+const ECON = { bank: 0, garage: [], props: [], gear: {}, aim: 0, rangeBest: 0, jobs: {}, home: null, fitness: 0, gymDay: -1, shift: null, called: null, testDrive: null, lastBuy: 0 };
 // one purchase at a time: a second click within a quarter second is ignored (no double charges)
 function purchaseGuard(key) { const t = performance.now(); if (t - ECON.lastBuy < 250 && ECON.lastKey === key) return false; ECON.lastBuy = t; ECON.lastKey = key; return true; } // the same thing twice within 250 ms is a double click
 function pay(amount, what) { if (player.money < amount) { toast(`Not enough money for ${what} ($${amount})`); return false; } player.money -= amount; return true; }
@@ -204,11 +204,16 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
   if (Array.isArray(s.garage)) ECON.garage = s.garage.filter((g) => CAR_PRICES[g.type]);
+  if (Array.isArray(s.props)) ECON.props = s.props.filter((P) => P && P.id && typeof P.x === 'number');
+  if (s.gear) ECON.gear = s.gear;
+  if (typeof s.aim === 'number') ECON.aim = clamp(s.aim, 0, 5);
+  if (typeof s.rangeBest === 'number') ECON.rangeBest = s.rangeBest;
+  storyLoad(s.story);
   if (s.jobs) ECON.jobs = s.jobs;
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);

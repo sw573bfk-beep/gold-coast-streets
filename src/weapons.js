@@ -112,7 +112,7 @@ function shoot() {
   fireCool = W.rate;
   const { o, d } = aimDirection(), mz = muzzlePoint();
   for (let k = 0; k < (W.pellets || 1); k++) {
-    const dd = [d[0] + rr(-1, 1) * W.spread, d[1] + rr(-1, 1) * W.spread, d[2] + rr(-1, 1) * W.spread], l = Math.hypot(...dd);
+    const sp = W.spread * aimSpread(), dd = [d[0] + rr(-1, 1) * sp, d[1] + rr(-1, 1) * sp, d[2] + rr(-1, 1) * sp], l = Math.hypot(...dd);
     dd[0] /= l; dd[1] /= l; dd[2] /= l;
     const hit = castShot(o, dd, W.range, null), hp = [o[0] + dd[0] * hit.t, o[1] + dd[1] * hit.t, o[2] + dd[2] * hit.t];
     addTracer(mz, hp);
@@ -197,6 +197,7 @@ function updateRobbery(dt) {
     if (target.robT >= need) {
       const till = TILL[target.kind] || [150, 450]; let cash = Math.round(rr(till[0], till[1]) / 10) * 10;
       if (target.kind === 'bank') cash = heistRobDone(target, cash); // a planned heist pays out at the safehouse
+      cash = storyRobDone(target, cash); // so does Rocco's casino job
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
       addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
       toast(`${target.kind === 'bank' ? 'Bank job done' : 'Cash register emptied'} · +$${cash} — get out of there!`); sfxTone([523, 659, 784], 0.4, 0.08, 'triangle');

@@ -577,6 +577,97 @@ window.runRegression = async () => {
     disposeTowerLevel(); TOWER = null; home();
     expect(sh.length >= 40, r); expect(moving >= sh.length * 0.4, r); expect(poke === 0, `ground pokes through the floor at ${poke} spots`); return r;
   });
+  // ---------------------------------------------------------------- V11: boats, transport, weather, radio, police, property, shops, story, touch
+  const tpXZ = async (x, z) => { home(); player.x = x; player.z = z; for (let k = 0; k < 150; k++) { updateTiles(0.5); await new Promise((r) => setTimeout(r, 15)); if (!tileBusy && k > 8) break; } };
+  await test('boats: jet skis and speedboats tied up on the Broadwater; ride one out and hop off', async () => {
+    quiet(); await tpXZ(-560, -3675); for (const b of BOATS.slice()) b.remove();
+    for (let k = 0; k < 60 * 12 && !BOATS.length; k++) stepWorld(1 / 60);
+    expect(BOATS.length, 'no boats moored nearby'); const b = BOATS[0]; player.x = b.x + 1; player.z = b.z; useKey();
+    expect(player.state === 'boat', 'could not board: ' + player.state); const x0 = b.x, z0 = b.z;
+    step(3, { KeyW: true }); const moved = Math.hypot(b.x - x0, b.z - z0), kmh = Math.abs(b.v) * 3.6; b.v = 0; useKey();
+    const r = `${BOATS.length} boats · ${b.sp.name} went ${moved.toFixed(0)} m, ${kmh.toFixed(0)} km/h · hopped off (${player.state})`; home();
+    expect(moved > 15, r); expect(player.state === 'foot', r); return r;
+  });
+  await test('G:link: trams run the whole route, stop at named stations, and you can ride one ($5)', async () => {
+    quiet(); expect(trams.length === 2 && trams[0].L.names, 'trams not on the full route'); const t = trams[0];
+    expect(t.L.len > 20000 && t.L.names.length > 20, `route ${t.L.len | 0} m, ${t.L.names.length} stops`);
+    for (let k = 0; k < 60 * 150 && t.dwell < 3; k++) stepWorld(1 / 60); expect(t.dwell >= 3, 'never stopped at a station');
+    const at = tramStopName(t, false); player.x = t.mods[2].x + 3; player.z = t.mods[2].z; player.money = 100;
+    expect(boardRide() && player.state === 'ride' && player.money === 95, `boarding: ${player.state}, $${player.money}`);
+    const s0 = t.s; for (let k = 0; k < 60 * 150 && !(t.dwell > 1 && Math.abs(t.s - s0) > 100); k++) stepWorld(1 / 60);
+    const to = tramStopName(t, false); leaveRide(); const r = `boarded at ${at}, rode ${Math.abs(t.s - s0).toFixed(0)} m to ${to}, got off (${player.state})`; home();
+    expect(player.state === 'foot' && Math.abs(t.s - s0) > 300, r); return r;
+  });
+  await test('buses run the main roads, pull in, and you can ride them', async () => {
+    quiet(); await tpXZ(740, 303); let bus = null; // let the streets stream in while waiting
+    for (let k = 0; k < 60 * 120 && !bus; k++) { stepWorld(1 / 60); if (k % 120 === 0) await new Promise((r) => setTimeout(r, 5)); bus = cars.find((c) => c.bus && c.speed < 1 && c.ai && c.ai.dwell > 2); }
+    expect(bus, 'no bus pulled in'); player.x = bus.x + 3; player.z = bus.z; player.money = 100;
+    expect(boardRide() && player.state === 'ride', 'could not get on'); const x0 = bus.x, z0 = bus.z; step(20);
+    const r = `rode ${Math.hypot(bus.x - x0, bus.z - z0).toFixed(0)} m`; RIDE.v = null; home(); return r;
+  });
+  await test('weather: a storm brings rain, wet roads, lightning and bigger surf', () => {
+    quiet(); setWeather('clear', true); step(1);
+    setWeather('storm', true); step(8); const r = `rain ${WEATHER.rain.toFixed(2)}, wet ${WEATHER.wet.toFixed(2)}, ${RAIN.visible ? 'rain drawn' : 'no rain drawn'}`;
+    expect(WEATHER.rain > 0.9 && RAIN.visible && WEATHER.wet > 0.1, r); setWeather('clear', true); step(1); return r;
+  });
+  await test('radio: R cycles the made-up stations and the dash shows what’s on', () => {
+    quiet(); const c = new Car('sedan', null, player.x, player.z, 0); cars.push(c); player.state = 'car'; player.mode = 'car'; player.car = c;
+    RADIO.station = 0; changeStation(); updateRadio(0.1); const shown = !$('radio').hidden && $('radio').textContent;
+    changeStation(); changeStation(); changeStation(); changeStation(); updateRadio(0.1); const off = $('radio').hidden; c.remove(); home();
+    expect(shown && /Surf FM/.test(shown) && off, `shown "${shown}", off ${off}`); return `${STATIONS.length - 1} stations · ${shown}`;
+  });
+  await test('police at 3 stars: the POLAIR helicopter, a roadblock ahead, and spikes that shred tyres', async () => {
+    quiet(); await tpXZ(740, 303); const E = EDGES.find((q) => q && !q.gps && q.len > 400 && q.width >= 7); expect(E, 'no long road');
+    edgePoint(E, 1, 20, tmpA); const c = new Car('sedan', null, tmpA.x, tmpA.z, Math.atan2(tmpA.tx, tmpA.tz)); cars.push(c); c.setDriver('player');
+    player.state = 'car'; player.mode = 'car'; player.car = c; player.x = c.x; player.z = c.z; c.vx = tmpA.tx * 25; c.vz = tmpA.tz * 25;
+    player.stars = 3; updatePolice(0.1); const heli = !!HELI; const rb = placeRoadblock();
+    const S = SPIKES[SPIKES.length - 1]; let flat = false;
+    if (S) { c.x = S.x - S.tx * 0.5; c.z = S.z - S.tz * 0.5; c.vx = S.tx * 20; c.vz = S.tz * 20; updatePolice(0.016); flat = c.flat; flatTyres(c, 0.016); }
+    const r = `heli ${heli} · roadblock ${rb} (${ROADBLOCKS.length}) · spikes flattened tyres ${flat} · top speed now ${(c.speed * 3.6).toFixed(0)} km/h`;
+    player.stars = 0; updatePolice(0.1); c.remove(); home(); expect(heli && rb && flat && c.speed <= 15.01, r); return r;
+  });
+  await test('property: buy a house from the Real estate app; your key opens it, it’s home, and rent comes in', async () => {
+    quiet(); const props0 = ECON.props.slice(), home0 = ECON.home, bank0 = ECON.bank, spot0 = playerSpot; await tpXZ(-560, -3675);
+    const L = findListings(); const H = L.find((q) => q.kind === 'house'), A = L.find((q) => q.kind === 'apt'); expect(H && A, `listings: ${L.map((q) => q.name).join(', ')}`);
+    player.money = 400000; buyProperty(H); expect(ownsProp(H.id) && ECON.home.name === H.name, 'not bought'); const saved = JSON.parse(localStorage.getItem('gcs-save')).props.some((P) => P.id === H.id);
+    player.x = H.x; player.z = H.z; step(0.5); const stars0 = player.stars, opened = houseUse(); step(0.5);
+    PROP.rentT = RENT_EVERY - 0.05; const b = ECON.bank; step(0.2); const rent = ECON.bank - b;
+    const r = `${L.length} listings · bought "${H.name}" for $${H.price.toLocaleString()} · door ${opened ? 'opened' : 'stuck'} with ${player.stars - stars0} stars · rent +$${rent} · saved ${saved}`;
+    ECON.props = props0; ECON.home = home0; ECON.bank = bank0; playerSpot = spot0; home();
+    expect(opened && player.stars === 0 && rent === H.rent && saved, r); return r;
+  });
+  await test('barber, tattoo parlour, electronics and the shooting range all change something', async () => {
+    const look0 = JSON.parse(JSON.stringify(player.look)), stored0 = localStorage.getItem('gcs-look'), gear0 = ECON.gear, aim0 = ECON.aim; player.money = 5000; player.look.hairStyle = 'short'; player.look.tats = {};
+    openBarber({ name: 'Barber' }); [...document.querySelectorAll('#shop-body .srow button')].find((b) => !b.disabled).click(); const cut = player.look.hairStyle;
+    openTattoo({ name: 'Ink' }); document.querySelector('#shop-body .srow button').click(); const inked = player.look.tats && player.look.tats.sleeves;
+    ECON.gear = {}; openElectronics({ name: 'JB Hi-Fi' }); document.querySelector('#shop-body .srow button').click(); const gear = Object.keys(ECON.gear);
+    ECON.aim = 0; openRange({ name: 'Range' }); document.querySelector('#shop-body .srow button').click();
+    for (let k = 0; k < 10; k++) { await new Promise((r) => setTimeout(r, 40)); const t = document.querySelector('#shop-body button[aria-label=Target]'); if (t) t.dispatchEvent(new PointerEvent('pointerdown', { bubbles: true })); }
+    await new Promise((r) => setTimeout(r, 100)); const aim = ECON.aim, spread = aimSpread(); closeShop();
+    const r = `cut: ${cut} · sleeves: ${!!inked} · gear: ${gear.join(', ')} · aim ${aim}/5 (spread ×${spread.toFixed(1)})`;
+    player.look = look0; rebuildPlayer(); ECON.gear = gear0; ECON.aim = aim0; if (stored0 !== null) localStorage.setItem('gcs-look', stored0); else localStorage.removeItem('gcs-look');
+    expect(cut && cut !== 'short' && inked && gear.length === 1 && aim === 1 && spread < 1, r); return r;
+  });
+  await test('story: Rocco’s jobs run start to finish (package run, car theft, casino job pays at the safehouse)', async () => {
+    quiet(); const done0 = STORY.done; STORY.done = 0; STORY.M = null; await tpXZ(740, 303);
+    startChapter(0); expect(STORY.M, 'job 1 did not start'); let M = STORY.M; await tpXZ(M.a.x, M.a.z); stepWorld(1 / 60); await tpXZ(M.b.x, M.b.z); stepWorld(1 / 60);
+    expect(STORY.done === 1, 'package run not finished'); startChapter(1); M = STORY.M; expect(M, 'job 2 did not start'); await tpXZ(M.spot.x, M.spot.z); stepWorld(0.1);
+    expect(M.car, 'no car to steal'); player.x = M.car.x + 2; player.z = M.car.z; startEnter(M.car); step(3); expect(player.car === M.car, 'could not get in');
+    M.car.x = M.lock.x; M.car.z = M.lock.z; stepWorld(1 / 60); expect(STORY.done === 2, 'car not delivered'); bailOut();
+    STORY.done = 5; await tpXZ(740, 303); startChapter(5); M = STORY.M; expect(M, 'casino job did not start');
+    const money0 = player.money, cash = storyRobDone(M.star.sh || { kind: 'casino' }, 1500); expect(cash === 0 && player.stars === 5 && M.phase === 1, 'robbery hook');
+    player.stars = 0; await tpXZ(M.safe.x, M.safe.z); stepWorld(1 / 60); const won = player.money - money0;
+    const r = `jobs 1-2 done · casino job paid $${won.toLocaleString()} at ${M.safe.name}`; STORY.done = done0; home();
+    expect(won === CHAPTERS[5].pay, r); return r;
+  });
+  await test('crowds follow the graphics setting (fewer people on Low)', () => {
+    const lv = GFX.level; applyGfx('low'); const lo = GFX.cfg.crowd; applyGfx('ultra'); const hi = GFX.cfg.crowd; applyGfx(lv);
+    expect(lo < 1 && hi > 1, `low ${lo}, ultra ${hi}`); return `crowd ×${lo} on Low, ×${hi} on Ultra`;
+  });
+  await test('touch controls: the thumbstick presses the movement keys', () => {
+    setStick(0, -1); const fw = keys.KeyW && keys.ShiftLeft; setStick(-0.6, 0); const left = keys.KeyA && !keys.KeyW; setStick(0, 0);
+    expect(fw && left && !keys.KeyA, `forward ${fw}, left ${left}`); return 'forward + sprint, left, centred';
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

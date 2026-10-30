@@ -282,7 +282,7 @@ function updateShoppers(dt) {
     if (!sh.walkIn) continue;
     if (!sh.keeper) { if (sh.shoppers) { for (const c of sh.shoppers) disposePerson(c.m); sh.shoppers = null; } continue; }
     if (!sh.shoppers) {
-      sh.shoppers = []; const want = Math.floor((SHOPPERS_BY_STYLE[shopStyle(sh)] || 0) * (0.5 + rand() * 0.8));
+      sh.shoppers = []; const want = Math.floor((SHOPPERS_BY_STYLE[shopStyle(sh)] || 0) * (0.5 + rand() * 0.8) * GFX.cfg.crowd);
       const room = sh.counterV - 1.7; if (room < 0.8) continue;
       for (let k = 0; k < want; k++) { const m = makePerson(); scene.add(m.root); sh.shoppers.push({ m, u: rr(sh.t0 + 0.6, sh.t1 - 0.6), v: rr(0.9, sh.counterV - 0.8), tu: 0, tv: 0, idle: rr(0, 4), ph: rand() * TAU }); }
     }

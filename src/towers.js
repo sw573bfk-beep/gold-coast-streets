@@ -244,7 +244,7 @@ function buildTowerLevel(k) {
 function spawnMallShoppers() {
   TOWER.shoppers = [];
   const f = TOWER.f; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
-  const want = clamp(Math.round(Math.abs(polyArea(f)) / 200), 12, 90);
+  const want = Math.round(clamp(Math.round(Math.abs(polyArea(f)) / 200), 12, 90) * GFX.cfg.crowd);
   for (let tries = 0; tries < want * 15 && TOWER.shoppers.length < want; tries++) {
     const nearYou = tries % 2 === 0, a = rand() * TAU, r = 4 + rand() * 45; // half of them around where you came in
     const x = nearYou ? player.x + Math.cos(a) * r : x0 + rand() * (x1 - x0), z = nearYou ? player.z + Math.sin(a) * r : z0 + rand() * (z1 - z0);

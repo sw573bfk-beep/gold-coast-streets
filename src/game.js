@@ -146,7 +146,7 @@ function waterDepth(x, z) {
 class Car {
   constructor(type, color, x, z, h) {
     this.type = type; this.spec = CAR_TYPES[type];
-    this.model = makeCarModel(type, color || pick(CAR_COLORS)); scene.add(this.model.root);
+    this.color = color || pick(CAR_COLORS); this.model = makeCarModel(type, this.color); scene.add(this.model.root);
     this.x = x; this.z = z; this.y = 0; this.h = h; this.vx = 0; this.vz = 0; this.steer = 0; this.yaw = 0; this.ax = 0;
     this.health = 100; this.driver = null; this.ai = null; this.input = { t: 0, b: 0, s: 0, hb: 0 };
     this.sink = 0; this.burn = -1; this.dead = false; this.deadT = 0; this.spin = 0; this.roll = 0; this.pitch = 0; this.prevVf = 0;
@@ -278,7 +278,7 @@ class Car {
     const Nf0 = m * g * b / L, Nr0 = m * g * a / L, dN = clamp(m * this.ax * 0.55 / L, -Nf0 * 0.45, Nf0 * 0.45);
     const Nf = Nf0 - dN, Nr = Nr0 + dN;
     const sand = onBeach(this.x, this.z) && !maskAt(plantMask, this.x, this.z);
-    const mu = sp.mu * (sand ? 0.62 : 1);
+    const mu = sp.mu * (sand ? 0.62 : 1) * (1 - WEATHER.wet * 0.22); // wet roads: less grip
     let Fdrive = 0, Fbrake = 0;
     // power-limited drive: big shove off the line, tapering through the 'gears'
     if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
@@ -562,6 +562,7 @@ function driveAI(car, dt) {
     if (!chase) { const rl = redLightAhead(car); if (rl < Infinity) vt = Math.min(vt, Math.max(0, (rl - 7) * 0.8)); }
   }
   const ang = angDiff(car.h, Math.atan2(tx - car.x, tz - car.z));
+  if (car.bus && busStop(car, dt)) { const vf = car.vx * Math.sin(car.h) + car.vz * Math.cos(car.h); inp.t = 0; inp.b = vf > 0.3 ? 1 : 0; inp.s = 0; inp.hb = 1; return; } // pulled in at a stop (brake held at a standstill would reverse)
   if (a.rev > 0) { a.rev -= dt; inp.t = 0; inp.b = 1; inp.s = -Math.sign(ang); inp.hb = 0; return; }
   inp.s = clamp(ang * 2.4, -1, 1);
   if (a.shock > 0) { a.shock -= dt; vt = 0; }
@@ -838,7 +839,7 @@ function randomCarType() {
   const r = rand();
   return r < 0.22 ? 'sedan' : r < 0.37 ? 'hatch' : r < 0.51 ? 'suv' : r < 0.64 ? 'ute' : r < 0.72 ? 'taxi' : r < 0.8 ? 'muscle' : r < 0.87 ? 'coupe' : r < 0.94 ? 'sports' : 'motorbike';
 }
-function spawnTraffic(minD, maxD, kind) {
+function spawnTraffic(minD, maxD, kind, type) {
   for (let tries = 0; tries < 40; tries++) {
     const ei = LIVE_EDGES[Math.floor(rand() * LIVE_EDGES.length)], E = EDGES[ei];
     if (!E || E.len < 10) continue;
@@ -853,7 +854,8 @@ function spawnTraffic(minD, maxD, kind) {
     const x = tmpB.x + tmpB.tz * off, z = tmpB.z - tmpB.tx * off;
     if (!isLand(x, z) || insideSolid(x, z, solidBuildingsNear(x, z, 2))) continue; // not on a road that runs through a car park or under a building
     if (cars.some((c) => Math.abs(c.x - x) < 9 && Math.abs(c.z - z) < 9)) continue;
-    const c = new Car(kind === 'police' ? 'police' : randomCarType(), null, x, z, Math.atan2(tmpB.tx, tmpB.tz));
+    if (type === 'bus' && E.type > RT.tertiary) continue; // buses keep to the main roads
+    const c = new Car(type || (kind === 'police' ? 'police' : randomCarType()), type === 'bus' ? pick(['#f4f4f2', '#1f5fa8']) : null, x, z, Math.atan2(tmpB.tx, tmpB.tz));
     c.kind = kind; c.setDriver(kind === 'police' ? 'cop' : 'ai', kind === 'police' ? COP_LOOK : randomLook()); c.ai = ai; c.siren = kind === 'police' && player.stars > 0;
     const v = (ROAD_SPEED[E.type] || 9) * 0.7; c.vx = tmpB.tx * v; c.vz = tmpB.tz * v;
     cars.push(c);
@@ -973,7 +975,7 @@ function manageWorld(dt) {
   spawnT -= dt; if (spawnT > 0) return; spawnT = 0.4;
   for (const c of cars.slice()) {
     const d = Math.hypot(c.x - player.x, c.z - player.z);
-    if (c === player.car || (player.seq && player.seq.car === c)) continue;
+    if (c === player.car || c.story || (player.seq && player.seq.car === c)) continue; // a car a story job needs stays put
     if (c.despawn ||
       (c.kind === 'traffic' && d > 430) || (c.kind === 'parked' && d > 250) || (c.kind === 'abandoned' && d > 360) ||
       (c.kind === 'police' && player.stars === 0 && d > 200 && !c.copOut) || (c.kind === 'police' && d > 600) || (c.dead && c.deadT > 30 && d > 70)) c.remove();
@@ -982,7 +984,7 @@ function manageWorld(dt) {
   if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
   spawnParked(190, 70); spawnEbikes(160);
   // crowds match the place: about 50 people around you in the suburbs, well over 100 on Cavill Ave
-  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140), civ = peds.filter((p) => !p.cop).length;
+  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140) * GFX.cfg.crowd, civ = peds.filter((p) => !p.cop).length;
   for (let k = 0; k < (civ < wantPeds * 0.7 ? 5 : 2) && civ + k < wantPeds; k++) spawnPed(busy > 40 ? 35 : 55, 150);
   for (const p of peds) { // only people close by cast shadows (each one is several draw calls)
     const near = Math.hypot(p.x - player.x, p.z - player.z) < 40;
@@ -1111,7 +1113,7 @@ function updateWanted(dt) {
   let near = 1e9;
   for (const c of cars) if (c.kind === 'police' && !c.dead && c.driver === 'cop') { const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < near && (d < 25 || rayWalls(c.x, c.z, player.x, player.z, 2) >= 1)) near = d; }
   for (const p of peds) if (p.cop && p.state !== 'down') { const d = Math.hypot(p.x - player.x, p.z - player.z); if (d < 25 || rayWalls(p.x, p.z, player.x, player.z, 1.5) >= 1) near = Math.min(near, d); }
-  const seen = near < 80 || player.state === 'tackled' || player.state === 'cuffed';
+  const seen = near < 80 || player.state === 'tackled' || player.state === 'cuffed' || heliSees(); // POLAIR keeps you in sight out in the open
   $('stars').classList.toggle('flash', !seen);
   if (seen) { lastSeen = { x: player.x, z: player.z }; searchArea = null; player.starCool = 0; }
   else {
@@ -1120,7 +1122,7 @@ function updateWanted(dt) {
     const out = Math.hypot(player.x - searchArea.x, player.z - searchArea.z) > searchArea.r;
     const indoors = !!(indoorAt(player.x, player.z) || shopAt(player.x, player.z));
     if (out || indoors) player.starCool += dt * (indoors ? 2 : 1);
-    if (player.starCool > [0, 5, 8, 12, 16, 22][player.stars]) { player.stars = 0; searchArea = null; toast('You lost the cops'); return; }
+    if (player.starCool > [0, 5, 8, 12, 16, 22][player.stars] * (hasGear('scanner') ? 0.75 : 1)) { player.stars = 0; searchArea = null; toast('You lost the cops'); return; }
   }
   if (player.stars === 1 && wantedT > 30 && player.state !== 'tackled' && player.state !== 'cuffed') { player.stars = 0; searchArea = null; toast('The cops gave up'); return; }
   // backup on foot only for serious chases, and never appearing right in front of you
@@ -1196,7 +1198,7 @@ function updateCuffed(dt) {
 }
 
 // ---------------------------------------------------------------- player
-let playerSpot = null;
+let playerSpot = null, startSpot = null; // where you respawn; where the game began (Cavill Mall)
 function rebuildPlayer() {
   const vis = player.model ? player.model.root.visible : true;
   if (player.model) disposePerson(player.model);
@@ -1354,10 +1356,14 @@ function useKey() {
   if (player.state === 'plane') return leavePlane(false);
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state === 'surf') { surfUse(); return; }
+  if (player.state === 'boat') { leaveBoat(); return; }
+  if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
-  if (towerUse() || houseUse()) return;
+  if (towerUse() || houseUse() || propertyUse()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
+  const bt = nearestBoat(4); if (bt) return boardBoat(bt);
+  if (boardRide()) return; // a tram or bus stopped beside you
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
   const c = nearestEnterableCar(); if (c) return startEnter(c);
   surfUse(); // on a beach: hire a board
@@ -1381,6 +1387,8 @@ function updatePlayer(dt) {
     }
     case 'plane': squeal = 0; return updatePlaneControls();
     case 'surf': squeal = 0; return updateSurf(dt);
+    case 'boat': squeal = 0; return updateBoatControls();
+    case 'ride': squeal = 0; return updateRide(dt);
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
     case 'tackled': return updateTackled(dt);
@@ -1467,6 +1475,11 @@ function updateCamera(dt) {
     const p = player.plane; tx = p.x; ty = p.y + p.sp.fus; tz = p.z; dist = p.sp.len * 1.4 + 8;
     camYaw += angDiff(camYaw, p.h) * Math.min(1, dt * 2.5); camPitch = lerp(camPitch, 0.18 + p.pitch * 0.5, Math.min(1, dt * 2));
     camera.fov = lerp(camera.fov, 62 + Math.min(14, p.v * 0.08), Math.min(1, dt * 3));
+  } else if ((player.state === 'boat' && player.boat) || (player.state === 'ride' && RIDE.v)) { // behind the boat, or the tram/bus you're riding
+    const V = player.state === 'boat' ? player.boat : RIDE.v, big = player.state === 'ride';
+    tx = V.x; ty = (big ? 3.2 : 1.6) + (player.state === 'boat' ? WATER_Y + 0.6 : standAt(V.x, V.z)); tz = V.z; dist = big ? 14 : player.boat.sp.L + 5;
+    if (elapsed - mouse.last > 1.4) camYaw += angDiff(camYaw, V.h) * Math.min(1, dt * 2.2);
+    camPitch = lerp(camPitch, 0.2, Math.min(1, dt * 1.5)); camera.fov = lerp(camera.fov, 62, Math.min(1, dt * 3));
   } else if (player.state === 'surf') { // behind the board, a little above the water
     tx = SURF.x; ty = 0.9 + (SURF.mode === 'ride' ? 0.6 : 0); tz = SURF.z; dist = SURF.mode === 'ride' ? 6.5 : 4.5;
     if (elapsed - mouse.last > 1.0) camYaw += angDiff(camYaw, SURF.h) * Math.min(1, dt * (SURF.mode === 'ride' ? 3 : 1.5));
@@ -1605,6 +1618,7 @@ function drawMinimap() {
   for (const s of OUTFIT_SHOPS) if (Math.abs(s.x - tx) < 300 && Math.abs(s.z - tz) < 300) dot(s.x, s.z, 6, '#ffd400');
   for (const d of DEALERS) if (Math.abs(d.x - tx) < 400 && Math.abs(d.z - tz) < 400) { dot(d.x, d.z, 9, '#000'); dot(d.x, d.z, 7, '#ff3030'); }
   for (const sh of SHOPS) if (sh.kind === 'bank' && Math.abs(sh.x - tx) < 400 && Math.abs(sh.z - tz) < 400) { dot(sh.x, sh.z, 9, '#000'); dot(sh.x, sh.z, 7, '#33d17a'); }
+  for (const P of ECON.props) if (Math.abs(P.x - tx) < 400 && Math.abs(P.z - tz) < 400) { dot(P.x, P.z, 10, '#000'); dot(P.x, P.z, 8, '#ff9f43'); } // your places
   for (const t of trams) for (const md of t.mods) if (Math.abs(md.x - tx) < 300 && Math.abs(md.z - tz) < 300) dot(md.x, md.z, 4, '#2ec4b6');
   for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 7, Math.floor(elapsed * 4) % 2 ? '#ff3b3b' : '#3b7bff');
   for (const p of peds) if (p.cop) dot(p.x, p.z, 5, '#6aa8ff');
@@ -1682,6 +1696,8 @@ function drawBigMap() {
   for (const sh of SHOPS) if (sh.kind === 'fuel') dot(sh.x, sh.z, 4, '#ffb000');
   for (const d of DEALERS) { dot(d.x, d.z, 5, '#ff3030'); }
   for (const sh of SHOPS) if (sh.kind === 'bank') dot(sh.x, sh.z, 5, '#33d17a');
+  for (const P of ECON.props) { dot(P.x, P.z, 8, '#000'); dot(P.x, P.z, 6, '#ff9f43'); }
+  if (hasGear('scanner')) for (const c of cars) if (c.kind === 'police' && !c.dead) dot(c.x, c.z, 5, '#3b7bff'); // the scanner app
   for (const s of OUTFIT_SHOPS) dot(s.x, s.z, 4, '#ffd400');
   label('PACIFIC OCEAN', B[2] - 700, (B[1] + B[3]) / 2, 22, '#8fd3e8');
   strokeGPS(x, (wx, wz) => [wx, wz], 4 / S);
@@ -1842,7 +1858,8 @@ function updateHUD(dt) {
     const c = player.car, brakingNow = (c.input.b > 0 && c.vf > 0.5) || c.input.hb;
     sp.hidden = false; sp.firstChild.nodeValue = Math.round(c.speed * 3.6); sp.classList.toggle('braking', !!brakingNow);
     if (!HUD_TIPS.car) { HUD_TIPS.car = true; toast('W gas · S brake (then reverse) · Space hard brake · A/D steer · Space + A/D to slide'); }
-  } else sp.hidden = true;
+  } else if (player.state === 'boat' && player.boat) { sp.hidden = false; sp.firstChild.nodeValue = Math.round(Math.abs(player.boat.v) * 3.6); sp.classList.remove('braking'); }
+  else sp.hidden = true;
   streetT -= dt;
   if (streetT <= 0) {
     streetT = 0.5;
@@ -1965,6 +1982,7 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[code] = true;
   if (!started) return;
+  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') document.body.classList.remove('photo'); return; }
   if (uiOpen) {
     if (PHONE.open) { if (code === 'Escape' || code === 'KeyP') closePhone(); return; }
     if (!$('casino').hidden) { if (code === 'Escape') closeCasino(); return; }
@@ -1986,6 +2004,7 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyP') openPhone();
   if (code === 'KeyT') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
+  if (code === 'KeyR' && (['car', 'plane', 'boat', 'ride'].includes(player.state) || hasGear('headphones'))) changeStation();
 });
 window.addEventListener('keyup', (e) => { keys[keyCode(e)] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -2147,16 +2166,16 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateGPS(dt); updateMissions(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);
   updateDrift(dt);
   updateWanted(dt);
-  updateCopField(dt);
+  updateCopField(dt); updatePolice(dt); updateBoats(dt); updateTransit(dt);
   manageWorld(dt);
   updateParticles(dt);
-  updateSky(dt);
+  updateSky(dt); updateWeather(dt); updateRadio(dt);
   updateCamera(dt);
   updateHUD(dt);
   updateAudio(dt);
@@ -2167,6 +2186,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!ready) return;
+  updateTouch();
   if (!started || paused || bigMapOpen || uiOpen) {
     if (!started) { camYaw += dt * 0.05; elapsed += dt; updateCamera(dt); updateSky(0); }
     if (uiOpen) { elapsed += dt; updateCamera(dt); if (MG.active) mgUpdate(dt); }
@@ -2209,7 +2229,7 @@ async function boot() {
     const sign = window.SIGN_POS || { x: 740, z: 303, fx: 1, fz: 0 };
     playerSpot = { x: sign.x - sign.fx * 30, z: sign.z - sign.fz * 30 };
     const s0 = resolveCircle(playerSpot.x, playerSpot.z, 0.5) ? sidewalkNear(playerSpot.x, playerSpot.z) : playerSpot;
-    playerSpot = { x: s0.x, z: s0.z };
+    playerSpot = { x: s0.x, z: s0.z }; startSpot = playerSpot;
     player.x = playerSpot.x; player.z = playerSpot.z; player.h = Math.atan2(sign.fx, sign.fz); camYaw = player.h;
     loadGame();
     rebuildPlayer();

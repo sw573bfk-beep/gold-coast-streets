@@ -40,7 +40,7 @@ const toWorld = (s, d) => { const F = SURF.frame; return [F.ox + F.tx * s + F.nx
 // sets: a few bigger waves together, then a lull; each wave peels from one end
 function spawnWave() {
   if (SURF.set <= 0) SURF.set = 3 + Math.floor(rand() * 3);
-  const big = SURF.set >= 3 ? 1.1 : 0.85, h = (1.1 + rand() * 0.9) * big, dir = rand() < 0.5 ? 1 : -1;
+  const big = SURF.set >= 3 ? 1.1 : 0.85, h = (1.1 + rand() * 0.9) * big * (1 + WEATHER.storm * 0.6 + WEATHER.rain * 0.15), dir = rand() < 0.5 ? 1 : -1; // storms bring bigger surf
   SURF.waves.push({ d: WAVE_START, h, breakD: 55 + h * 22, peel: null, dir, peelV: 6 + rand() * 3 });
   SURF.set--; SURF.nextWave = SURF.set > 0 ? 9 + rand() * 3 : 22 + rand() * 10;
 }

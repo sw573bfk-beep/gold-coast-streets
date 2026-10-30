@@ -564,9 +564,10 @@ function noiseTexture(size, base, spread, specks) {
   return t;
 }
 let lampMat;
+const WET_MATS = []; // road surfaces that go dark and glossy in the rain (weather.js)
 function buildRoads() {
   const asphalt = noiseTexture(256, '#57595d', 40, 9000);
-  const mk = (color, po) => new THREE.MeshStandardMaterial({ map: asphalt, color: col(color), roughness: 0.92, polygonOffset: true, polygonOffsetFactor: po, polygonOffsetUnits: po * 2 });
+  const mk = (color, po) => { const m = new THREE.MeshStandardMaterial({ map: asphalt, color: col(color), roughness: 0.92, polygonOffset: true, polygonOffsetFactor: po, polygonOffsetUnits: po * 2 }); WET_MATS.push(m); return m; };
   const sets = [
     { f: (r) => r.type === RT.service, y: 0.03, mat: mk('#d6d6d6', -1) },
     { f: (r) => DRIVE.has(r.type) && !MAJOR.has(r.type), y: 0.045, mat: mk('#ffffff', -2) },
