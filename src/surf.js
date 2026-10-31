@@ -37,10 +37,28 @@ function nearestShore(x, z) {
 function setSurfFrame(x, z) { const S = nearestShore(x, z); if (!S) return false; SURF.frame = { ox: S.px, oz: S.pz, nx: S.nx, nz: S.nz, tx: S.tx, tz: S.tz }; SURF.waves.length = 0; SURF.nextWave = 1; return true; }
 const toLocal = (x, z) => { const F = SURF.frame, rx = x - F.ox, rz = z - F.oz; return [rx * F.tx + rz * F.tz, rx * F.nx + rz * F.nz]; };
 const toWorld = (s, d) => { const F = SURF.frame; return [F.ox + F.tx * s + F.nx * d, F.oz + F.tz * s + F.nz * d]; };
+// the swell: a forecast that changes through the day and from day to day (the same for everyone), bigger at the
+// points (Burleigh, Kirra, Snapper) and in storms. Phone → Swell shows it for every beach.
+const SURF_SPOTS = [ // name, how it picks up swell, where
+  ['The Spit', /^The Spit Beach/i, 1.0, 583, -5040], ['Main Beach', /^Main Beach$/i, 0.9, 700, -1500], ['Surfers Paradise', /^Surfers Paradise Beach$/i, 0.95, 848, 306],
+  ['Broadbeach (Kurrawa)', /^Kurrawa Beach/i, 0.9, 1180, 3340], ['Mermaid Beach', /^Mermaid Beach Beach$/i, 0.95, 1512, 5105], ['Nobby Beach', /^Nobby Beach Beach$/i, 1.0, 1819, 6467],
+  ['Miami', /^Miami Beach$/i, 1.05, 2048, 7432], ['North Burleigh', /^North Burleigh Beach$/i, 1.1, 2321, 8307], ['Burleigh Heads', /^Burleigh Beach$/i, 1.3, 2729, 9435],
+  ['Currumbin Alley', /^Currumbin Beach/i, 1.15, 6900, 15600], ['Kirra', /^Kirra Beach/i, 1.35, 10500, 18900], ['Snapper Rocks', /^Snapper Rocks/i, 1.25, 12200, 18600],
+];
+const spotAt = (S) => venue('surf:' + S[0], S[1], S[3], S[4]);
+function swellBase(hour) { // metres of open-ocean swell at a given hour from now
+  const t = Date.now() / 3600000 + hour, day = Math.floor(t / 24), r = (k) => ((Math.sin(k * 12.9898) * 43758.5453) % 1 + 1) % 1;
+  const a = r(day), b = r(day + 1), f = (t / 24) % 1, daily = a + (b - a) * (f * f * (3 - 2 * f)); // smooth from one day to the next
+  return 0.7 + daily * 1.9 + Math.sin(t * 0.52) * 0.25 + WEATHER.storm * 1.4 + WEATHER.rain * 0.2;
+}
+function swellAt(x, z, hour = 0) {
+  let best = SURF_SPOTS[2], bd = 1e9; for (const S of SURF_SPOTS) { const P = spotAt(S), d = Math.hypot(P.x - x, P.z - z); if (d < bd) { bd = d; best = S; } }
+  return swellBase(hour) * best[2];
+}
 // sets: a few bigger waves together, then a lull; each wave peels from one end
 function spawnWave() {
   if (SURF.set <= 0) SURF.set = 3 + Math.floor(rand() * 3);
-  const big = SURF.set >= 3 ? 1.1 : 0.85, h = (1.1 + rand() * 0.9) * big * (1 + WEATHER.storm * 0.6 + WEATHER.rain * 0.15), dir = rand() < 0.5 ? 1 : -1; // storms bring bigger surf
+  const F = SURF.frame, big = SURF.set >= 3 ? 1.15 : 0.8, h = swellAt(F.ox, F.oz) * big * (0.8 + rand() * 0.4), dir = rand() < 0.5 ? 1 : -1;
   SURF.waves.push({ d: WAVE_START, h, breakD: 55 + h * 22, peel: null, dir, peelV: 6 + rand() * 3 });
   SURF.set--; SURF.nextWave = SURF.set > 0 ? 9 + rand() * 3 : 22 + rand() * 10;
 }
@@ -98,6 +116,22 @@ function updateWaves(dt) {
   }
   for (let i = SURF.waves.length - 1; i >= 0; i--) if (SURF.waves[i].d < 6) SURF.waves.splice(i, 1);
   drawWaves(toLocal(player.x, player.z)[0]);
+  updateCurl();
+}
+// the lip of a big wave pitching over the breaking section: the barrel you can ride inside
+let CURL = null;
+function updateCurl() {
+  if (!CURL) {
+    const geo = new THREE.CylinderGeometry(1, 1, 1, 18, 1, true, 0, Math.PI * 1.35); geo.rotateZ(Math.PI / 2); // the tube lies along the wave
+    CURL = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ color: col('#2f8f9a'), transparent: true, opacity: 0.78, side: THREE.DoubleSide, roughness: 0.15, metalness: 0.1 }));
+    CURL.visible = false; scene.add(CURL);
+  }
+  const F = SURF.frame, ps = toLocal(player.x, player.z)[0];
+  const W = SURF.waves.filter((q) => q.peel !== null && q.h > 1.7 && q.d > 15 && Math.abs(q.peel - ps) < 140).sort((a, b) => b.h - a.h)[0];
+  CURL.visible = !!W && SURF.on; if (!CURL.visible) return;
+  const [x, z] = toWorld(W.peel + W.dir * 5, W.d - W.h * 0.35), r = W.h * 0.62;
+  CURL.position.set(x, -0.5 + W.h * 0.62, z); CURL.scale.set(10, r, r); // 10 m of throwing lip
+  CURL.rotation.set(0, Math.atan2(-F.tz, F.tx), 0); CURL.rotateX(Math.atan2(F.nz, F.nx) > 0 ? 2.2 : -0.9); // open side down towards the beach
 }
 // ---------------------------------------------------------------- the surfer
 function surfUse() { // E: grab a board on the sand or in the water off a beach, or hand it back
@@ -113,7 +147,7 @@ function surfUse() { // E: grab a board on the sand or in the water off a beach,
 }
 function endSurf() {
   SURF.on = false; player.state = 'foot'; if (SURF.board) SURF.board.visible = false;
-  for (const m of SURF.meshes) m.visible = false; SURF.waves.length = 0; $('jobhud').hidden = true;
+  for (const m of SURF.meshes) m.visible = false; SURF.waves.length = 0; $('jobhud').hidden = true; if (CURL) CURL.visible = false;
   player.x = SURF.x; player.z = SURF.z; player.y = 0; player.model.root.rotation.set(0, player.h, 0, 'XYZ');
 }
 function finishRide(wiped) {
@@ -138,7 +172,7 @@ function updateSurf(dt) {
     if (SURF.wipeT <= 0) SURF.mode = 'paddle';
   } else if (SURF.mode === 'paddle') {
     SURF.h += steer * 1.7 * dt;
-    const fx = Math.sin(SURF.h), fz = Math.cos(SURF.h), sp = keys.KeyW || keys.ArrowUp ? (keys.ShiftLeft ? 2.6 : 1.9) : 0;
+    const fx = Math.sin(SURF.h), fz = Math.cos(SURF.h), sp = keys.KeyW || keys.ArrowUp ? (keys.ShiftLeft ? 4.6 : 3.4) : 0; // strong strokes out the back
     if (keys.Space && SURF.duck <= 0) { SURF.duck = 0.9; keys.Space = false; }
     SURF.duck -= dt;
     let x = SURF.x + fx * sp * dt, z = SURF.z + fz * sp * dt;
@@ -172,6 +206,11 @@ function updateSurf(dt) {
     const s2 = s + R.vs * dt, d2 = W.d - R.face, broken = W.peel !== null && (s2 - W.peel) * W.dir < 0;
     const [x, z] = toWorld(s2, d2); SURF.x = x; SURF.z = z;
     const speed = Math.hypot(R.vs, WAVE_C);
+    // the barrel: on a big wave, tucked just ahead of where it's breaking, mid-face, under the throwing lip
+    const ahead = W.peel === null ? 99 : (s2 - W.peel) * W.dir, tube = W.h > 1.7 && !broken && ahead > 0 && ahead < 8 && R.face > 0.8 && R.face < 2.8;
+    if (tube) { R.tubeT = (R.tubeT || 0) + dt; R.pts += 140 * dt; if (!R.tubeMsg) { R.tubeMsg = true; toast('🌀 IN THE BARREL! Hold your line…'); sfxNoise(0.8, 300, 0.3); } }
+    else if (R.tubeT > 0.8) { R.pts += Math.round(300 + R.tubeT * 200); toast(`🌀 Barrel! ${R.tubeT.toFixed(1)} s inside · +${Math.round(300 + R.tubeT * 200)}`); sfxTone([523, 784, 1046], 0.3, 0.06); stat('barrels'); R.tubeT = 0; R.tubeMsg = false; }
+    else { R.tubeT = 0; R.tubeMsg = false; }
     R.pts += speed * dt * (broken ? 1 : 3);
     if (Math.sign(R.vs) !== R.lastDir && Math.abs(R.vs) > 4 && R.lastDir) { R.pts += 100; toast('Cutback! +100'); }
     if (Math.abs(R.vs) > 2) R.lastDir = Math.sign(R.vs);
@@ -184,7 +223,7 @@ function updateSurf(dt) {
     SURF.board.position.set(x, -0.5 + yy + 0.05 + air, z); SURF.board.rotation.set(0, heading, -carve * 0.35 + (air ? elapsed * 8 : 0) * 0);
     P.root.position.set(x, -0.5 + yy + 0.12 + air, z); P.root.rotation.set(0, heading + Math.PI / 2, -carve * 0.25, 'YXZ'); // side-on, leaning into the turn
     animatePerson(P, 0, 0); P.legL.rotation.x = 0.35; P.legR.rotation.x = -0.35; P.armL.rotation.z = 1.2; P.armR.rotation.z = -1.2;
-    $('jobhud').hidden = false; $('jobhud').textContent = `Surfing · ${R.t.toFixed(1)} s · ${Math.round(R.pts)} pts${broken ? ' · in the white water — carve ahead of it!' : ''} · best ${SURF.best}`;
+    $('jobhud').hidden = false; $('jobhud').textContent = `Surfing · ${R.t.toFixed(1)} s · ${Math.round(R.pts)} pts${tube ? ' · 🌀 BARREL' : W.h > 1.7 ? ' · big one — tuck in just ahead of the curl for a barrel' : ''}${broken ? ' · in the white water — carve ahead of it!' : ''} · best ${SURF.best}`;
     // ends: over the falls at the lip as it breaks, buried in the white water, or a clean kick-out near the sand
     if (R.face < 0.6 && W.d < W.breakD && !air) return finishRide(true);
     R.foamT = broken ? (R.foamT || 0) + dt : 0; if (broken) R.vs *= Math.exp(-0.6 * dt); // the white water slows you down
@@ -192,4 +231,12 @@ function updateSurf(dt) {
     if (W.d < 18) { finishRide(false); $('jobhud').hidden = true; }
   }
   player.x = SURF.x; player.z = SURF.z; player.h = SURF.h;
+}
+// ---------------------------------------------------------------- phone → Swell: the surf forecast for every beach
+const swellWord = (h) => (h < 0.8 ? 'small' : h < 1.4 ? 'fun' : h < 2.0 ? 'good' : h < 2.8 ? 'pumping 🔥' : 'huge — barrels 🌀');
+function swellApp(btn, head) {
+  const rows = SURF_SPOTS.map((S) => { const P = spotAt(S), now = swellBase(0) * S[2], later = [3, 6, 9, 12].map((h) => swellBase(h) * S[2]); return { S, P, now, peak: Math.max(now, ...later), when: [0, 3, 6, 9, 12][[now, ...later].indexOf(Math.max(now, ...later))] }; }).sort((a, b) => b.now - a.now);
+  head(`Biggest right now: ${rows[0].S[0]} · ${rows[0].now.toFixed(1)} m`);
+  for (const r of rows) btn(`🌊 ${r.S[0]} · ${r.now.toFixed(1)} m (${Math.round(r.now * 3.3)} ft) · ${swellWord(r.now)}`, `${km(r.P.x, r.P.z)} away · peak ${r.peak.toFixed(1)} m ${r.when ? `in ${r.when} h` : 'now'} · tap for directions`, () => directions(r.S[0], r.P.x, r.P.z));
+  head(WEATHER.storm > 0.3 ? '⛈️ Storm swell — the points are firing' : 'Barrels start at about 1.7 m: points like Burleigh and Kirra get the biggest waves');
 }

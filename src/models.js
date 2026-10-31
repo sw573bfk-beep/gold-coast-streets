@@ -106,6 +106,10 @@ const CAR_TYPES = {
   suv: { L: 4.8, W: 1.9, wr: 0.38, wb: 2.85, bot: 0.42, bump: 0.8, hood: 1.08, trunk: 1.18, belt: 1.16, roof: 1.82, cr: -2.15, rr: -2.05, rf: 0.24, cf: 1.02, accel: 7, max: 45, grip: 6.2, mass: 2000, drive: 'awd', mu: 1.0, frontBias: 0.55 },
   sports: { L: 4.45, W: 1.9, wr: 0.33, wb: 2.6, bot: 0.22, bump: 0.5, hood: 0.7, trunk: 0.8, belt: 0.82, roof: 1.2, cr: -1.05, rr: -0.5, rf: 0.22, cf: 0.98, accel: 11.5, max: 66, grip: 8.6, mass: 1350, drive: 'rwd', mu: 1.12, frontBias: 0.46 },
   coupe: { L: 4.35, W: 1.76, wr: 0.32, wb: 2.52, bot: 0.26, bump: 0.56, hood: 0.78, trunk: 0.9, belt: 0.92, roof: 1.32, cr: -0.95, rr: -0.55, rf: 0.25, cf: 0.95, accel: 10, max: 58, grip: 7.6, mass: 1250, drive: 'rwd', mu: 0.96, frontBias: 0.52 },
+  // street machines: big power, loose rear, decals all over (they keep the old drifty handling)
+  tuner: { L: 4.35, W: 1.8, wr: 0.33, wb: 2.52, bot: 0.18, bump: 0.5, hood: 0.74, trunk: 0.86, belt: 0.88, roof: 1.26, cr: -0.95, rr: -0.55, rf: 0.25, cf: 0.95, accel: 13, max: 76, grip: 7.6, mass: 1200, drive: 'rwd', mu: 0.94, frontBias: 0.5, drift: true, livery: true },
+  widebody: { L: 4.9, W: 2.08, wr: 0.36, wb: 2.85, bot: 0.2, bump: 0.6, hood: 0.88, trunk: 0.95, belt: 0.96, roof: 1.36, cr: -1.25, rr: -0.8, rf: 0.32, cf: 1.08, accel: 13.5, max: 80, grip: 7.2, mass: 1500, drive: 'rwd', mu: 0.96, frontBias: 0.52, drift: true, livery: true },
+  dragster: { L: 5.4, W: 1.95, wr: 0.38, wb: 3.3, bot: 0.16, bump: 0.42, hood: 0.6, trunk: 0.8, belt: 0.72, roof: 1.08, cr: -1.6, rr: -1.1, rf: 0.1, cf: 0.6, accel: 16.5, max: 98, grip: 7, mass: 1300, drive: 'rwd', mu: 0.9, frontBias: 0.4, cdA: 0.8, drift: true, livery: true },
   muscle: { L: 4.95, W: 1.9, wr: 0.36, wb: 2.9, bot: 0.3, bump: 0.64, hood: 0.92, trunk: 0.98, belt: 1.0, roof: 1.44, cr: -1.3, rr: -0.82, rf: 0.34, cf: 1.12, accel: 10.5, max: 60, grip: 7.0, mass: 1700, drive: 'rwd', mu: 0.98, frontBias: 0.55 },
 };
 // two wheels: a road bike and an e-bike (light, slow, quiet); they lean into corners and you can see the rider
@@ -264,4 +268,31 @@ function setDriverLook(M, look) {
   M.driver.add(new THREE.Mesh(g, personMat)); M.driver.visible = true;
 }
 const randomLook = () => ({ shirt: pick(SHIRT), skin: pick(SKIN), hair: pick(HAIR) });
-function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tailMat.dispose(); for (const g of M.geos) g.dispose(); for (const o of M.driver.children) if (o.geometry) o.geometry.dispose(); }
+function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tailMat.dispose(); if (M.livery) { M.livery.map.dispose(); M.livery.dispose(); } for (const g of M.geos) g.dispose(); for (const o of M.driver.children) if (o.geometry) o.geometry.dispose(); }
+// ---------------------------------------------------------------- street machine decals: a livery painted on a canvas,
+// stuck down both sides and across the bonnet (made-up sponsors, flames, stripes, lightning, chequers, a race number)
+const LIVERY_WORDS = ['NITRO', 'SEND IT', 'BURNOUT', 'GC STREETS', 'TURBO X', 'APEX', 'SURFERS SPEED SHOP', 'FULL NOISE', 'SIDEWAYS'];
+const LIVERY_COLS = ['#ff2d55', '#ffd400', '#00e5ff', '#7cff00', '#ff6a00', '#b84dff', '#ffffff', '#111111'];
+function liveryCanvas(seed, base) {
+  let s = seed; const r = () => ((s = (s * 9301 + 49297) % 233280) / 233280), pickc = (a) => a[Math.floor(r() * a.length)];
+  const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
+  const a = pickc(LIVERY_COLS.filter((q) => q !== base)), b = pickc(LIVERY_COLS.filter((q) => q !== a)), style = Math.floor(r() * 5);
+  g.clearRect(0, 0, 512, 128);
+  if (style === 0) { for (let k = 0; k < 9; k++) { const x0 = 20 + k * 36; const gr = g.createLinearGradient(x0, 128, x0 + 160, 0); gr.addColorStop(0, '#ff2a00'); gr.addColorStop(0.5, '#ff9a00'); gr.addColorStop(1, '#ffe600'); g.fillStyle = gr; g.beginPath(); g.moveTo(x0, 128); g.quadraticCurveTo(x0 + 60, 70 + r() * 30, x0 + 150 + r() * 80, 20 + r() * 40); g.quadraticCurveTo(x0 + 70, 90, x0 + 40, 128); g.fill(); } } // flames off the front wheels
+  else if (style === 1) { g.fillStyle = a; g.fillRect(0, 40, 512, 18); g.fillRect(0, 66, 512, 18); g.fillStyle = b; g.fillRect(0, 60, 512, 4); } // racing stripes
+  else if (style === 2) { g.fillStyle = a; g.beginPath(); g.moveTo(40, 20); g.lineTo(260, 52); g.lineTo(220, 64); g.lineTo(470, 108); g.lineTo(200, 80); g.lineTo(240, 68); g.closePath(); g.fill(); g.strokeStyle = b; g.lineWidth = 4; g.stroke(); } // a lightning bolt
+  else if (style === 3) { for (let x = 0; x < 512; x += 16) for (let y = 88; y < 128; y += 16) if (((x + y) / 16) % 2 === 0) { g.fillStyle = '#111'; g.fillRect(x, y, 16, 16); } else { g.fillStyle = '#fff'; g.fillRect(x, y, 16, 16); } g.fillStyle = a; g.fillRect(0, 76, 512, 10); } // chequers along the sills
+  else { for (let k = 0; k < 26; k++) { g.fillStyle = pickc([a, b, '#fff']); g.beginPath(); g.arc(r() * 512, r() * 128, 4 + r() * 22, 0, TAU); g.fill(); } } // paint splatter
+  g.font = '900 34px Impact, "Arial Black", sans-serif'; g.textBaseline = 'middle'; g.lineWidth = 6; g.strokeStyle = '#000'; g.fillStyle = b;
+  const word = pickc(LIVERY_WORDS); g.strokeText(word, 150, 30); g.fillText(word, 150, 30);
+  const num = String(1 + Math.floor(r() * 98)); g.fillStyle = '#fff'; g.beginPath(); g.arc(80, 66, 34, 0, TAU); g.fill(); g.fillStyle = '#000'; g.font = '900 42px Impact, sans-serif'; g.textAlign = 'center'; g.fillText(num, 80, 68);
+  return c;
+}
+function addLivery(M, p, seed) {
+  const tex = new THREE.CanvasTexture(liveryCanvas(seed, '#000')); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+  const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.35, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
+  M.livery = mat; const h = Math.max(0.25, (p.belt - p.bot) * 0.85), y = p.bot + (p.belt - p.bot) * 0.5, len = p.L * 0.88;
+  for (const sd of [-1, 1]) { const geo = new THREE.PlaneGeometry(len, h); if (sd < 0) { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); } // both sides read front to back
+    const m = new THREE.Mesh(geo, mat); m.position.set(sd * (p.W / 2 + 0.015), y, 0); m.rotation.y = sd * Math.PI / 2; M.bodyG.add(m); M.geos.push(geo); }
+  const hood = new THREE.PlaneGeometry(p.W * 0.55, Math.max(0.6, (p.L / 2 - p.cf) * 0.8)); const hm = new THREE.Mesh(hood, mat); hm.rotation.x = -Math.PI / 2; hm.position.set(0, (p.belt + p.hood) / 2 + 0.03, (p.cf + p.L / 2) / 2); M.bodyG.add(hm); M.geos.push(hood);
+}

@@ -20,15 +20,15 @@ function econPanel(title, sub, rows) {
 }
 
 // ---------------------------------------------------------------- car dealerships: buy, test drive, call your car
-const CAR_PRICES = { ebike: 2200, hatch: 7500, sedan: 9800, motorbike: 12500, ute: 14500, suv: 16900, coupe: 24000, muscle: 31000, sports: 45000 };
-const CAR_LABEL = { ebike: 'E-bike', hatch: 'City hatchback', sedan: 'Family sedan', motorbike: 'Sports motorbike', ute: 'Tradie ute', suv: 'Seven-seat SUV', coupe: 'Drift coupe', muscle: 'V8 muscle car', sports: 'Sports car' };
+const CAR_PRICES = { tuner: 38000, widebody: 52000, dragster: 85000, ebike: 2200, hatch: 7500, sedan: 9800, motorbike: 12500, ute: 14500, suv: 16900, coupe: 24000, muscle: 31000, sports: 45000 };
+const CAR_LABEL = { tuner: 'Street tuner', widebody: 'Widebody street machine', dragster: 'Pro-street dragster', ebike: 'E-bike', hatch: 'City hatchback', sedan: 'Family sedan', motorbike: 'Sports motorbike', ute: 'Tradie ute', suv: 'Seven-seat SUV', coupe: 'Drift coupe', muscle: 'V8 muscle car', sports: 'Sports car' };
 function dealerStock(sh) { // each dealership carries its own range
   const n = sh.name.toLowerCase(), all = Object.keys(CAR_PRICES);
   if (/yamaha|kawasaki|ducati|harley|triumph|ktm|motorcycle|motorbike|moto\b|bikes?\b|scooter/.test(n)) return ['motorbike', 'ebike'];
-  if (/bmw|mercedes|audi|lexus|porsche|jaguar|tesla|prestige/.test(n)) return ['sedan', 'suv', 'coupe', 'sports', 'motorbike'];
-  if (/ford|holden|ram|chev/.test(n)) return ['ute', 'muscle', 'suv', 'sedan'];
-  if (/toyota|mazda|hyundai|kia|nissan|honda|mitsubishi|subaru|suzuki|volkswagen|mg|isuzu/.test(n)) return /honda|suzuki/.test(n) ? ['hatch', 'sedan', 'motorbike', 'ebike'] : ['hatch', 'sedan', 'suv', 'ute'];
-  let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0; return all.filter((_, i) => (h >> i) & 1).slice(0, 4).concat(['hatch']).slice(0, 4);
+  if (/bmw|mercedes|audi|lexus|porsche|jaguar|tesla|prestige/.test(n)) return ['sedan', 'suv', 'coupe', 'sports', 'motorbike', 'dragster'];
+  if (/ford|holden|ram|chev/.test(n)) return ['ute', 'muscle', 'suv', 'sedan', 'widebody'];
+  if (/toyota|mazda|hyundai|kia|nissan|honda|mitsubishi|subaru|suzuki|volkswagen|mg|isuzu/.test(n)) return /honda|suzuki/.test(n) ? ['hatch', 'sedan', 'motorbike', 'ebike'] : ['hatch', 'sedan', 'suv', 'ute', 'tuner'];
+  let h = 0; for (const c of n) h = (h * 31 + c.charCodeAt(0)) >>> 0; return all.filter((t, i) => (h >> i) & 1 && !CAR_TYPES[t].livery).slice(0, 3).concat(['hatch', ['tuner', 'widebody', 'dragster'][h % 3]]); // and one street machine
 }
 function openDealer(sh) {
   const rows = dealerStock(sh).map((t) => {

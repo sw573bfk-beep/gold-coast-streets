@@ -1,8 +1,8 @@
 // Gold Coast Streets — planes you can fly. Parked at the Gold Coast Airport (Coolangatta): walk up and press E.
-// Arcade handling: W/S throttle (S brakes on the ground), A/D turn (steer on the ground, bank in the air),
-// ↑/Space climb, ↓ dive, or the mouse for the nose. Let go and it levels out and holds its height.
-// Lift needs speed: too slow and the nose drops (a stall). Come down gently with the wings level to land.
-// Airliners also take off and land on their own.
+// Flown like a plane: S pulls the nose up, W pushes it down, A/D roll left and right (bank to turn, pull S to turn
+// tighter), Q/E rudder, Space more power, Shift less (and the brakes on the ground). It holds whatever attitude you
+// leave it in — nothing levels it out for you. Lift needs speed: too slow and it stalls and the nose drops.
+// Come down gently with the wings level to land. Airliners also take off on their own.
 
 const PLANE_TYPES = { // agile: how quickly it banks and pitches (1 = a Cessna)
   cessna: { name: 'Cessna 172', len: 8.3, span: 11, fus: 1.4, gear: 1.1, maxV: 66, vr: 27, thrust: 7, color: '#f4f4f2', stripe: '#c62828', prop: true, agile: 1 },
@@ -49,26 +49,31 @@ class Plane {
   step(dt) {
     if (this.dead) return;
     const sp = this.sp, inp = this.input, g = 9.81;
-    this.throttle = clamp(this.throttle + inp.t * dt * 0.8, 0, 1);
+    this.throttle = clamp(this.throttle + inp.t * dt * 0.6, 0, 1);
     const drag = (sp.thrust / (sp.maxV * sp.maxV)) * this.v * this.v;
     this.v += (sp.thrust * this.throttle - drag - g * Math.sin(this.pitch) * (this.ground ? 0 : 1)) * dt;
     this.stall = !this.ground && this.v < sp.vr * 0.78;
     if (this.ground) {
       if (inp.brake) this.v = Math.max(0, this.v - 7 * dt);
       this.v = Math.max(0, this.v - 0.4 * dt);
-      this.h += inp.r * Math.min(1, this.v / 8) * 0.55 * dt;                 // steer while taxiing: A left, D right
+      this.h += (inp.r + (inp.y || 0)) * Math.min(1, this.v / 8) * 0.55 * dt; // steer while taxiing: A/Q left, D/E right
       this.roll = lerp(this.roll, 0, Math.min(1, dt * 4));
       const canRotate = this.v > sp.vr * 0.92;
       this.pitch = lerp(this.pitch, canRotate && inp.p > 0 ? 0.16 : 0, Math.min(1, dt * 2.5));
-      if (this.v > sp.vr && this.pitch > 0.08) { this.ground = false; if (!this.ai) toast('Airborne! Let go to level out · A/D to turn'); }
+      if (this.v > sp.vr && this.pitch > 0.08) { this.ground = false; if (!this.ai) toast('Airborne! It holds its attitude now — A/D bank, S/W nose up/down'); }
     } else {
-      // bank to turn, and level out by itself when you let go
-      const rollT = this.stall ? 0 : inp.r * (sp.fighter ? 1.2 : 0.7);
-      this.roll += clamp(rollT - this.roll, -1.6 * sp.agile * dt, 1.6 * sp.agile * dt);
-      this.h += (g * Math.tan(this.roll) / Math.max(20, this.v)) * dt;
-      const glide = !inp.p && this.throttle < 0.4 ? -0.09 * (1 - this.throttle / 0.4) : 0; // power off, hands off: a gentle glide down to land
-      const pitchT = this.stall ? -0.22 : inp.p ? inp.p * 0.38 : glide;
-      this.pitch += clamp(pitchT - this.pitch, -0.9 * sp.agile * dt, 0.9 * sp.agile * dt);
+      // the controls move the plane at a rate (they don't set an angle), and work better the faster you go
+      const auth = clamp((this.v / sp.vr) ** 2, 0.2, 1.3) * sp.agile;
+      this.rollRate = lerp(this.rollRate || 0, inp.r * 1.2 * Math.min(1.4, auth + 0.3), Math.min(1, dt * 6));
+      this.pitchRate = lerp(this.pitchRate || 0, inp.p * 0.55 * auth, Math.min(1, dt * 5));
+      this.roll += this.rollRate * dt; if (this.roll > Math.PI) this.roll -= TAU; if (this.roll < -Math.PI) this.roll += TAU; // all the way round: a barrel roll
+      // pulling back while banked turns you more than it climbs
+      this.pitch += this.pitchRate * Math.cos(this.roll) * dt; this.h += this.pitchRate * Math.sin(this.roll) * dt;
+      this.h += (inp.y || 0) * 0.3 * auth * dt;                                         // rudder
+      this.h += (g * Math.sin(this.roll) * Math.cos(this.pitch) / Math.max(25, this.v)) * dt * 0.8; // a banked wing turns the plane
+      if (this.stall) this.pitch -= 0.5 * dt;                                             // stalled: the nose falls
+      this.pitch -= Math.abs(Math.sin(this.roll)) * 0.06 * dt * (this.v < sp.vr * 1.3 ? 2 : 1); // on its side the nose slowly drops
+      this.pitch = clamp(this.pitch, -1.35, 1.35);
       this.v = Math.max(0, this.v);
     }
     const fx = Math.sin(this.h) * Math.cos(this.pitch), fz = Math.cos(this.h) * Math.cos(this.pitch);
@@ -110,7 +115,7 @@ class Plane {
 function nearestPlane(maxD) { let best = null, bd = maxD; for (const p of PLANES) { if (p.dead || p.ai || p.v > 3) continue; const d = Math.hypot(p.x - player.x, p.z - player.z) - p.sp.len * 0.3; if (d < bd) { bd = d; best = p; } } return best; }
 function boardPlane(p) {
   player.plane = p; player.state = 'plane'; player.mode = 'car'; player.model.root.visible = false;
-  addCrime(1, 'jack'); $('flighthud').hidden = false; toast(`${p.sp.name}: hold W for full power, then ↑ or Space past ${Math.round(p.sp.vr * 3.6)} km/h to lift off`);
+  addCrime(1, 'jack'); $('flighthud').hidden = false; toast(`${p.sp.name}: hold Space for power, then pull back (S) past ${Math.round(p.sp.vr * 3.6)} km/h to lift off`);
 }
 function leavePlane(force) {
   const p = player.plane; if (!p) return;
@@ -120,19 +125,21 @@ function leavePlane(force) {
 }
 function updatePlaneControls() {
   const p = player.plane, inp = p.input;
-  inp.t = (keys.KeyW ? 1 : 0) - (keys.KeyS ? 1 : 0);
-  inp.brake = keys.KeyS && p.ground ? 1 : 0;
-  inp.p = clamp((keys.ArrowUp || keys.Space ? 1 : 0) - (keys.ArrowDown ? 1 : 0) + PLANE_MOUSE.y, -1, 1); PLANE_MOUSE.y *= 0.9;
-  inp.r = clamp((keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) + PLANE_MOUSE.x, -1, 1); PLANE_MOUSE.x *= 0.9; // +1 turns left, like a car
+  inp.t = (keys.Space ? 1 : 0) - (keys.ShiftLeft || keys.ShiftRight ? 1 : 0);                     // power
+  inp.brake = (keys.ShiftLeft || keys.ShiftRight) && p.ground && p.throttle < 0.05 ? 1 : 0;        // power off and still on Shift: brakes
+  inp.p = clamp((keys.KeyS || keys.ArrowDown ? 1 : 0) - (keys.KeyW || keys.ArrowUp ? 1 : 0) + PLANE_MOUSE.y, -1, 1); PLANE_MOUSE.y *= 0.9; // stick back: nose up
+  inp.r = clamp((keys.KeyA || keys.ArrowLeft ? 1 : 0) - (keys.KeyD || keys.ArrowRight ? 1 : 0) + PLANE_MOUSE.x, -1, 1); PLANE_MOUSE.x *= 0.9; // +1 banks left
+  inp.y = (keys.KeyQ ? 1 : 0) - (keys.KeyE ? 1 : 0);
   player.x = p.x; player.z = p.z; player.h = p.h; player.speed = p.v;
   // the flight panel: speed, height, climb, power and what to do next
   const kmh = Math.round(p.v * 3.6), vr = Math.round(p.sp.vr * 3.6), alt = Math.max(0, Math.round(p.alt));
   let tip;
-  if (p.ground) tip = p.v < 1 && p.throttle < 0.05 ? 'Hold W for full power' : p.v < p.sp.vr * 0.92 ? `Building speed… lift off at ${vr} km/h` : 'Now! Hold ↑ or Space to lift off';
-  else if (p.stall) tip = '⚠ STALL — too slow! W for power, let the nose drop';
-  else if (alt < 40 && (p.vy || 0) < -4) tip = '⚠ Too low — pull up (↑)';
-  else if (alt < 60) tip = 'To land: power down (S) and keep the wings level — it glides in · S brakes on the ground';
-  else tip = 'A/D turn · ↑/Space climb · ↓ dive · let go to level out';
+  if (p.ground) tip = p.v < 1 && p.throttle < 0.05 ? 'Hold Space for power · A/D steer' : p.v < p.sp.vr * 0.92 ? `Building speed… lift off at ${vr} km/h` : 'Now! Pull back (S) to lift off';
+  else if (p.stall) tip = '⚠ STALL — too slow! Space for power, push the nose down (W)';
+  else if (alt < 40 && (p.vy || 0) < -4) tip = '⚠ Too low — pull up (S)';
+  else if (Math.abs(p.roll) > 1.9) tip = 'Upside down! Roll back with A or D';
+  else if (alt < 60) tip = 'To land: less power (Shift), wings level, nose just above the horizon · Shift brakes on the ground';
+  else tip = 'S nose up · W nose down · A/D bank · Q/E rudder · Space/Shift power';
   $('fh-spd').textContent = kmh; $('fh-alt').textContent = alt; $('fh-vs').textContent = (p.vy > 0 ? '+' : '') + (p.vy || 0).toFixed(1);
   $('fh-thr').style.width = Math.round(p.throttle * 100) + '%'; $('fh-tip').textContent = tip; $('fh-tip').className = /⚠/.test(tip) ? 'warn' : '';
 }
@@ -164,7 +171,7 @@ function updatePlanes(dt) {
   }
   for (const p of PLANES.slice()) {
     if (p.ai) { // the scripted airliner: full power, rotate, climb out and leave
-      p.input.t = 1; p.input.r = 0; p.input.p = p.ground ? (p.v > p.sp.vr * 0.95 ? 1 : 0) : 0.5;
+      p.input.t = 1; p.input.r = clamp(-p.roll * 2, -1, 1); p.input.p = p.ground ? (p.v > p.sp.vr * 0.95 ? 1 : 0) : clamp((0.14 - p.pitch) * 3, -1, 1); // climb out wings level
       if (p.alt > 900 || Math.hypot(p.x - player.x, p.z - player.z) > 6000) { p.remove(); continue; }
     }
     p.step(dt);

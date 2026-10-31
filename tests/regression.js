@@ -328,7 +328,7 @@ window.runRegression = async () => {
     const mi = 1 + 2 * Math.floor((m1.length - 1) / 4); await goToTile(-27.9995 - m1[mi + 1] / 110574, 153.4235 + m1[mi] / (Math.cos(-27.9995 * Math.PI / 180) * 111320));
     const ne = nearestEdge(player.x, player.z, (E) => E.type === RT.motorway && E.len > 300); expect(ne.e >= 0, 'no motorway loaded');
     const E = EDGES[ne.e], P0 = edgePoint(E, 1, 5, {}); const p = new Plane('cessna', P0.x, P0.z, Math.atan2(P0.tx, P0.tz));
-    boardPlane(p); player.stars = 0; for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.v > p.sp.vr ? 1 : 0; p.input.r = 0; p.input.brake = 0; p.step(1 / 60); if (p.dead) break; }
+    boardPlane(p); player.stars = 0; for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.ground ? (p.v > p.sp.vr ? 1 : 0) : clamp((0.2 - p.pitch) * 3, -1, 1); p.input.r = clamp(-p.roll * 2, -1, 1); p.input.brake = 0; p.step(1 / 60); if (p.dead) break; } // a pilot: rotate, then hold a steady climb
     const ok = !p.dead && !p.ground && p.alt > 50, msg = `alt ${p.alt | 0} m at ${Math.round(p.v * 3.6)} km/h`; leavePlane(true); p.remove(); expect(ok, msg); return msg;
   });
   // ---------------------------------------------------------------- V9: Coolangatta, the airport and the hinterland
@@ -343,7 +343,7 @@ window.runRegression = async () => {
     quiet(); const R = AIRPORT.rw; await goToTile(...toLL((R.x1 + R.x2) / 2, (R.z1 + R.z2) / 2));
     updatePlanes(0.016); const parked = PLANES.filter((p) => !p.ai && !p.dead); expect(parked.length >= 3, `${parked.length} parked planes`);
     const p = new Plane('cessna', R.x1 + R.ex * 30, R.z1 + R.ez * 30, R.h); boardPlane(p); player.stars = 0;
-    for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.v > p.sp.vr ? 1 : 0; p.input.r = 0; p.input.brake = 0; p.step(1 / 60); if (p.dead) break; }
+    for (let k = 0; k < 60 * 20; k++) { p.input.t = 1; p.input.p = p.ground ? (p.v > p.sp.vr ? 1 : 0) : clamp((0.2 - p.pitch) * 3, -1, 1); p.input.r = clamp(-p.roll * 2, -1, 1); p.input.brake = 0; p.step(1 / 60); if (p.dead) break; } // a pilot: rotate, then hold a steady climb
     const ok = !p.dead && !p.ground && p.alt > 50, msg = `alt ${p.alt | 0} m`; leavePlane(true); p.remove(); expect(ok, 'Cessna from the runway: ' + msg + (p.dead ? ' (crashed)' : ''));
     AIRPORT.nextAI = 0; updatePlanes(0.016); expect(PLANES.some((q) => q.ai), 'no airliner');
     return `${parked.length} parked, Cessna ${msg}, airliner rolling`;
@@ -425,17 +425,32 @@ window.runRegression = async () => {
     HEIST.stage = 0; HEIST.crew = {}; closePhone(); return `${tiles.length} apps, heist planned`;
   });
   // ---------------------------------------------------------------- V9.4: flying that makes sense, faster cars, hold-ups
-  await test('planes: A turns left, letting go levels out and holds height, power off glides in to land', async () => {
+  await test('planes: A banks left and turns, the plane holds its bank when you let go, and a flown approach lands', async () => {
     quiet(); const R = AIRPORT.rw; await goToTile(...toLL((R.x1 + R.x2) / 2, (R.z1 + R.z2) / 2));
     const p = new Plane('cessna', R.x1 + R.ex * 30, R.z1 + R.ez * 30, R.h); boardPlane(p); player.stars = 0;
-    const run = (sec, inp) => { for (let k = 0; k < sec * 60 && !p.dead; k++) { Object.assign(p.input, inp); p.step(1 / 60); } };
-    run(12, { t: 1, p: 0, r: 0, brake: 0 }); run(10, { t: 1, p: 1, r: 0 }); run(4, { t: 0, p: 0, r: 0 });
-    const a0 = p.alt, h0 = p.h; run(4, { t: 0, p: 0, r: 1 }); const left = p.h > h0; run(5, { t: 0, p: 0, r: 0 });
-    const level = Math.abs(p.roll) < 0.1 && Math.abs(p.pitch) < 0.1 && Math.abs(p.alt - a0) < 30;
-    p.x = R.x1 + R.ex * 100; p.z = R.z1 + R.ez * 100; p.h = R.h; p.y = groundAt(p.x, p.z) + p.sp.gear + p.sp.fus / 2 + 50; p.v = 40; p.throttle = 0.15;
-    for (let k = 0; k < 60 * 40 && !p.dead && !(p.ground && p.v < 1); k++) { Object.assign(p.input, { t: 0, p: 0, r: 0, brake: p.ground ? 1 : 0 }); p.step(1 / 60); }
+    const run = (sec, f) => { for (let k = 0; k < sec * 60 && !p.dead; k++) { Object.assign(p.input, f()); p.step(1 / 60); } };
+    run(25, () => ({ t: 1, p: p.ground ? (p.v > p.sp.vr ? 1 : 0) : clamp((0.2 - p.pitch) * 3, -1, 1), r: clamp(-p.roll * 2, -1, 1), brake: 0 })); // take off and climb
+    run(3, () => ({ t: 0.5, p: clamp(-p.pitch * 3, -1, 1), r: clamp(-p.roll * 2, -1, 1) })); // level off
+    const h0 = p.h; run(0.8, () => ({ t: 0, p: 0, r: 1 })); const banked = p.roll; run(2, () => ({ t: 0, p: 0, r: 0 })); const held = p.roll, left = p.h > h0;
+    p.x = R.x1 + R.ex * 100; p.z = R.z1 + R.ez * 100; p.h = R.h; p.roll = 0; p.pitch = 0; p.y = groundAt(p.x, p.z) + p.sp.gear + p.sp.fus / 2 + 50; p.v = 38; p.throttle = 0.2;
+    for (let k = 0; k < 60 * 40 && !p.dead && !(p.ground && p.v < 1); k++) { Object.assign(p.input, { t: -1, p: clamp(((p.alt > 6 ? -0.08 : -0.02) - p.pitch) * 3, -1, 1), r: clamp(-p.roll * 2, -1, 1), brake: p.ground ? 1 : 0 }); p.step(1 / 60); }
     const landed = !p.dead && p.ground; leavePlane(true); p.remove();
-    expect(left, 'A did not turn left'); expect(level, 'did not level out'); expect(landed, 'glide landing failed'); return 'turns, levels, lands';
+    expect(banked > 0.3 && left, `A: roll ${banked.toFixed(2)}, turned left ${left}`); expect(Math.abs(held) > 0.25, `the bank fell away to ${held.toFixed(2)} (should hold)`); expect(landed, 'approach landing failed');
+    return `banked ${banked.toFixed(2)} rad, held ${held.toFixed(2)}, turned left, landed`;
+  });
+  await test('cars: grip cars corner without sliding; street machines (with decals) still drift', () => {
+    const turn = (type) => { const c = new Car(type, null, player.x + 50, player.z, 0); cars.push(c); c.setDriver('player'); c.vx = 0; c.vz = 25; let beta = 0; for (let i = 0; i < 120; i++) { Object.assign(c.input, { t: 0.6, s: 1, b: 0, hb: 0 }); c.tyreStep(1 / 60); const sn = Math.sin(c.h), cs = Math.cos(c.h); beta = Math.max(beta, Math.abs(Math.atan2(c.vx * cs - c.vz * sn, Math.abs(c.vx * sn + c.vz * cs)))); } const r = { deg: Math.round(beta * 57.3), livery: !!c.model.livery }; c.remove(); return r; };
+    const sedan = turn('sedan'), sports = turn('sports'), tuner = turn('tuner'), drag = turn('dragster');
+    const r = `slide at 90 km/h full lock: sedan ${sedan.deg}°, sports ${sports.deg}°, tuner ${tuner.deg}°, dragster ${drag.deg}°`;
+    expect(sedan.deg < 8 && sports.deg < 8, r); expect(tuner.deg > 10 && drag.deg > 10, r); expect(tuner.livery && drag.livery && !sedan.livery, 'decals missing'); return r;
+  });
+  await test('surfing: faster paddling, a swell forecast, and barrels on big waves', () => {
+    const S = nearestShore(848, 306); player.x = S.px - S.nx * 10; player.z = S.pz - S.nz * 10; player.state = 'foot'; player.money = 500; surfUse();
+    SURF.h = Math.atan2(S.nx, S.nz); SURF.waves.length = 0; SURF.nextWave = 999; const d0 = toLocal(SURF.x, SURF.z)[1]; keys.KeyW = true; for (let i = 0; i < 180; i++) updateSurf(1 / 60); keys.KeyW = false; const paddled = toLocal(SURF.x, SURF.z)[1] - d0;
+    const s1 = toLocal(SURF.x, SURF.z)[0], W = { d: 120, h: 2.4, breakD: 140, peel: s1 - 3, dir: 1, peelV: 7 }; SURF.waves.push(W); SURF.mode = 'ride'; SURF.ride = { W, face: 1.6, vs: 6.8, t: 0, pts: 0, lastDir: 0 };
+    let tube = false; for (let i = 0; i < 60; i++) { updateSurf(1 / 60); if (SURF.ride && SURF.ride.tubeT > 0) tube = true; } const curl = CURL && CURL.visible; endSurf(); home();
+    const sw = SURF_SPOTS.map((q) => swellAt(spotAt(q).x, spotAt(q).z)), r = `paddled ${paddled.toFixed(1)} m in 3 s · barrel ${tube} · curl ${curl} · swell ${Math.min(...sw).toFixed(1)}–${Math.max(...sw).toFixed(1)} m`;
+    expect(paddled > 8 && tube && curl && Math.max(...sw) > Math.min(...sw), r); return r;
   });
   await test('cars: a sports car reaches about 200 km/h on a long straight', async () => {
     quiet(); const c = new Car('sports', null, 0, 0, 0); c.setDriver('player'); let top = 0;

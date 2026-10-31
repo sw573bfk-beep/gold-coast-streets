@@ -147,6 +147,7 @@ class Car {
   constructor(type, color, x, z, h) {
     this.type = type; this.spec = CAR_TYPES[type];
     this.color = color || pick(CAR_COLORS); this.model = makeCarModel(type, this.color); scene.add(this.model.root);
+    if (this.spec.livery) addLivery(this.model, this.spec, Math.floor(rand() * 1e6)); // street machines wear decals
     this.x = x; this.z = z; this.y = 0; this.h = h; this.vx = 0; this.vz = 0; this.steer = 0; this.yaw = 0; this.ax = 0;
     this.health = 100; this.driver = null; this.ai = null; this.input = { t: 0, b: 0, s: 0, hb: 0 };
     this.sink = 0; this.burn = -1; this.dead = false; this.deadT = 0; this.spin = 0; this.roll = 0; this.pitch = 0; this.prevVf = 0;
@@ -267,9 +268,10 @@ class Car {
     const speed = Math.hypot(vf, vl);
     const beta = speed > 1.5 ? Math.atan2(vl, Math.abs(vf)) : 0;
     let target = (live ? inp.s : 0) * 0.62 / (1 + Math.max(0, vf) / 26);
+    const drift = !!sp.drift; // street machines keep the loose, tail-happy handling; everything else grips
     // drift assist: in a slide the front wheels follow the direction of travel (what a drifter's hands do),
     // so A/D hold or widen the angle instead of spinning you out
-    if (vf > 3 && Math.abs(beta) > 0.08) {
+    if (drift && vf > 3 && Math.abs(beta) > 0.08) {
       const fa = Math.atan2(vl + r * (L * (1 - sp.frontBias)), Math.max(Math.abs(vf), 1));
       target = clamp(fa * 0.9 + (live ? inp.s : 0) * 0.32, -0.75, 0.75);
     }
@@ -278,7 +280,7 @@ class Car {
     const Nf0 = m * g * b / L, Nr0 = m * g * a / L, dN = clamp(m * this.ax * 0.55 / L, -Nf0 * 0.45, Nf0 * 0.45);
     const Nf = Nf0 - dN, Nr = Nr0 + dN;
     const sand = onBeach(this.x, this.z) && !maskAt(plantMask, this.x, this.z);
-    const mu = sp.mu * (sand ? 0.62 : 1) * (1 - WEATHER.wet * 0.22); // wet roads: less grip
+    const mu = sp.mu * (drift ? 1 : 1.1) * (sand ? 0.62 : 1) * (1 - WEATHER.wet * 0.22); // wet roads: less grip
     let Fdrive = 0, Fbrake = 0;
     // power-limited drive: big shove off the line, tapering through the 'gears'
     if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
@@ -294,16 +296,17 @@ class Car {
     const maxF = mu * Nf * 0.86, maxR = mu * Nr; // fronts give up first: understeer at the limit unless you provoke the rear
     let spinR = 0;
     if (Fbrake > 0 && !slideHb) Fxr = Math.sign(Fxr) * Math.min(Math.abs(Fxr), maxR * 0.97); // ABS: brake right at the limit without locking, so you can still steer
+    if (!drift && !slideHb) Fxr = Math.sign(Fxr) * Math.min(Math.abs(Fxr), maxR * 0.82); // traction control: no power oversteer
     if (Math.abs(Fxr) > maxR * 0.9 && (Fbrake === 0 || slideHb)) { spinR = Math.min(1, (Math.abs(Fxr) - maxR * 0.9) / (maxR * 0.45)); Fxr = Math.sign(Fxr) * maxR * 0.9; }
     Fxf = clamp(Fxf, -maxF * (Fbrake > 0 ? 1.0 : 0.95), maxF * (Fbrake > 0 ? 1.0 : 0.95));
     const vfa = Math.max(Math.abs(vf), 0.6), sgn = vf < -0.3 ? -1 : 1;
     const af = Math.atan2(vl + r * a, vfa) - d * sgn, ar = Math.atan2(vl - r * b, vfa);
     let latR = Math.sqrt(Math.max(0, maxR * maxR - Fxr * Fxr)) * (1 - spinR * 0.35);
-    if (!slideHb) latR = Math.max(latR, maxR * (spinR > 0.6 ? 0.45 : 0.62)); // rear lets go progressively, not all at once
+    if (!slideHb) latR = Math.max(latR, maxR * (drift ? (spinR > 0.6 ? 0.45 : 0.62) : 0.92)); // rear lets go progressively, not all at once (and hardly at all on a grippy car)
     if (slideHb) latR *= 0.3;
     const latF = Math.sqrt(Math.max(0, maxF * maxF - Fxf * Fxf));
     // stiffer rear tyres = mild understeer at the limit; the rear only lets go under power or handbrake
-    const Fyf = clamp(-maxF * 8 * af, -latF, latF), Fyr = clamp(-maxR * 11 * ar, -latR, latR);
+    const Fyf = clamp(-maxF * 8 * af, -latF, latF), Fyr = clamp(-maxR * (drift ? 11 : 14) * ar, -latR, latR);
     const coast = thr === 0 && brk === 0 ? m * 0.9 * Math.min(1, Math.abs(vf)) * bs : 0;
     const drag = 0.42 * (sp.cdA || 1) * vf * Math.abs(vf) + m * 0.15 * bs + coast; // cdA: frontal area relative to a car
     const cd = Math.cos(d), sd = Math.sin(d);
@@ -313,6 +316,7 @@ class Car {
     vf += (axl + r * vl) * dt;
     vl += (Flat / m - r * vf) * dt;
     r += (torque / I) * dt;
+    if (!drift && !slideHb && speed >= 4) { const rMax = mu * 9.81 / speed, rk = clamp((vf * Math.tan(d)) / L, -rMax, rMax); r = lerp(r, rk, Math.min(1, dt * 2.5)); vl *= Math.exp(-2.2 * dt); } // stability control: the car follows the wheels, as tightly as the tyres allow
     if (speed < 4) { const k = 1 - speed / 4; r = lerp(r, (vf * Math.tan(d)) / L, k); vl *= Math.exp(-7 * k * dt); }
     if (Math.abs(vf) < 0.25 && thr === 0 && brk === 0) vf *= Math.exp(-4 * dt);
     this.ax = lerp(this.ax, axl, Math.min(1, dt * 8));
@@ -837,7 +841,7 @@ function buildParkSpots() {
 }
 function randomCarType() {
   const r = rand();
-  return r < 0.22 ? 'sedan' : r < 0.37 ? 'hatch' : r < 0.51 ? 'suv' : r < 0.64 ? 'ute' : r < 0.72 ? 'taxi' : r < 0.8 ? 'muscle' : r < 0.87 ? 'coupe' : r < 0.94 ? 'sports' : 'motorbike';
+  return r < 0.22 ? 'sedan' : r < 0.37 ? 'hatch' : r < 0.51 ? 'suv' : r < 0.64 ? 'ute' : r < 0.72 ? 'taxi' : r < 0.8 ? 'muscle' : r < 0.86 ? 'coupe' : r < 0.91 ? 'sports' : r < 0.95 ? pick(['tuner', 'widebody', 'dragster']) : 'motorbike'; // one in 25 is a street machine
 }
 function spawnTraffic(minD, maxD, kind, type) {
   for (let tries = 0; tries < 40; tries++) {
@@ -1353,7 +1357,7 @@ function nearShop() {
 }
 function useKey() {
   if (player.deadT > 0) return;
-  if (player.state === 'plane') return leavePlane(false);
+  if (player.state === 'plane') { if (player.plane.ground && player.plane.v < 2) leavePlane(false); return; } // in the air E is the rudder
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state === 'surf') { surfUse(); return; }
   if (player.state === 'boat') { leaveBoat(); return; }

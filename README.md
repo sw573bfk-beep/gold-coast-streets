@@ -31,7 +31,7 @@ python3 -m http.server 8765 --directory dist
 
 Then open http://localhost:8765/gold-coast-streets.html.
 
-Controls: WASD to move or drive, Shift to sprint, E or F to enter a car, shop, house or building (and take loot), Space to jump (or climb a fence), Q to punch, 1–4 for weapons, B for your bag, C for the car camera, M for the map, P for the phone, R for the radio, Esc to pause. On a phone or tablet: a thumbstick on the left, drag to look, buttons on the right.
+Controls: WASD to move or drive, Shift to sprint, E or F to enter a car, shop, house or building (and take loot), Space to jump (or climb a fence), Q to punch, 1–4 for weapons, B for your bag, C for the car camera, M for the map, P for the phone, R for the radio, Esc to pause. Planes: S nose up, W nose down, A/D bank, Q/E rudder, Space/Shift power. On a phone or tablet: a thumbstick on the left, drag to look, buttons on the right.
 
 ## Build from source
 
