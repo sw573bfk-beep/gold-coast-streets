@@ -57,6 +57,6 @@ function updateTouch() {
   if (!TOUCH.el) { if (!touchDevice()) return; buildTouch(); TOUCH.on = true; }
   const show = started && !paused && !uiOpen && !bigMapOpen && !document.body.classList.contains('photo');
   TOUCH.el.hidden = !show;
-  if (show) TOUCH.radio.hidden = !(['car', 'plane', 'boat', 'ride'].includes(player.state) || hasGear('headphones'));
+  if (show) TOUCH.radio.hidden = !(['car', 'plane', 'boat', 'ride', 'heli'].includes(player.state) || hasGear('headphones'));
   if (!show && TOUCH.stick) { TOUCH.stick = null; setStick(0, 0); }
 }

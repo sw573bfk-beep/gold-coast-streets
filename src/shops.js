@@ -314,6 +314,7 @@ function openShop(sh) {
   if (sh.kind === 'stripclub') { toast(`The bouncer at ${sh.name} shakes his head: "Members only, mate."`); return; }
   if (sh.kind === 'bank') return openBank(sh);
   if (sh.kind === 'gym') return openGym(sh);
+  if (!sh.dealer && (sh.type === 'pet' || /\bpets?\b|petbarn|petstock|pet stock/i.test(sh.name))) return adoptPet(sh); // pet shops: adopt a dog
   const svc = !sh.dealer && serviceFor(sh); if (svc) return svc(sh); // barbers, tattooists, electronics, the pistol club
   const list = sh.dealer ? ['pistol', 'smg', 'shotgun', 'ammoP', 'ammoS', 'ammoG', 'range'] : menuFor(sh);
   if (!list.length) { toast(sh.kind === 'bank' ? "The teller isn't handing over cash for free…" : 'Nothing for sale here'); return; }

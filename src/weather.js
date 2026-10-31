@@ -61,3 +61,15 @@ function updateWeather(dt) {
   if (AU.ctx && !rainSound) { const C = AU.ctx, s = C.createBufferSource(), f = C.createBiquadFilter(); s.buffer = AU.noise; s.loop = true; f.type = 'highpass'; f.frequency.value = 1200; const g = C.createGain(); g.gain.value = 0; s.connect(f); f.connect(g); g.connect(AU.master); s.start(); rainSound = g; }
   if (rainSound) rainSound.gain.setTargetAtTime(AU.on ? W.rain * 0.12 * (RAIN.visible ? 1 : 0.3) : 0, AU.ctx.currentTime, 0.3);
 }
+// ---------------------------------------------------------------- phone → Weather: pick the weather and the time of day (single player)
+const PHOTO_FILTERS = [['No filter', ''], ['Warm', 'sepia(0.25) saturate(1.35) brightness(1.04)'], ['Black & white', 'grayscale(1) contrast(1.2)'], ['Vintage', 'sepia(0.65) contrast(1.05) brightness(0.98)'], ['Vivid', 'saturate(1.7) contrast(1.12)'], ['Cool', 'hue-rotate(12deg) saturate(1.2) brightness(1.03)']];
+let photoFilter = 0;
+function cyclePhotoFilter() { photoFilter = (photoFilter + 1) % PHOTO_FILTERS.length; renderer.domElement.style.filter = PHOTO_FILTERS[photoFilter][1]; toast(`🎞️ ${PHOTO_FILTERS[photoFilter][0]} (F for the next filter)`); }
+function clearPhotoFilter() { photoFilter = 0; renderer.domElement.style.filter = ''; }
+function weatherApp(btn, head) {
+  if (MODE === 'multi') { btn('Weather is live in multiplayer', 'everyone shares the same sky and swell — pick it in single player', () => {}, false); return; }
+  head(`Now: ${WEATHER.name} · ${String(Math.floor(gameHour)).padStart(2, '0')}:${String(Math.floor((gameHour % 1) * 60)).padStart(2, '0')}`);
+  for (const [k, label, sub] of [['clear', '☀️ Sunny', 'clear skies'], ['cloudy', '⛅ Cloudy', 'grey and mild'], ['rain', '🌧️ Rain', 'wet roads, less grip'], ['storm', '⛈️ Storm', 'lightning, wind, big surf']]) btn(label, sub, () => { setWeather(k, true); WEATHER.nextT = 1800; toast(`Weather: ${label} (for the next half hour)`); phoneApp('weather'); });
+  head('Time of day');
+  for (const [h, label] of [[6, '🌅 Sunrise'], [12, '🕛 Midday'], [18, '🌇 Sunset'], [22, '🌙 Night']]) btn(label, `${h}:00`, () => { gameHour = h; toast(label); phoneApp('weather'); });
+}

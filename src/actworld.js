@@ -54,9 +54,9 @@ const loopPts = (cx, cz, r, n) => Array.from({ length: n }, (_, k) => [cx + Math
 // ---------------------------------------------------------------- running a course
 const MODE_OK = {
   foot: () => player.state === 'foot', bike: () => player.state === 'car' && player.car && player.car.spec.bike, boat: (C) => player.state === 'boat' && (!C.boat || player.boat === C.boat),
-  car: (C) => player.state === 'car' && (!C.car || player.car === C.car), any: () => true,
+  car: (C) => player.state === 'car' && (!C.car || player.car === C.car), heli: () => player.state === 'heli', any: () => true,
 };
-const MODE_HINT = { foot: 'on foot', bike: 'on a bike', boat: 'in your boat', car: 'in your kart', any: '' };
+const MODE_HINT = { foot: 'on foot', bike: 'on a bike', boat: 'in your boat', car: 'in your kart', heli: 'in the helicopter', any: '' };
 function startCourse(cur, o) {
   if (!o.pts || o.pts.length < 2) { actFail(cur.id, 'No route from here — try again in a moment'); return; }
   cur.C = Object.assign({ i: 0, lap: 1, laps: 1, t: 0, off: 0, r: 9, wob: 0, lapT: 0, laps_: [] }, o);
@@ -75,10 +75,11 @@ function courseTick(cur, dt) {
     C.wob = Math.max(0, C.wob + (Math.abs(player.boat.steer) * Math.abs(player.boat.v) * 0.09 - 0.25) * dt);
     if (C.wob > 1) { C.wob = 0; player.boat.v = 0; C.t += 5; toast('Splash! You fell in (+5 s) — gentler turns'); sfxNoise(0.4, 700, 0.4); }
   }
-  const [px, pz] = C.pts[C.i], R = courseRing(), gy = C.water ? WATER_Y + 0.4 : standAt(px, pz);
+  const [px, pz] = C.pts[C.i], R = courseRing(), gy = C.water ? WATER_Y + 0.4 : standAt(px, pz) + (C.alt || 0); // heli courses: rings up in the air
   R.position.set(px, gy + 3.2, pz); R.rotation.y = elapsed;
   $('jobhud').hidden = false; $('jobhud').textContent = `${a.icon} ${a.name} · ${C.laps > 1 ? `lap ${C.lap}/${C.laps} · ` : ''}checkpoint ${C.i + 1}/${C.pts.length} · ${fmtTime(C.t)}${C.sup ? ` · balance ${'▮'.repeat(Math.round((1 - C.wob) * 5))}` : ''}${ok ? '' : ` · get back ${MODE_HINT[C.mode]}!`}`;
-  if (Math.hypot(px - player.x, pz - player.z) < C.r && ok) {
+  const highOk = !C.alt || (player.chopper && Math.abs(player.chopper.y - gy) < 22);
+  if (Math.hypot(px - player.x, pz - player.z) < C.r && ok && highOk) {
     C.i++; sfxTone([660 + C.i * 30], 0.08, 0.05); if (C.narrate && C.narrate[C.i - 1]) toast(C.narrate[C.i - 1]);
     if (C.i >= C.pts.length) {
       if (C.lap < C.laps) { C.laps_.push(C.lapT); C.lapT = 0; C.lap++; C.i = 0; toast(`Lap ${C.lap}/${C.laps}`); }

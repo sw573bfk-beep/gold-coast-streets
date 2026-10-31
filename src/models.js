@@ -273,10 +273,10 @@ function disposeCarModel(M) { scene.remove(M.root); M.paintMat.dispose(); M.tail
 // stuck down both sides and across the bonnet (made-up sponsors, flames, stripes, lightning, chequers, a race number)
 const LIVERY_WORDS = ['NITRO', 'SEND IT', 'BURNOUT', 'GC STREETS', 'TURBO X', 'APEX', 'SURFERS SPEED SHOP', 'FULL NOISE', 'SIDEWAYS'];
 const LIVERY_COLS = ['#ff2d55', '#ffd400', '#00e5ff', '#7cff00', '#ff6a00', '#b84dff', '#ffffff', '#111111'];
-function liveryCanvas(seed, base) {
+function liveryCanvas(seed, base, pick) { // pick: 0-4 forces a style (the mod shop), otherwise the seed decides
   let s = seed; const r = () => ((s = (s * 9301 + 49297) % 233280) / 233280), pickc = (a) => a[Math.floor(r() * a.length)];
   const c = document.createElement('canvas'); c.width = 512; c.height = 128; const g = c.getContext('2d');
-  const a = pickc(LIVERY_COLS.filter((q) => q !== base)), b = pickc(LIVERY_COLS.filter((q) => q !== a)), style = Math.floor(r() * 5);
+  const a = pickc(LIVERY_COLS.filter((q) => q !== base)), b = pickc(LIVERY_COLS.filter((q) => q !== a)), style0 = Math.floor(r() * 5), style = pick === undefined ? style0 : pick;
   g.clearRect(0, 0, 512, 128);
   if (style === 0) { for (let k = 0; k < 9; k++) { const x0 = 20 + k * 36; const gr = g.createLinearGradient(x0, 128, x0 + 160, 0); gr.addColorStop(0, '#ff2a00'); gr.addColorStop(0.5, '#ff9a00'); gr.addColorStop(1, '#ffe600'); g.fillStyle = gr; g.beginPath(); g.moveTo(x0, 128); g.quadraticCurveTo(x0 + 60, 70 + r() * 30, x0 + 150 + r() * 80, 20 + r() * 40); g.quadraticCurveTo(x0 + 70, 90, x0 + 40, 128); g.fill(); } } // flames off the front wheels
   else if (style === 1) { g.fillStyle = a; g.fillRect(0, 40, 512, 18); g.fillRect(0, 66, 512, 18); g.fillStyle = b; g.fillRect(0, 60, 512, 4); } // racing stripes
@@ -288,11 +288,11 @@ function liveryCanvas(seed, base) {
   const num = String(1 + Math.floor(r() * 98)); g.fillStyle = '#fff'; g.beginPath(); g.arc(80, 66, 34, 0, TAU); g.fill(); g.fillStyle = '#000'; g.font = '900 42px Impact, sans-serif'; g.textAlign = 'center'; g.fillText(num, 80, 68);
   return c;
 }
-function addLivery(M, p, seed) {
-  const tex = new THREE.CanvasTexture(liveryCanvas(seed, '#000')); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
+function addLivery(M, p, seed, style) {
+  const tex = new THREE.CanvasTexture(liveryCanvas(seed, '#000', style)); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = 4;
   const mat = new THREE.MeshStandardMaterial({ map: tex, transparent: true, roughness: 0.35, metalness: 0.1, polygonOffset: true, polygonOffsetFactor: -2, depthWrite: false });
   M.livery = mat; const h = Math.max(0.25, (p.belt - p.bot) * 0.85), y = p.bot + (p.belt - p.bot) * 0.5, len = p.L * 0.88;
   for (const sd of [-1, 1]) { const geo = new THREE.PlaneGeometry(len, h); if (sd < 0) { const uv = geo.attributes.uv; for (let i = 0; i < uv.count; i++) uv.setX(i, 1 - uv.getX(i)); } // both sides read front to back
-    const m = new THREE.Mesh(geo, mat); m.position.set(sd * (p.W / 2 + 0.015), y, 0); m.rotation.y = sd * Math.PI / 2; M.bodyG.add(m); M.geos.push(geo); }
-  const hood = new THREE.PlaneGeometry(p.W * 0.55, Math.max(0.6, (p.L / 2 - p.cf) * 0.8)); const hm = new THREE.Mesh(hood, mat); hm.rotation.x = -Math.PI / 2; hm.position.set(0, (p.belt + p.hood) / 2 + 0.03, (p.cf + p.L / 2) / 2); M.bodyG.add(hm); M.geos.push(hood);
+    const m = new THREE.Mesh(geo, mat); m.position.set(sd * (p.W / 2 + 0.015), y, 0); m.rotation.y = sd * Math.PI / 2; M.bodyG.add(m); M.geos.push(geo); (M.liveryMeshes = M.liveryMeshes || []).push(m); }
+  const hood = new THREE.PlaneGeometry(p.W * 0.55, Math.max(0.6, (p.L / 2 - p.cf) * 0.8)); const hm = new THREE.Mesh(hood, mat); hm.rotation.x = -Math.PI / 2; hm.position.set(0, (p.belt + p.hood) / 2 + 0.03, (p.cf + p.L / 2) / 2); M.bodyG.add(hm); M.geos.push(hood); M.liveryMeshes.push(hm);
 }

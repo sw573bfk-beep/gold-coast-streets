@@ -48,7 +48,9 @@ function buildRegionSurf() {
 function tileAt(x, z) { return TILES.get(Math.floor(x / REGION.tile) + ',' + Math.floor(z / REGION.tile)); }
 // ground height in metres from the tile's LiDAR grid (10 m samples, bilinear). The Surfers core and ground not yet streamed are flat at 0.
 const HGT_N = 101, HGT_STEP = 10;
-function groundAt(x, z) {
+const RAMPS = []; // stunt ramps (stunts.js) sit on top of the ground
+function groundAt(x, z) { return groundBase(x, z) + (RAMPS.length ? rampAt(x, z) : 0); }
+function groundBase(x, z) {
   if (!REGION || inCore(x, z)) return 0;
   const T = tileAt(x, z); if (!T || !T.hgt) return 0;
   const N = T.hn, gx = (x - T.x0) / T.hs, gz = (z - T.z0) / T.hs; // 10 m samples, or 5 m on hilly tiles
@@ -674,7 +676,7 @@ function tileShops(T, data, segs, plan) {
       poleSegs.push([x, z]);
       shop = { x, z, cx: x + 1.2, cz: z };
     }
-    const sh = Object.assign(shop, { id, name, cat, kind: shopKind(cat, name, type), dx: shop.cx, dz: shop.cz, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9, tile: T.k });
+    const sh = Object.assign(shop, { id, name, cat, kind: shopKind(cat, name, type), type, dx: shop.cx, dz: shop.cz, walkIn: false, keeper: null, robT: 0, robbedAt: -1e9, tile: T.k });
     if (pl) { // a real shopfront: doorway, glass, a room with a counter and someone behind it
       Object.assign(sh, { ax: pl.ax, az: pl.az, ex: pl.ex, ez: pl.ez, ix: pl.ix, iz: pl.iz, t0: pl.t0, t1: pl.t1, depth: pl.depth, walkIn: true });
       buildInterior(IB, IG, boards, sh, (ax, az, bx, bz, h) => segs.push(ax, az, bx, bz, h));

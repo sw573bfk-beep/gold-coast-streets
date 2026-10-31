@@ -67,7 +67,7 @@ function changeStation() {
   toast(`📻 ${STATIONS[RADIO.station].name}`);
 }
 function updateRadio(dt) {
-  const inVehicle = player.state === 'car' || player.state === 'plane' || player.state === 'boat' || player.state === 'ride' || (hasGear('headphones') && player.deadT === 0);
+  const inVehicle = player.state === 'car' || player.state === 'plane' || player.state === 'boat' || player.state === 'ride' || player.state === 'heli' || (hasGear('headphones') && player.deadT === 0);
   const S = STATIONS[RADIO.station], on = inVehicle && AU.ctx && AU.on && RADIO.station > 0;
   $('radio').hidden = !(inVehicle && RADIO.station > 0); if (!$('radio').hidden) $('radio').textContent = '📻 ' + S.name;
   if (!AU.ctx) return;

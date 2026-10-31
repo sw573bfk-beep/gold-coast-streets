@@ -7,6 +7,7 @@ const BOAT_TYPES = {
   jetski: { name: 'Jet ski', L: 2.9, W: 1.1, max: 24, accel: 10, turn: 2.4, color: ['#e23b2a', '#f2c230', '#2a7de2', '#1d1d1d'] },
   kayak: { name: 'Kayak', L: 3.4, W: 0.7, max: 4.4, accel: 2.6, turn: 1.7, paddle: true, color: ['#ff9a3c', '#f2c230', '#33d17a'] },
   sup: { name: 'Paddleboard', L: 3.2, W: 0.8, max: 3.4, accel: 2.1, turn: 1.4, paddle: true, stand: true, color: ['#2a7de2', '#f4f4f2', '#e85a9a'] },
+  fisher: { name: 'Sport-fishing boat', L: 7.6, W: 2.6, max: 19, accel: 5, turn: 1.0, color: ['#f4f4f2', '#1d3b6b'] },
   speedboat: { name: 'Speedboat', L: 6.6, W: 2.3, max: 27, accel: 7, turn: 1.25, color: ['#f4f4f2', '#1d3b6b', '#c43a2a'] },
 };
 const BOATS = [];

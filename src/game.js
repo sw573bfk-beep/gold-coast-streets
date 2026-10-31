@@ -147,7 +147,7 @@ class Car {
   constructor(type, color, x, z, h) {
     this.type = type; this.spec = CAR_TYPES[type];
     this.color = color || pick(CAR_COLORS); this.model = makeCarModel(type, this.color); scene.add(this.model.root);
-    if (this.spec.livery) addLivery(this.model, this.spec, Math.floor(rand() * 1e6)); // street machines wear decals
+    this.liverySeed = Math.floor(rand() * 1e6); if (this.spec.livery) addLivery(this.model, this.spec, this.liverySeed); // street machines wear decals
     this.x = x; this.z = z; this.y = 0; this.h = h; this.vx = 0; this.vz = 0; this.steer = 0; this.yaw = 0; this.ax = 0;
     this.health = 100; this.driver = null; this.ai = null; this.input = { t: 0, b: 0, s: 0, hb: 0 };
     this.sink = 0; this.burn = -1; this.dead = false; this.deadT = 0; this.spin = 0; this.roll = 0; this.pitch = 0; this.prevVf = 0;
@@ -283,7 +283,7 @@ class Car {
     const mu = sp.mu * (drift ? 1 : 1.1) * (sand ? 0.62 : 1) * (1 - WEATHER.wet * 0.22); // wet roads: less grip
     let Fdrive = 0, Fbrake = 0;
     // power-limited drive: big shove off the line, tapering through the 'gears'
-    if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / sp.max); }
+    if (thr > 0) { if (vf < -0.5) Fbrake = thr * m * 10; else Fdrive = thr * m * sp.accel * 1.15 * (this.tune || 1) * Math.min(1, 11 / Math.max(vf, 1)) * Math.max(0.08, 1 - vf / (sp.max * (this.tune || 1))); } // tune: the mod shop's engine work
     if (brk > 0) { if (vf > 0.5) Fbrake = brk * m * 12; else Fdrive = -brk * m * sp.accel * 0.6 * Math.max(0, 1 + vf / 13); }
     // Space: hard brake on all four wheels; turn hard while holding it and the rear locks for a handbrake slide
     const slideHb = hb && Math.abs(live ? inp.s : 0) > 0.5 && Math.abs(vf) > 6;
@@ -1360,13 +1360,15 @@ function useKey() {
   if (player.state === 'plane') { if (player.plane.ground && player.plane.v < 2) leavePlane(false); return; } // in the air E is the rudder
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state === 'surf') { surfUse(); return; }
-  if (player.state === 'boat') { leaveBoat(); return; }
+  if (player.state === 'heli') { leaveChopper(false); return; }
+  if (player.state === 'boat') { if (player.items.rod > 0 && deepSea()) { startFishing({ ocean: true, deep: true }); return; } leaveBoat(); return; } // stopped well out to sea with a rod: fish off the side
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
   if (towerUse() || houseUse() || propertyUse() || actUseKey()) return;
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const bt = nearestBoat(4); if (bt) return boardBoat(bt);
+  const ch = nearestChopper(7); if (ch) return boardChopper(ch);
   if (boardRide()) return; // a tram or bus stopped beside you
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
   const c = nearestEnterableCar(); if (c) return startEnter(c);
@@ -1393,6 +1395,7 @@ function updatePlayer(dt) {
     case 'plane': squeal = 0; return updatePlaneControls();
     case 'surf': squeal = 0; return updateSurf(dt);
     case 'boat': squeal = 0; return updateBoatControls();
+    case 'heli': squeal = 0; return updateHeliControls();
     case 'ride': squeal = 0; return updateRide(dt);
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
@@ -1481,6 +1484,10 @@ function updateCamera(dt) {
     const p = player.plane; tx = p.x; ty = p.y + p.sp.fus; tz = p.z; dist = p.sp.len * 1.4 + 8;
     camYaw += angDiff(camYaw, p.h) * Math.min(1, dt * 2.5); camPitch = lerp(camPitch, 0.18 + p.pitch * 0.5, Math.min(1, dt * 2));
     camera.fov = lerp(camera.fov, 62 + Math.min(14, p.v * 0.08), Math.min(1, dt * 3));
+  } else if (player.state === 'heli' && player.chopper) { // behind and above the helicopter
+    const H = player.chopper; tx = H.x; ty = H.y + 2.2; tz = H.z; dist = 14;
+    if (elapsed - mouse.last > 1.2) camYaw += angDiff(camYaw, H.h) * Math.min(1, dt * 2);
+    camPitch = lerp(camPitch, 0.28, Math.min(1, dt * 1.5)); camera.fov = lerp(camera.fov, 64, Math.min(1, dt * 3));
   } else if ((player.state === 'boat' && player.boat) || (player.state === 'ride' && RIDE.v)) { // behind the boat, or the tram/bus you're riding
     const V = player.state === 'boat' ? player.boat : RIDE.v, big = player.state === 'ride';
     tx = V.x; ty = (big ? 3.2 : 1.6) + (player.state === 'boat' ? WATER_Y + 0.6 : standAt(V.x, V.z)); tz = V.z; dist = big ? 14 : player.boat.sp.L + 5;
@@ -1993,7 +2000,7 @@ window.addEventListener('keydown', (e) => {
   if (e.repeat) return;
   keys[code] = true;
   if (!started) return;
-  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') { document.body.classList.remove('photo'); camera.fov = 62; } else if (code === 'Space') snapPhoto(); return; } // the camera: Space takes the photo
+  if (document.body.classList.contains('photo')) { if (code === 'KeyP' || code === 'Escape') { document.body.classList.remove('photo'); camera.fov = 62; clearPhotoFilter(); } else if (code === 'Space') snapPhoto(); else if (code === 'KeyF') cyclePhotoFilter(); return; } // the camera: Space takes the photo, F changes the filter
   if (uiOpen) {
     if (PHONE.open) { if (code === 'Escape' || code === 'KeyP') closePhone(); return; }
     if (!$('casino').hidden) { if (code === 'Escape') closeCasino(); return; }
@@ -2015,7 +2022,7 @@ window.addEventListener('keydown', (e) => {
   if (code === 'KeyP') openPhone();
   if (code === 'KeyT' && MODE !== 'multi') { timeScale = timeScale === 1 ? 30 : 1; toast(timeScale > 1 ? 'Time ×30' : 'Time normal'); }
   if (code === 'KeyN') { AU.on = !AU.on; toast(AU.on ? 'Sound on' : 'Sound off'); }
-  if (code === 'KeyR' && (['car', 'plane', 'boat', 'ride'].includes(player.state) || hasGear('headphones'))) changeStation();
+  if (code === 'KeyR' && (['car', 'plane', 'boat', 'ride', 'heli'].includes(player.state) || hasGear('headphones'))) changeStation();
 });
 window.addEventListener('keyup', (e) => { keys[keyCode(e)] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
@@ -2178,7 +2185,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

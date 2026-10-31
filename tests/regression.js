@@ -719,7 +719,7 @@ window.runRegression = async () => {
   // ---------------------------------------------------------------- V15: activities (each one is played start to finish by tests/activities_test.js)
   await test('activities: 50 real activities in 5 categories, each with a place, a start and a phone page; progress saves', () => {
     const cats = {}; for (const a of ACTS) cats[a.cat] = (cats[a.cat] || 0) + 1;
-    expect(ACTS.length === 50 && Object.values(cats).every((n) => n === 10), JSON.stringify(cats));
+    expect(ACTS.length >= 50 && Object.values(cats).every((n) => n >= 10), JSON.stringify(cats));
     const noPlace = ACTS.filter((a) => !a.anywhere && a.cat !== 'job' && !actWhere(a)).map((a) => a.id); expect(!noPlace.length, 'no place: ' + noPlace);
     expect(ACTS.every((a) => typeof a.start === 'function' && a.desc && a.reward), 'an activity is missing its start, description or reward');
     for (const app of ['acts', 'jobs', 'missions', 'stats', 'notes']) { openPhone(); phoneApp(app); expect(document.querySelectorAll('#phone-body .papp').length > 0, app + ' app is empty'); closePhone(); }

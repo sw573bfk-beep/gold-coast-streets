@@ -36,6 +36,7 @@ function openDealer(sh) {
     return [`${CAR_LABEL[t]} — top speed ${Math.round(sp.max * 3.6)} km/h, ${sp.drive.toUpperCase()}${owned ? ' (you own one)' : ''}`, '$' + CAR_PRICES[t].toLocaleString(), player.money >= CAR_PRICES[t], () => buyCar(sh, t)];
   });
   rows.push(['Take one for a 2-minute test drive', 'Test drive', !ECON.testDrive, () => testDrive(sh)]);
+  rows.push(['🔧 Mod shop: paint, decals, wheels, lowering, neon, engine tune (for the car out the front)', 'Mod shop', true, openModShop]);
   econPanel(sh.name, `Car dealership · you have $${player.money.toLocaleString()} · cars you buy are yours to call from your bag (B)`, rows);
 }
 function curbNear(x, z) { // a clear spot on the nearest road
@@ -52,7 +53,7 @@ function callCar(i) {
   const g = ECON.garage[i]; if (!g) return;
   const P = curbNear(player.x, player.z); if (!P) { toast('No road nearby to bring it to'); return; }
   if (ECON.called && ECON.called !== player.car && cars.includes(ECON.called)) ECON.called.remove();
-  const c = new Car(g.type, g.color, P.x, P.z, P.h); c.kind = 'abandoned'; c.owned = true; cars.push(c); ECON.called = c;
+  const c = new Car(g.type, g.color, P.x, P.z, P.h); c.kind = 'abandoned'; c.owned = true; cars.push(c); ECON.called = c; if (g.mods) applyMods(c);
   WAYPOINT = { name: 'Your ' + CAR_LABEL[g.type], x: P.x, z: P.z };
 }
 function testDrive(sh) {
@@ -64,7 +65,7 @@ function testDrive(sh) {
 // a new paint colour on a car (respray): rebuild its model in the new colour, keeping everything else
 function repaintCar(c, color) {
   const old = c.model; c.model = makeCarModel(c.type, color); scene.add(c.model.root);
-  if (c.driver) setDriverLook(c.model, c.look || null); scene.remove(old.root); disposeCarModel(old); c.sync(0);
+  if (c.driver) setDriverLook(c.model, c.look || null); scene.remove(old.root); disposeCarModel(old); applyMods(c); c.sync(0);
   const g = c.owned && ECON.garage.find((q) => q.type === c.type); if (g) { g.color = color; saveGame(); }
 }
 
@@ -218,7 +219,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, pet: ECON.pet, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -229,6 +230,7 @@ function economyLoad(s) {
   if (typeof s.rangeBest === 'number') ECON.rangeBest = s.rangeBest;
   storyLoad(s.story);
   if (s.act && typeof s.act === 'object') ECON.act = s.act;
+  if (s.pet && BREEDS[s.pet.breed]) ECON.pet = s.pet;
   if (s.jobs) ECON.jobs = s.jobs;
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);
