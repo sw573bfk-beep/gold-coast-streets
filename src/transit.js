@@ -62,3 +62,24 @@ function updateTransit(dt) {
     for (const t of trams) if (t.dwell > 2 && tramNear(t, 10)) { toast(`E: get on the G:link ($${RIDE.fare}) — next: ${tramStopName(t, true)}`); houseHintT = 8; break; }
   }
 }
+// ---------------------------------------------------------------- phone → Transit: live arrivals at the nearest stop
+function tramEta(t, s) { // seconds until a tram reaches position s on the line (or null if it's past it, going away)
+  const d = (s - t.s) * t.dir; if (d < 0) return null;
+  const stopsBetween = t.L.stops.filter((q) => (q - t.s) * t.dir > 0.5 && (q - s) * t.dir < -0.5).length;
+  return d / 11 + stopsBetween * 16 + Math.max(0, t.dwell || 0);
+}
+function transitApp(btn, head) {
+  const t0 = trams[0]; if (!t0 || !t0.L.names) { btn('Live times unavailable', 'the G:link line hasn’t loaded', () => {}, false); return; }
+  const L = t0.L, here = L.stops.map((s, i) => { const P = {}; railPoint(L, s, P); return { s, i, name: L.names[i], x: P.x, z: P.z, d: Math.hypot(P.x - player.x, P.z - player.z) }; }).sort((a, b) => a.d - b.d)[0];
+  head(`🚋 ${here.name} · ${km(here.x, here.z)} away`);
+  btn('📍 Walk to the platform', 'directions to the stop', () => directions(here.name + ' G:link stop', here.x, here.z));
+  const ends = ['Helensvale', 'Burleigh Heads']; // the real G:link termini (the line in the game runs north and south from Surfers)
+  for (const [dir, label] of [[1, `towards ${ends[0]}`], [-1, `towards ${ends[1]}`]]) {
+    const etas = trams.filter((t) => t.dir === dir).map((t) => tramEta(t, here.s)).filter((e) => e !== null).sort((a, b) => a - b).slice(0, 3);
+    btn(`${label}`, etas.length ? etas.map((e) => (e < 50 ? 'now' : `${Math.round(e / 60)} min`)).join(' · ') : 'no tram due (end of the line)', () => {}, false);
+  }
+  const bus = cars.filter((c) => c.bus).map((c) => ({ c, d: Math.hypot(c.x - player.x, c.z - player.z) })).sort((a, b) => a.d - b.d)[0];
+  head('Buses');
+  btn(bus ? `🚌 Nearest bus · ${Math.round(bus.d)} m away` : 'No bus nearby right now', bus ? `about ${Math.max(1, Math.round(bus.d / 9 / 60))} min · it pulls in every few hundred metres (E to board, $${RIDE.fare})` : 'they run the main roads', () => bus && directions('the bus', bus.c.x, bus.c.z), !!bus);
+  head('Trams run every 6–7 minutes each way, about like the real G:link timetable · $5 a ride');
+}

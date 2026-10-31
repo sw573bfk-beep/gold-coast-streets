@@ -308,6 +308,7 @@ function serviceSpot() {
 // ---------------------------------------------------------------- buy menu
 let openShopRef = null;
 function openShop(sh) {
+  const mine = typeof bizFor === 'function' && bizFor(sh); if (mine) return bizPanel(mine); // your own business: the books
   if (sh.kind === 'cars') return openDealer(sh);
   if (sh.kind === 'casino') return openCasino('blackjack');
   if (sh.kind === 'vape' || sh.kind === 'adult') { toast(`"ID please." — ${sh.name} is 18+ only, so they won't serve you`); return; }

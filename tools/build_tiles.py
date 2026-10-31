@@ -24,7 +24,8 @@ def tkey(x, z): return (int(math.floor(x / TILE)), int(math.floor(z / TILE)))
 
 # ---------------------------------------------------------------- load OSM blocks (deduplicated)
 els = {}
-for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poix_*.json'))):  # poix: gyms, arcades, bakeries, clinics (tools/fetch_pois_extra.py)
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poix_*.json'))
+                   + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmn_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poin_*.json'))):  # osmn/poin: the northern strip (tools/fetch_north.py)  # poix: gyms, arcades, bakeries, clinics (tools/fetch_pois_extra.py)
     for e in json.load(open(path))['elements']:
         els[(e['type'], e['id'])] = e
 els = list(els.values())
@@ -513,8 +514,16 @@ HAVE_DEM = os.path.exists(os.path.join(ROOT, 'data', 'region', 'dem.json'))
 HAVE_AIR = os.path.exists(os.path.join(ROOT, 'data', 'region', 'air.json'))
 HAVE_DEMX = os.path.exists(os.path.join(ROOT, 'data', 'region', 'demx.json'))
 DEM = Raster('demx') if HAVE_DEMX else Raster('dem') if HAVE_DEM else None  # demx covers the whole extended map
+class Chain:  # several height rasters side by side: the first that has a value wins (demn: the northern strip)
+    def __init__(self, rs): self.rs = rs
+    def value(self, lat, lon):
+        for R in self.rs:
+            v = R.value(lat, lon)
+            if v is not None: return v
+        return None
+if DEM and os.path.exists(os.path.join(ROOT, 'data', 'region', 'demn.json')): DEM = Chain([DEM, Raster('demn')])
 HAVE_DEM = HAVE_DEM or HAVE_DEMX
-AIRS = [Raster(k) for k in ('air', 'airx') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]  # 2 m photos first, 3 m beyond
+AIRS = [Raster(k) for k in ('air', 'airx', 'airn') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]  # 2 m photos first, 3 m beyond
 HAVE_AIR = bool(AIRS)
 AIR = AIRS[0] if AIRS else None
 def air_rgb(lat, lon):
@@ -526,6 +535,9 @@ def air_for_tile(ti, tj):
     la0, lo0 = LAT0 - (tj * TILE + TILE) / KZ, LON0 + ti * TILE / KX; la1, lo1 = LAT0 - tj * TILE / KZ, LON0 + (ti * TILE + TILE) / KX
     for R in AIRS:
         if R.W <= lo0 and lo1 <= R.E and R.S <= la0 and la1 <= R.N: return R
+    lac, loc = (la0 + la1) / 2, (lo0 + lo1) / 2  # a tile across the edge of two photo sets: the one under its middle
+    for R in AIRS[1:]:
+        if R.W <= loc <= R.E and R.S <= lac <= R.N: return R
     return AIRS[-1]
 def unproj(x, z): return LAT0 - z / KZ, LON0 + x / KX
 GROUND_BASE = 3.0   # metres above sea level that game height 0 stands for (the flat Surfers core sits around 4-6 m)

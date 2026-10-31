@@ -13,3 +13,5 @@ dist/packs/
 data/build_tiles_v9.log
 server/node_modules/
 server/.wrangler/
+data/north_fetch.log
+data/build_tiles_v*.log

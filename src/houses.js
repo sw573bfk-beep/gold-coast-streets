@@ -389,6 +389,7 @@ function houseWindows() {
   if (!winPatched && typeof buildingMats === 'object') { for (const m of Object.values(buildingMats)) cutWindows(m); winPatched = true; }
   let n = 0;
   for (const H of HOUSE_ACTIVE) for (const w of H.windows || []) { if (n >= WIN_MAX) break; WIN_A[n].set(w.x, 0, w.z, w.hw); WIN_B[n].set(w.nx, w.nz, w.y0, w.y1); n++; }
+  for (const L of typeof LOBBIES === 'object' ? LOBBIES : []) for (const w of L.windows) { if (n >= WIN_MAX) break; WIN_A[n].set(w.x, 0, w.z, w.hw); WIN_B[n].set(w.nx, w.nz, w.y0, w.y1); n++; } // tower lobbies (lobbies.js)
   WIN_N.value = n;
 }
 function houseCandidates(x, z, r) {

@@ -985,10 +985,10 @@ function manageWorld(dt) {
       (c.kind === 'police' && player.stars === 0 && d > 200 && !c.copOut) || (c.kind === 'police' && d > 600) || (c.dead && c.deadT > 30 && d > 70)) c.remove();
   }
   for (const p of peds.slice()) if (p.gone || Math.hypot(p.x - player.x, p.z - player.z) > (p.cop ? 160 : 190)) { if (p.cop && p.car) p.car.copOut = null; p.remove(); }
-  if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
+  if (cars.filter((c) => c.kind === 'traffic').length < trafficTarget()) spawnTraffic(150, 330, 'traffic'); // rush hours busier, small hours quiet (life.js)
   spawnParked(190, 70); spawnEbikes(160);
   // crowds match the place: about 50 people around you in the suburbs, well over 100 on Cavill Ave
-  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140) * GFX.cfg.crowd, civ = peds.filter((p) => !p.cop).length;
+  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140) * GFX.cfg.crowd * crowdFactor(), civ = peds.filter((p) => !p.cop).length;
   for (let k = 0; k < (civ < wantPeds * 0.7 ? 5 : 2) && civ + k < wantPeds; k++) spawnPed(busy > 40 ? 35 : 55, 150);
   for (const p of peds) { // only people close by cast shadows (each one is several draw calls)
     const near = Math.hypot(p.x - player.x, p.z - player.z) < 40;
@@ -1865,7 +1865,7 @@ function initBigMap() {
 const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
-  $('clock').textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+  $('clock').textContent = lifeClock() + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
   $('money').textContent = '$' + String(player.money).padStart(8, '0');
   const st = $('stars').children; for (let i = 0; i < 5; i++) st[i].className = i < player.stars ? 'on' : '';
   $('health').firstElementChild.style.width = player.health + '%';
@@ -2185,7 +2185,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

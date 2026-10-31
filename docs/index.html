@@ -2245,7 +2245,7 @@ function buildRail() {
   // two trams running the whole G:link route (Burleigh to Parkwood) when it's loaded, otherwise the Surfers tracks
   if (window.TRAM_DATA) {
     const G = railLine(TRAM_DATA.line); G.stops = TRAM_DATA.stops.map((st) => st[0]); G.names = TRAM_DATA.stops.map((st) => st[1]); G.lane = 1.9;
-    trams.push(new Tram(G, G.len * 0.3, 1), new Tram(G, G.len * 0.7, -1));
+    for (let k = 0; k < 4; k++) trams.push(new Tram(G, G.len * (0.05 + k * 0.24), 1), new Tram(G, G.len * (0.17 + k * 0.24), -1)); // 8 trams: one every 6-7 minutes each way
   } else RAIL.forEach((L, li) => trams.push(new Tram(L, li === 0 ? L.len * 0.3 : L.len * 0.7, li === 0 ? 1 : -1)));
 }
 const TRAM_MOD = 8.7, TRAM_N = 5;
@@ -3025,6 +3025,7 @@ function serviceSpot() {
 // ---------------------------------------------------------------- buy menu
 let openShopRef = null;
 function openShop(sh) {
+  const mine = typeof bizFor === 'function' && bizFor(sh); if (mine) return bizPanel(mine); // your own business: the books
   if (sh.kind === 'cars') return openDealer(sh);
   if (sh.kind === 'casino') return openCasino('blackjack');
   if (sh.kind === 'vape' || sh.kind === 'adult') { toast(`"ID please." — ${sh.name} is 18+ only, so they won't serve you`); return; }
@@ -3668,7 +3669,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, pet: ECON.pet, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -3680,6 +3681,7 @@ function economyLoad(s) {
   storyLoad(s.story);
   if (s.act && typeof s.act === 'object') ECON.act = s.act;
   if (s.pet && BREEDS[s.pet.breed]) ECON.pet = s.pet;
+  if (Array.isArray(s.biz)) ECON.biz = s.biz.filter((b) => b && BIZ_KINDS[b.kind]);
   if (s.jobs) ECON.jobs = s.jobs;
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);
@@ -3774,7 +3776,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', transit: 'Transit', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -3786,6 +3788,9 @@ function phoneApp(app) {
     tile('🌊', 'Swell', () => phoneApp('swell'));
     tile('🌤️', 'Weather', () => phoneApp('weather'));
     tile('🐶', 'Pet', () => phoneApp('pet'));
+    tile('🚋', 'Transit', () => phoneApp('transit'));
+    tile('💼', 'Business', () => phoneApp('business'), (ECON.biz || []).some((b) => b.till > 0) ? '$' : '');
+    tile('📢', 'Events', () => phoneApp('events'), LIFE.ev ? '!' : '');
     tile('🔔', 'Alerts', () => phoneApp('notes'), unreadNotes() ? String(unreadNotes()) : '');
     head('Getting around'); grid = null;
     tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
@@ -3831,6 +3836,9 @@ function phoneApp(app) {
     for (const q of list) btn(q.name, `${km(q.x, q.z)} · $150–450 in the till · 2 stars`, () => directions(q.name, q.x, q.z));
   } else if (app === 'jobs') { back(); jobsApp(btn, head); }
   else if (app === 'job') { jobApp(btn, head); }
+  else if (app === 'transit') { back(); transitApp(btn, head); }
+  else if (app === 'business') { back(); businessApp(btn, head); }
+  else if (app === 'events') { back(); eventsApp(btn, head); }
   else if (app === 'weather') { back(); weatherApp(btn, head); }
   else if (app === 'pet') { back(); petApp(btn, head); }
   else if (app === 'swell') { back(); swellApp(btn, head); }
@@ -4948,6 +4956,27 @@ function updateTransit(dt) {
   if (player.state === 'foot' && (houseHintT || 0) <= 0) {
     for (const t of trams) if (t.dwell > 2 && tramNear(t, 10)) { toast(`E: get on the G:link ($${RIDE.fare}) — next: ${tramStopName(t, true)}`); houseHintT = 8; break; }
   }
+}
+// ---------------------------------------------------------------- phone → Transit: live arrivals at the nearest stop
+function tramEta(t, s) { // seconds until a tram reaches position s on the line (or null if it's past it, going away)
+  const d = (s - t.s) * t.dir; if (d < 0) return null;
+  const stopsBetween = t.L.stops.filter((q) => (q - t.s) * t.dir > 0.5 && (q - s) * t.dir < -0.5).length;
+  return d / 11 + stopsBetween * 16 + Math.max(0, t.dwell || 0);
+}
+function transitApp(btn, head) {
+  const t0 = trams[0]; if (!t0 || !t0.L.names) { btn('Live times unavailable', 'the G:link line hasn’t loaded', () => {}, false); return; }
+  const L = t0.L, here = L.stops.map((s, i) => { const P = {}; railPoint(L, s, P); return { s, i, name: L.names[i], x: P.x, z: P.z, d: Math.hypot(P.x - player.x, P.z - player.z) }; }).sort((a, b) => a.d - b.d)[0];
+  head(`🚋 ${here.name} · ${km(here.x, here.z)} away`);
+  btn('📍 Walk to the platform', 'directions to the stop', () => directions(here.name + ' G:link stop', here.x, here.z));
+  const ends = ['Helensvale', 'Burleigh Heads']; // the real G:link termini (the line in the game runs north and south from Surfers)
+  for (const [dir, label] of [[1, `towards ${ends[0]}`], [-1, `towards ${ends[1]}`]]) {
+    const etas = trams.filter((t) => t.dir === dir).map((t) => tramEta(t, here.s)).filter((e) => e !== null).sort((a, b) => a - b).slice(0, 3);
+    btn(`${label}`, etas.length ? etas.map((e) => (e < 50 ? 'now' : `${Math.round(e / 60)} min`)).join(' · ') : 'no tram due (end of the line)', () => {}, false);
+  }
+  const bus = cars.filter((c) => c.bus).map((c) => ({ c, d: Math.hypot(c.x - player.x, c.z - player.z) })).sort((a, b) => a.d - b.d)[0];
+  head('Buses');
+  btn(bus ? `🚌 Nearest bus · ${Math.round(bus.d)} m away` : 'No bus nearby right now', bus ? `about ${Math.max(1, Math.round(bus.d / 9 / 60))} min · it pulls in every few hundred metres (E to board, $${RIDE.fare})` : 'they run the main roads', () => bus && directions('the bus', bus.c.x, bus.c.z), !!bus);
+  head('Trams run every 6–7 minutes each way, about like the real G:link timetable · $5 a ride');
 }
 
 // ============================================================================
@@ -7208,6 +7237,240 @@ function updateDrag(dt) {
 })();
 
 // ============================================================================
+// Gold Coast Streets — a day in the life, and the big events.
+// The week runs on: weekday rush hours fill the roads, beaches pack out on sunny weekend days, the streets go quiet
+// in the small hours, and Surfers comes alive on Friday and Saturday nights (queues outside the clubs).
+// Events: a cyclone (warning first, then howling wind and rain), king tides (the lowest canal streets flood), and
+// Schoolies (late November, or when it comes round in the game): a party zone on the Surfers beachfront.
+// ============================================================================
+const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'];
+const LIFE = { day: 0, last: 0, dow0: new Date().getDay(), beach: [], queue: [], party: [], ev: null, flood: [], floodLv: 0, gust: 0, wind: 0, evT: 60 };
+const dow = () => (LIFE.dow0 + LIFE.day) % 7, weekend = () => dow() === 0 || dow() === 6;
+const partyNight = () => (dow() === 5 || dow() === 6) && (gameHour >= 20 || gameHour < 3) || (dow() === 6 || dow() === 0) && gameHour < 3;
+function crowdFactor() { // people on the streets by hour and day
+  const h = gameHour; let f = h < 5 ? 0.25 : h < 7 ? 0.5 : h < 9 ? 1.1 : h < 16 ? 1 : h < 19 ? 1.15 : h < 22 ? 0.85 : 0.45;
+  if (partyNight() && inCore(player.x, player.z)) f = 1.5; // Surfers on a Friday or Saturday night
+  if (weekend() && h > 9 && h < 17) f *= 1.15;
+  if (LIFE.ev && LIFE.ev.kind === 'cyclone' && LIFE.ev.phase === 'on') f *= 0.25; // everyone's indoors
+  return f;
+}
+function trafficTarget() { const h = gameHour, rush = !weekend() && ((h > 7 && h < 9.5) || (h > 15.5 && h < 18.5)); return Math.round(40 * (h < 5 ? 0.35 : h < 6.5 ? 0.6 : rush ? 1.3 : h > 21 ? 0.6 : 1) * (LIFE.ev && LIFE.ev.kind === 'cyclone' && LIFE.ev.phase === 'on' ? 0.3 : 1)); }
+function lifeClock() { return `${DAYS[dow()]} `; }
+// ---------------------------------------------------------------- beachgoers, swimmers, club queues
+function clearStatics(list) { for (const p of list) { scene.remove(p.root); if (p.towel) { scene.remove(p.towel); p.towel.geometry.dispose(); p.towel.material.dispose(); } disposePerson(p); } list.length = 0; }
+let lifeT = 0;
+function updateLifeCrowds() {
+  const sunny = WEATHER.rain < 0.3 && gameHour > 8 && gameHour < 17.5, B = BEACHES.find((b) => Math.hypot(b[1] - player.x, b[2] - player.z) < 400);
+  const want = !B || !sunny ? 0 : (weekend() ? 26 : 12);
+  if (LIFE.beach.length && (!B || LIFE.beach.b !== B[0] || want === 0)) clearStatics(LIFE.beach);
+  if (B && want && LIFE.beach.length < want) {
+    LIFE.beach.b = B[0]; const S = nearestShore(B[1], B[2]);
+    for (let k = 0; k < 30 && LIFE.beach.length < want; k++) {
+      const along = rr(-180, 180), out = rr(-45, 30), x = S.px + S.tx * along + S.nx * out, z = S.pz + S.tz * along + S.nz * out, swim = out > 4;
+      if (!swim && !onBeachSand(x, z) && !onBeach(x, z)) continue;
+      const p = makePerson({ shirt: pick(['#ff6f4f', '#35c6cf', '#f2c542', '#e85a9a', '#ffffff']), singlet: true }); scene.add(p.root);
+      if (swim) { p.root.position.set(x, WATER_Y - 1.1, z); p.swim = true; }
+      else if (rand() < 0.6) { p.root.rotation.set(-Math.PI / 2, rand() * TAU, 0, 'YXZ'); p.root.position.set(x, standAt(x, z) + 0.12, z); const tg = new THREE.PlaneGeometry(0.9, 1.9); tg.rotateX(-Math.PI / 2); p.towel = new THREE.Mesh(tg, new THREE.MeshStandardMaterial({ color: col(pick(['#ff2d55', '#00b3c6', '#ffd400', '#7cff00', '#b84dff'])), roughness: 0.9 })); p.towel.position.set(x, standAt(x, z) + 0.02, z); p.towel.rotation.y = p.root.rotation.y; scene.add(p.towel); }
+      else { p.root.position.set(x, standAt(x, z), z); p.root.rotation.y = rand() * TAU; }
+      p.x = x; p.z = z; p.ph = rand() * 10; LIFE.beach.push(p);
+    }
+  }
+  // queues outside the clubs on party nights
+  const clubs = partyNight() ? SHOPS.filter((s) => s.kind === 'club' && Math.hypot(s.x - player.x, s.z - player.z) < 220).slice(0, 3) : [];
+  if (!clubs.length && LIFE.queue.length) clearStatics(LIFE.queue);
+  if (clubs.length && !LIFE.queue.length) for (const s of clubs) { const nx = s.nx || 1, nz = s.nz || 0; for (let k = 0; k < 7; k++) { const p = makePerson(k === 0 ? { shirt: '#111111' } : {}); const x = s.x + nx * 2 - nz * (k * 0.8 + 1.5), z = s.z + nz * 2 + nx * (k * 0.8 + 1.5); p.root.position.set(x, standAt(x, z), z); p.root.rotation.y = Math.atan2(nz, nx) + Math.PI / 2; scene.add(p.root); p.x = x; p.z = z; p.ph = k; LIFE.queue.push(p); } }
+}
+// ---------------------------------------------------------------- events
+function startEvent(kind) {
+  if (LIFE.ev) endEvent();
+  if (kind === 'cyclone') { LIFE.ev = { kind, phase: 'warning', t: 90 }; actNote('🌀 CYCLONE WARNING: a tropical cyclone is crossing the coast — get somewhere safe'); sfxTone([880, 660, 880, 660, 880], 1.2, 0.07, 'square'); }
+  if (kind === 'kingtide') { LIFE.ev = { kind, phase: 'rising', t: 300 }; actNote('🌊 King tide: low-lying streets near the canals will flood over the next few minutes'); }
+  if (kind === 'schoolies') { LIFE.ev = { kind, phase: 'on', t: 900 }; actNote('🎉 Schoolies is on! The Surfers beachfront party zone is open (Activities → Schoolies beach concert)'); }
+}
+function endEvent() {
+  const E = LIFE.ev; if (!E) return; LIFE.ev = null;
+  if (E.kind === 'cyclone') { setWeather('cloudy', false); actNote('The cyclone has passed. Clean-up crews are out.', true); }
+  if (E.kind === 'kingtide') { LIFE.floodLv = 0; buildFlood(); }
+  if (E.kind === 'schoolies') clearStatics(LIFE.party), LIFE.stage && (scene.remove(LIFE.stage), LIFE.stage = null);
+}
+const schooliesSeason = () => { const d = new Date(); return d.getMonth() === 10 && d.getDate() >= 20 || d.getMonth() === 11 && d.getDate() <= 1; };
+// the flood: water sitting over every patch of ground lower than the tide, tile by tile (never over the Surfers core)
+function buildFlood() {
+  for (const m of LIFE.flood) { scene.remove(m); m.geometry.dispose(); } LIFE.flood.length = 0;
+  const lv = LIFE.floodLv; if (lv <= 0.02) return;
+  for (const T of TILES.values()) {
+    if (!T.hgt || Math.hypot(T.x0 + 500 - player.x, T.z0 + 500 - player.z) > 1600) continue;
+    const N = T.hn, st = T.hs, pos = [];
+    for (let j = 0; j < N - 1; j++) for (let i = 0; i < N - 1; i++) {
+      const k = j * N + i; if (Math.min(T.hgt[k], T.hgt[k + 1], T.hgt[k + N], T.hgt[k + N + 1]) >= lv) continue;
+      const x = T.x0 + i * st, z = T.z0 + j * st; if (inCore(x, z) || !isLand(x + st / 2, z + st / 2)) continue;
+      pos.push(x, lv, z, x, lv, z + st, x + st, lv, z, x + st, lv, z, x, lv, z + st, x + st, lv, z + st);
+    }
+    if (!pos.length) continue;
+    const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.computeVertexNormals();
+    const m = new THREE.Mesh(g, FLOOD_MAT); scene.add(m); LIFE.flood.push(m);
+  }
+}
+const FLOOD_MAT = new THREE.MeshStandardMaterial({ color: col('#5e6447'), transparent: true, opacity: 0.86, roughness: 0.15, metalness: 0.2, depthWrite: false });
+function flooded(x, z) { return LIFE.floodLv > 0.02 && !inCore(x, z) && groundBase(x, z) < LIFE.floodLv - 0.04; }
+function buildStage() { // the Schoolies stage on the sand by Cavill Avenue
+  const S = nearestShore(848, 306), x = S.px - S.nx * 30, z = S.pz - S.nz * 30, g = new THREE.Group();
+  const add = (w, h, d, px, py, pz, c, e) => { const o = new THREE.Mesh(new THREE.BoxGeometry(w, h, d), new THREE.MeshStandardMaterial({ color: col(c), emissive: col(e || '#000'), emissiveIntensity: e ? 1 : 0 })); o.position.set(px, py, pz); g.add(o); return o; };
+  add(14, 1.2, 8, 0, 0.6, 0, '#1d1d1d'); add(14, 0.4, 0.6, 0, 7, -3.6, '#333'); for (const s of [-1, 1]) add(0.4, 7, 0.4, s * 6.8, 3.5, -3.6, '#333'); add(10, 3, 0.2, 0, 4.2, -3.8, '#111', '#b84dff');
+  g.position.set(x, standAt(x, z), z); g.rotation.y = Math.atan2(-S.nx, -S.nz); scene.add(g); LIFE.stage = g; LIFE.stageAt = { x, z };
+}
+function updateLife(dt) {
+  if (gameHour < LIFE.last - 12) { LIFE.day++; if (dow() === 1) actNote(`📅 A new week — ${DAYS[dow()]}`, true); } LIFE.last = gameHour;
+  lifeT -= dt; if (lifeT <= 0) { lifeT = 2; updateLifeCrowds(); }
+  for (const p of LIFE.beach) if (p.swim) { p.ph += dt; p.root.position.y = WATER_Y - 1.1 + Math.sin(p.ph * 2) * 0.1; p.armL.rotation.x = -2 + Math.sin(p.ph * 3) * 0.8; p.armR.rotation.x = -2 - Math.sin(p.ph * 3) * 0.8; }
+  for (const p of LIFE.queue) { p.ph += dt; p.root.rotation.z = Math.sin(p.ph * 1.3) * 0.03; }
+  // events: one now and then (single player picks them on the phone too)
+  LIFE.evT -= dt;
+  if (!LIFE.ev && LIFE.evT <= 0) { LIFE.evT = 600 + rand() * 900; const r = rand(); if (schooliesSeason() && r < 0.5) startEvent('schoolies'); else if (r < 0.12) startEvent('cyclone'); else if (r < 0.3) startEvent('kingtide'); else if (r < 0.36) startEvent('schoolies'); }
+  const E = LIFE.ev; if (!E) return; E.t -= dt;
+  if (E.kind === 'cyclone') {
+    if (E.phase === 'warning') { if (E.t <= 0) { E.phase = 'on'; E.t = 240; setWeather('storm', true); WEATHER.nextT = 999; LIFE.wind = rand() * TAU; actNote('🌀 The cyclone has hit — destructive winds!'); } }
+    else {
+      LIFE.gust = Math.max(0, Math.sin(elapsed * 0.7) * 0.6 + Math.sin(elapsed * 2.3) * 0.4) * 9; const wx = Math.cos(LIFE.wind), wz = Math.sin(LIFE.wind);
+      const c = player.state === 'car' && player.car; if (c && !c.air) { c.vx += wx * LIFE.gust * 0.35 * dt; c.vz += wz * LIFE.gust * 0.35 * dt; }
+      if (player.state === 'foot' && !indoorAt(player.x, player.z)) { player.x += wx * LIFE.gust * 0.08 * dt; player.z += wz * LIFE.gust * 0.08 * dt; }
+      if (rand() < dt * 25) emit(player.x - wx * 30 + rr(-20, 20), rr(0.5, 8), player.z - wz * 30 + rr(-20, 20), wx * 18, rr(0, 2), wz * 18, 0.2, 0.15, 0.08, pick(['#6b4a2b', '#3d6b2e', '#9a9a96']), 1); // leaves and junk on the wind
+      TREE_WIND.value = elapsed * 3.5;
+      if (E.t <= 0) endEvent();
+    }
+  } else if (E.kind === 'kingtide') {
+    const target = E.phase === 'rising' ? 0.26 : 0; if (E.t <= 150 && E.phase === 'rising') E.phase = 'falling';
+    const lv = clamp(target === 0.26 ? (300 - E.t) / 150 * 0.26 : E.t / 150 * 0.26, 0, 0.26);
+    if (Math.abs(lv - LIFE.floodLv) > 0.03 || (lifeT > 1.9 && LIFE.flood.length === 0 && lv > 0.05)) { LIFE.floodLv = lv; buildFlood(); }
+    const c = player.state === 'car' && player.car; if (c && flooded(c.x, c.z)) { const k = Math.exp(-0.9 * dt); c.vx *= k; c.vz *= k; if (c.speed > 4 && rand() < dt * 30) emit(c.x + rr(-1, 1), 0.3, c.z + rr(-1, 1), rr(-2, 2), rr(2, 4), rr(-2, 2), 0.4, 0.25, 0.1, '#cfe3ee', 1); }
+    if (E.t <= 0) endEvent();
+  } else if (E.kind === 'schoolies') {
+    const near = Math.hypot(848 - player.x, 306 - player.z) < 500;
+    if (near && !LIFE.stage) buildStage();
+    if (near && LIFE.party.length < 30) { const S = LIFE.stageAt; for (let k = 0; k < 30; k++) { const p = makePerson({ shirt: pick(['#ff6f4f', '#35c6cf', '#f2c542', '#e85a9a', '#7fd36b']), singlet: rand() < 0.6, cap: rand() < 0.3 ? '#111' : undefined }); const x = S.x + rr(-14, 14), z = S.z + rr(-6, 18); p.root.position.set(x, standAt(x, z), z); p.root.rotation.y = rand() * TAU; scene.add(p.root); p.ph = rand() * 10; LIFE.party.push(p); } }
+    for (const p of LIFE.party) { p.ph += dt * (nightLevel > 0.4 ? 5 : 1.5); p.root.position.y = standAt(p.root.position.x, p.root.position.z) + Math.abs(Math.sin(p.ph)) * (nightLevel > 0.4 ? 0.25 : 0.05); p.armL.rotation.x = p.armR.rotation.x = nightLevel > 0.4 ? -2.6 + Math.sin(p.ph) * 0.4 : 0; } // jumping at the gig after dark
+    if (E.t <= 0 && !schooliesSeason()) endEvent(); else if (E.t <= 0) E.t = 900;
+  }
+}
+function eventsApp(btn, head) {
+  const E = LIFE.ev; head(E ? { cyclone: '🌀 Cyclone', kingtide: '🌊 King tide', schoolies: '🎉 Schoolies' }[E.kind] + (E.phase === 'warning' ? ' — warning' : ' — happening now') : 'No events right now');
+  head(`${DAYS[dow()]} · ${weekend() ? 'the weekend' : 'a weekday'}${partyNight() ? ' · party night in Surfers' : ''}`);
+  if (MODE === 'multi') { btn('Events come and go on their own online', '', () => {}, false); return; }
+  btn('🌀 Start a cyclone', 'a warning, then destructive winds for four minutes', () => { startEvent('cyclone'); closePhone(); });
+  btn('🌊 Start a king tide', 'the lowest canal streets flood, then drain', () => { startEvent('kingtide'); closePhone(); });
+  btn('🎉 Start Schoolies', 'the Surfers beachfront party (it also runs in late November)', () => { startEvent('schoolies'); closePhone(); });
+  if (E) btn('End the current event', '', () => { endEvent(); phoneApp('events'); });
+}
+defAct({ id: 'schoolies', name: 'Schoolies beach concert', icon: '🎉', cat: 'fun', diff: 1, at: () => (LIFE.stageAt ? { name: 'Schoolies stage, Surfers beachfront', x: LIFE.stageAt.x, z: LIFE.stageAt.z } : { name: 'Surfers Paradise beachfront', x: 820, z: 306 }), range: 80, desc: 'During Schoolies (late November, or when the event comes round) the stage on the Surfers sand runs gigs: get up and play the set.', reward: 'tips from the crowd', req: () => (LIFE.ev && LIFE.ev.kind === 'schoolies' ? null : 'Schoolies isn’t on right now (phone → Events)'), start: () => playBusk('schoolies', 'Schoolies beach concert') });
+
+// ============================================================================
+// Gold Coast Streets — run your own business. Buy a café or a car yard near you (phone → Business), hire staff,
+// fit it out, and the takings come in every five minutes (more in busy places, at busy times, with better staff and
+// upgrades). Wages come out of the till. Walk in to your own business to see the books and collect the cash.
+// ============================================================================
+const BIZ_KINDS = {
+  cafe: { label: 'Café', price: 45000, base: 140, staff: { barista: ['Barista', 60, 0.35], manager: ['Manager', 110, 0.25] }, upg: { machine: ['Espresso machine upgrade', 6000, 0.2], fitout: ['New fit-out', 12000, 0.25], signs: ['Signage', 3000, 0.1], socials: ['Social media marketing', 4000, 0.15] } },
+  cars: { label: 'Car yard', price: 120000, base: 420, staff: { sales: ['Salesperson', 150, 0.3], mechanic: ['Mechanic', 180, 0.25] }, upg: { lot: ['Bigger lot', 25000, 0.25], showroom: ['Showroom', 40000, 0.3], finance: ['Finance deals', 15000, 0.2], ads: ['TV ads', 20000, 0.15] } },
+};
+const BIZ = { t: 0, sel: null };
+const myBiz = () => (ECON.biz = ECON.biz || []);
+function bizFor(sh) { return myBiz().find((b) => b.id === sh.id); }
+function bizIncome(b) { // per five minutes, before wages
+  const K = BIZ_KINDS[b.kind], busy = clamp((b.busy || 30) / 60, 0.5, 2), h = gameHour, timeF = b.kind === 'cafe' ? (h > 6 && h < 15 ? 1.3 : h > 18 || h < 6 ? 0.3 : 0.8) : (h > 9 && h < 18 ? 1.2 : 0.2);
+  let mult = 1; for (const k in b.staff || {}) mult += K.staff[k][2]; for (const k in b.upg || {}) mult += K.upg[k][2];
+  return Math.round(K.base * busy * timeF * mult * (weekend() ? 1.2 : 1));
+}
+const bizWages = (b) => Object.keys(b.staff || {}).reduce((a, k) => a + BIZ_KINDS[b.kind].staff[k][1], 0);
+function buyBiz(sh, kind) {
+  const K = BIZ_KINDS[kind]; if (myBiz().some((b) => b.id === sh.id)) return;
+  if (player.money + ECON.bank < K.price) { toast(`You need $${K.price.toLocaleString()} (wallet plus savings)`); return; }
+  const w = Math.min(player.money, K.price); player.money -= w; ECON.bank -= K.price - w;
+  myBiz().push({ id: sh.id, kind, name: sh.name, x: sh.x, z: sh.z, staff: {}, upg: {}, till: 0, total: 0, busy: busyAt(sh.x, sh.z), log: [] });
+  saveGame(); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); actNote(`💼 You own ${sh.name} now! Hire staff and fit it out (phone → Business)`);
+}
+function updateBusiness(dt) {
+  if (!myBiz().length) return; BIZ.t += dt; if (BIZ.t < 300) return; BIZ.t = 0;
+  for (const b of myBiz()) {
+    let net = bizIncome(b) - bizWages(b), note = null; const r = rand();
+    if (r < 0.06) { net += 400; note = '⭐ A glowing review went viral'; } else if (r < 0.09 && !b.upg.signs && !b.staff.manager) { net -= Math.min(b.till, 600); note = '🔓 Broken into overnight — the till was raided'; } else if (r < 0.12) { net -= 250; note = '🧾 A surprise bill (repairs)'; }
+    b.till = Math.max(0, b.till + net); b.total += net; b.log.unshift(`${note ? note + ' · ' : ''}${net >= 0 ? '+$' + net : '−$' + -net}`); b.log.length = Math.min(b.log.length, 6);
+    if (note) actNote(`${b.name}: ${note}`, true);
+  }
+  saveGame();
+}
+function collectBiz(b) { if (!b.till) return; player.money += b.till; stat('earned', b.till); toast(`💵 Collected $${b.till.toLocaleString()} from ${b.name}`); b.till = 0; saveGame(); }
+function bizPanel(b) { // walking into your own place: the books
+  const K = BIZ_KINDS[b.kind], rows = [[`Takings ${bizIncome(b) >= bizWages(b) ? 'about' : '⚠'} $${bizIncome(b)} per 5 min · wages $${bizWages(b)} · in the till $${b.till.toLocaleString()} · all-time $${Math.round(b.total).toLocaleString()}`, 'Collect', b.till > 0, () => { collectBiz(b); bizPanel(b); }]];
+  for (const [k, [label, wage, boost]] of Object.entries(K.staff)) rows.push([`${b.staff[k] ? '✔ ' : ''}${label}: $${wage} per 5 min, +${Math.round(boost * 100)}% takings`, b.staff[k] ? 'Let go' : 'Hire', true, () => { if (b.staff[k]) delete b.staff[k]; else b.staff[k] = true; saveGame(); bizPanel(b); }]);
+  for (const [k, [label, cost, boost]] of Object.entries(K.upg)) rows.push([`${b.upg[k] ? '✔ ' : ''}${label}: +${Math.round(boost * 100)}% takings`, b.upg[k] ? 'Done' : `$${cost.toLocaleString()}`, !b.upg[k] && player.money >= cost, () => { if (!pay(cost, label)) return; b.upg[k] = true; saveGame(); bizPanel(b); }]);
+  for (const line of b.log || []) rows.push([line, null, false, null]);
+  econPanel(`${b.name} (yours)`, `${K.label} · busy area ${Math.round(b.busy || 30)}/100 · ${DAYS[dow()]} ${String(Math.floor(gameHour)).padStart(2, '0')}:00`, rows);
+}
+function businessApp(btn, head) {
+  if (myBiz().length) { head('Your businesses'); for (const b of myBiz()) btn(`💼 ${b.name} · $${b.till.toLocaleString()} in the till`, `${BIZ_KINDS[b.kind].label} · ~$${bizIncome(b) - bizWages(b)} profit per 5 min · tap to collect (or walk in to manage)`, () => { collectBiz(b); phoneApp('business'); }); }
+  head('For sale near you');
+  const forSale = SHOPS.filter((s) => (s.kind === 'cafe' || s.kind === 'cars') && !bizFor(s) && Math.hypot(s.x - player.x, s.z - player.z) < 1500).sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z)).slice(0, 6);
+  if (!forSale.length) btn('Nothing for sale nearby', 'cafés and car yards come up all over — try somewhere busier', () => {}, false);
+  for (const s of forSale) { const K = BIZ_KINDS[s.kind]; btn(`${s.kind === 'cafe' ? '☕' : '🚗'} ${s.name} · $${K.price.toLocaleString()}`, `${K.label} · ${km(s.x, s.z)} · busy area ${Math.round(busyAt(s.x, s.z))}/100 · tap to buy`, () => { buyBiz(s, s.kind); phoneApp('business'); }, player.money + ECON.bank >= K.price); }
+}
+
+// ============================================================================
+// Gold Coast Streets — tower lobbies you can see into. Walk (or drive slowly) up to an apartment, office or hotel
+// tower and its ground floor turns to glass with a lit lobby behind it: marble floor, reception desk and staff,
+// lifts, sofas and plants. The glass is cut into the outside walls the same way as the house windows (houses.js).
+// Press E at the wall to go in, like always.
+// ============================================================================
+const LOBBIES = [];
+const LOBBY_COLS = { floor: [col('#e9e5dc'), col('#d8d2c6'), col('#2b2e33')], wall: col('#f1ede4'), desk: col('#6b4a2b'), lift: col('#9aa3aa'), sofa: col('#3f4f5f'), plant: col('#3d6b2e'), panel: col('#fffaf0') };
+function buildLobby(B) {
+  const f = B.f, n = f.length / 2; let gmin = Infinity, cx = 0, cz = 0;
+  for (let q = 0; q < n; q++) { gmin = Math.min(gmin, groundAt(f[2 * q], f[2 * q + 1])); cx += f[2 * q]; cz += f[2 * q + 1]; } cx /= n; cz /= n;
+  const y0 = gmin + 0.06, top = y0 + 4.2, Bf = newBuf(), windows = [], r = mulberry32(Math.round(cx * 7 + cz * 13));
+  const fc = LOBBY_COLS.floor[Math.floor(r() * 3)];
+  const contour = []; for (let q = 0; q < n; q++) contour.push(new THREE.Vector2(f[2 * q], f[2 * q + 1]));
+  let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { return null; }
+  for (const t of tris) { const P = t.map((k) => [f[2 * k], f[2 * k + 1]]);
+    triInto(Bf, [P[0][0], y0, P[0][1]], [P[1][0], y0, P[1][1]], [P[2][0], y0, P[2][1]], 1); for (let v = 0; v < 3; v++) { Bf.nor.push(0, 1, 0); Bf.col.push(fc.r, fc.g, fc.b); }
+    triInto(Bf, [P[0][0], top, P[0][1]], [P[1][0], top, P[1][1]], [P[2][0], top, P[2][1]], -1); for (let v = 0; v < 3; v++) { Bf.nor.push(0, -1, 0); Bf.col.push(0.98, 0.97, 0.94); } }
+  // the inside of the outer walls, with a long window in every wall worth one (the longest dozen, the glass budget)
+  const edges = []; for (let q = 0; q < n; q++) { const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)]; edges.push({ ax, az, bx, bz, L: Math.hypot(bx - ax, bz - az) }); }
+  const glassy = new Set(edges.filter((e) => e.L > 4).sort((a, b) => b.L - a.L).slice(0, 12));
+  for (const e of edges) {
+    if (e.L < 0.05) continue; const ex = (e.bx - e.ax) / e.L, ez = (e.bz - e.az) / e.L; let nx = -ez, nz = ex;
+    if (!inRing((e.ax + e.bx) / 2 + nx * 0.3, (e.az + e.bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } // inward
+    const ix = nx * 0.1, iz = nz * 0.1, piece = (t0, t1, ya, yb) => { if (t1 - t0 > 0.01) wallInto(Bf, e.ax + ex * t0 + ix, e.az + ez * t0 + iz, e.ax + ex * t1 + ix, e.az + ez * t1 + iz, ya, yb, nx, nz, LOBBY_COLS.wall); };
+    if (!glassy.has(e)) { piece(0, e.L, y0, top); continue; }
+    const w0 = 0.6, w1 = e.L - 0.6, sill = y0 + 0.35, head = y0 + 3.6;
+    piece(0, w0, y0, top); piece(w1, e.L, y0, top); piece(w0, w1, y0, sill); piece(w0, w1, head, top);
+    windows.push({ x: e.ax + ex * e.L / 2, z: e.az + ez * e.L / 2, nx: -nx, nz: -nz, hw: (w1 - w0) / 2, y0: sill, y1: head });
+  }
+  // furniture: a desk in the middle, lifts on the far side, sofas and planters, light panels in the ceiling
+  const box = (x, z, w, d, h, c, y = y0) => boxInto(Bf, x, y + h / 2, z, w, h, d, c);
+  box(cx, cz, 3.2, 1.0, 1.1, LOBBY_COLS.desk);
+  const far = edges.reduce((a, e) => { const d = Math.hypot((e.ax + e.bx) / 2 - cx, (e.az + e.bz) / 2 - cz); return d > a.d && e.L > 3 ? { e, d } : a; }, { d: 0 }).e;
+  if (far) { const mx = (far.ax + far.bx) / 2, mz = (far.az + far.bz) / 2, k = 0.82; for (const s of [-1.2, 1.2]) { const ex = (far.bx - far.ax) / far.L, ez = (far.bz - far.az) / far.L; box(cx + (mx - cx) * k + ex * s, cz + (mz - cz) * k + ez * s, 1.1, 0.3, 2.3, LOBBY_COLS.lift); } }
+  for (let k = 0; k < 4; k++) { const a = r() * TAU, d = 2.5 + r() * 3, x = cx + Math.cos(a) * d, z = cz + Math.sin(a) * d; if (!inRing(x, z, f)) continue; if (k < 2) box(x, z, 2.0, 0.9, 0.7, LOBBY_COLS.sofa); else { box(x, z, 0.6, 0.6, 0.5, LOBBY_COLS.desk); box(x, z, 0.5, 0.5, 1.1, LOBBY_COLS.plant, y0 + 0.5); } }
+  for (let k = 0; k < 6; k++) { const x = cx + (r() - 0.5) * 8, z = cz + (r() - 0.5) * 8; if (inRing(x, z, f)) box(x, z, 1.2, 1.2, 0.04, LOBBY_COLS.panel, top - 0.05); }
+  for (let k = 0; k < Bf.col.length; k += 3) { const ny = Bf.nor[k + 1], sh = ny > 0.5 ? 0.95 : ny < -0.5 ? 1.0 : 0.82; Bf.col[k] *= sh; Bf.col[k + 1] *= sh; Bf.col[k + 2] *= sh; }
+  const mesh = new THREE.Mesh(toGeometry(Bf), new THREE.MeshBasicMaterial({ vertexColors: true })); scene.add(mesh);
+  const G = newBuf(); for (const w of windows) quadInto(G, w.x + w.nx * 0.03, (w.y0 + w.y1) / 2, w.z + w.nz * 0.03, w.nx, w.nz, w.hw * 2, w.y1 - w.y0, null, col('#cfe3ee'));
+  const glass = windows.length ? new THREE.Mesh(toGeometry(G), HOUSE_GLASS) : null; if (glass) scene.add(glass);
+  const staff = makePerson({ shirt: '#1d1d1d' }); staff.root.position.set(cx + 0.9, y0, cz); staff.root.rotation.y = rand() * TAU; scene.add(staff.root);
+  return { B, mesh, glass, staff, windows, cx, cz };
+}
+function dropLobby(L) { scene.remove(L.mesh); L.mesh.geometry.dispose(); L.mesh.material.dispose(); if (L.glass) { scene.remove(L.glass); L.glass.geometry.dispose(); } disposePerson(L.staff); }
+let lobbyT = 0;
+function updateLobbies(dt) {
+  lobbyT -= dt; if (lobbyT > 0) return; lobbyT = 0.7;
+  const slow = player.state === 'foot' || (player.state === 'car' && player.car && player.car.speed < 10);
+  for (const L of LOBBIES.slice()) if (!slow || Math.hypot(L.cx - player.x, L.cz - player.z) > 120 || (TOWER && TOWER.b === L.B.b)) { dropLobby(L); LOBBIES.splice(LOBBIES.indexOf(L), 1); }
+  if (!slow || TOWER || LOBBIES.length >= 2) return;
+  const cands = bigBuildingsNear(player.x, player.z, 45).filter((B) => ['apartments', 'offices', 'hotel'].includes(B.kind) && B.b[0] >= 14 && B.f.length >= 6 && B.f.length <= 240 && !LOBBIES.some((L) => L.B.b === B.b));
+  const B = cands.sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - player.x, (a.z0 + a.z1) / 2 - player.z) - Math.hypot((b.x0 + b.x1) / 2 - player.x, (b.z0 + b.z1) / 2 - player.z))[0];
+  if (B) { const L = buildLobby(B); if (L) LOBBIES.push(L); }
+}
+
+// ============================================================================
 // Gold Coast Streets — weapons: aiming, shooting, cops shooting back, hold-ups
 // Cartoon style: people get knocked down, no blood.
 // ============================================================================
@@ -9234,6 +9497,7 @@ function houseWindows() {
   if (!winPatched && typeof buildingMats === 'object') { for (const m of Object.values(buildingMats)) cutWindows(m); winPatched = true; }
   let n = 0;
   for (const H of HOUSE_ACTIVE) for (const w of H.windows || []) { if (n >= WIN_MAX) break; WIN_A[n].set(w.x, 0, w.z, w.hw); WIN_B[n].set(w.nx, w.nz, w.y0, w.y1); n++; }
+  for (const L of typeof LOBBIES === 'object' ? LOBBIES : []) for (const w of L.windows) { if (n >= WIN_MAX) break; WIN_A[n].set(w.x, 0, w.z, w.hw); WIN_B[n].set(w.nx, w.nz, w.y0, w.y1); n++; } // tower lobbies (lobbies.js)
   WIN_N.value = n;
 }
 function houseCandidates(x, z, r) {
@@ -10816,10 +11080,10 @@ function manageWorld(dt) {
       (c.kind === 'police' && player.stars === 0 && d > 200 && !c.copOut) || (c.kind === 'police' && d > 600) || (c.dead && c.deadT > 30 && d > 70)) c.remove();
   }
   for (const p of peds.slice()) if (p.gone || Math.hypot(p.x - player.x, p.z - player.z) > (p.cop ? 160 : 190)) { if (p.cop && p.car) p.car.copOut = null; p.remove(); }
-  if (cars.filter((c) => c.kind === 'traffic').length < 40) spawnTraffic(150, 330, 'traffic');
+  if (cars.filter((c) => c.kind === 'traffic').length < trafficTarget()) spawnTraffic(150, 330, 'traffic'); // rush hours busier, small hours quiet (life.js)
   spawnParked(190, 70); spawnEbikes(160);
   // crowds match the place: about 50 people around you in the suburbs, well over 100 on Cavill Ave
-  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140) * GFX.cfg.crowd, civ = peds.filter((p) => !p.cop).length;
+  const busy = busyAt(player.x, player.z), wantPeds = clamp(50 + busy * 3, 50, 140) * GFX.cfg.crowd * crowdFactor(), civ = peds.filter((p) => !p.cop).length;
   for (let k = 0; k < (civ < wantPeds * 0.7 ? 5 : 2) && civ + k < wantPeds; k++) spawnPed(busy > 40 ? 35 : 55, 150);
   for (const p of peds) { // only people close by cast shadows (each one is several draw calls)
     const near = Math.hypot(p.x - player.x, p.z - player.z) < 40;
@@ -11696,7 +11960,7 @@ function initBigMap() {
 const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
-  $('clock').textContent = String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
+  $('clock').textContent = lifeClock() + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
   $('money').textContent = '$' + String(player.money).padStart(8, '0');
   const st = $('stars').children; for (let i = 0; i < 5; i++) st[i].className = i < player.stars ? 'on' : '';
   $('health').firstElementChild.style.width = player.health + '%';
@@ -12016,7 +12280,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

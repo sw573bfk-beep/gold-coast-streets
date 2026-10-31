@@ -605,7 +605,7 @@ window.runRegression = async () => {
     expect(moved > 15, r); expect(player.state === 'foot', r); return r;
   });
   await test('G:link: trams run the whole route, stop at named stations, and you can ride one ($5)', async () => {
-    quiet(); expect(trams.length === 2 && trams[0].L.names, 'trams not on the full route'); const t = trams[0];
+    quiet(); expect(trams.length === 8 && trams[0].L.names, 'trams not on the full route'); const t = trams[0];
     expect(t.L.len > 20000 && t.L.names.length > 20, `route ${t.L.len | 0} m, ${t.L.names.length} stops`);
     for (let k = 0; k < 60 * 150 && t.dwell < 3; k++) stepWorld(1 / 60); expect(t.dwell >= 3, 'never stopped at a station');
     const at = tramStopName(t, false); player.x = t.mods[2].x + 3; player.z = t.mods[2].z; player.money = 100;
@@ -750,6 +750,33 @@ window.runRegression = async () => {
     expect(H, 'no house nearby'); const d = H.doors[0]; player.x = d.x + d.nx * 6; player.z = d.z + d.nz * 6; for (let k = 0; k < 20; k++) stepWorld(1 / 60);
     const A = HOUSE_ACTIVE.find((h) => (h.windows || []).length) || H, n = (A.windows || []).length, cut = WIN_N.value, glass = !!(A.inside && A.inside.glassMesh); home();
     expect(n >= 2 && cut >= 2 && glass, `windows ${n}, cut ${cut}, glass ${glass}`); return `${n} windows open into the house`;
+  });
+  await test('life: day of the week on the clock, crowds and traffic follow the time, events start and clean up', async () => {
+    quiet(); player.x = 840; player.z = 300; const h0 = gameHour;
+    gameHour = 3; const night = [crowdFactor(), trafficTarget()]; gameHour = 8; const rush = [crowdFactor(), trafficTarget()]; gameHour = h0;
+    startEvent('schoolies'); updateLife(0.1); const party = LIFE.party.length, stage = !!LIFE.stage; endEvent();
+    await goToTile(-28.035, 153.418); startEvent('kingtide'); LIFE.ev.t = 150; updateLife(0.1); const flood = LIFE.flood.length; endEvent(); // Broadbeach Waters canals
+    startEvent('cyclone'); LIFE.ev.t = 0.01; updateLife(0.1); const storm = LIFE.ev && LIFE.ev.phase === 'on'; endEvent();
+    const clean = !LIFE.ev && !LIFE.party.length && !LIFE.flood.length && !LIFE.stage; home();
+    const r = `${lifeClock().trim()} · traffic ${night[1]} at 3am, ${rush[1]} at 8am · party ${party} · flood meshes ${flood} · cyclone ${storm} · cleaned ${clean}`;
+    expect(/^[A-Z][a-z]{2}$/.test(lifeClock().trim()) && rush[1] > night[1] && rush[0] > night[0] && party >= 20 && stage && flood >= 1 && storm && clean, r); return r;
+  });
+  await test('business: buy a café, staff and takings come in, walking in shows the books, it saves', () => {
+    quiet(); const m0 = player.money, b0 = ECON.bank, biz0 = ECON.biz; ECON.biz = []; player.money = 60000;
+    const cafe = SHOPS.filter((s) => s.kind === 'cafe').sort((a, b) => Math.hypot(a.x - 840, a.z - 300) - Math.hypot(b.x - 840, b.z - 300))[0];
+    const h0 = gameHour; buyBiz(cafe, 'cafe'); const B = myBiz()[0]; B.staff.barista = true; gameHour = 9; const inc = bizIncome(B);
+    BIZ.t = 300; updateBusiness(0.01); openShop(cafe); const books = /\(yours\)/.test($('shop-title').textContent); closeShop();
+    saveGame(); const saved = (JSON.parse(localStorage.getItem('gcs-save') || '{}').biz || []).length; collectBiz(B);
+    gameHour = h0; ECON.biz = biz0; player.money = m0; ECON.bank = b0; saveGame(); home();
+    const r = `${cafe.name} · $${inc} per 5 min with a barista · log "${B.log[0]}" · books ${books} · saved ${saved}`; expect(B && inc > 100 && B.log.length && books && saved === 1, r); return r;
+  });
+  await test('lobbies and transit: a tower ground floor turns to glass with a lobby behind; the phone shows tram times', () => {
+    quiet(); const T = bigBuildingsNear(340, 200, 100).find((B) => B.kind === 'apartments' && B.b[0] >= 14);
+    player.x = T.x0 - 6; player.z = (T.z0 + T.z1) / 2; lobbyT = 0; updateLobbies(0.1); houseWindows(); const L = LOBBIES[0], cut = WIN_N.value;
+    const rows = []; transitApp((t, s) => rows.push(t + ' | ' + s), (h) => rows.push(h)); const due = rows.filter((x) => /towards/.test(x) && /min|now/.test(x)).length;
+    player.x += 1000; lobbyT = 0; updateLobbies(0.1); home();
+    const r = `${L && L.B.name}: ${L && L.windows.length} windows, cut ${cut} · ${rows[0]} · ${due} directions with trams due · lobby dropped ${LOBBIES.length === 0}`;
+    expect(L && L.windows.length >= 2 && cut >= 2 && due === 2 && LOBBIES.length === 0, r); return r;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

@@ -23,7 +23,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', transit: 'Transit', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -35,6 +35,9 @@ function phoneApp(app) {
     tile('🌊', 'Swell', () => phoneApp('swell'));
     tile('🌤️', 'Weather', () => phoneApp('weather'));
     tile('🐶', 'Pet', () => phoneApp('pet'));
+    tile('🚋', 'Transit', () => phoneApp('transit'));
+    tile('💼', 'Business', () => phoneApp('business'), (ECON.biz || []).some((b) => b.till > 0) ? '$' : '');
+    tile('📢', 'Events', () => phoneApp('events'), LIFE.ev ? '!' : '');
     tile('🔔', 'Alerts', () => phoneApp('notes'), unreadNotes() ? String(unreadNotes()) : '');
     head('Getting around'); grid = null;
     tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
@@ -80,6 +83,9 @@ function phoneApp(app) {
     for (const q of list) btn(q.name, `${km(q.x, q.z)} · $150–450 in the till · 2 stars`, () => directions(q.name, q.x, q.z));
   } else if (app === 'jobs') { back(); jobsApp(btn, head); }
   else if (app === 'job') { jobApp(btn, head); }
+  else if (app === 'transit') { back(); transitApp(btn, head); }
+  else if (app === 'business') { back(); businessApp(btn, head); }
+  else if (app === 'events') { back(); eventsApp(btn, head); }
   else if (app === 'weather') { back(); weatherApp(btn, head); }
   else if (app === 'pet') { back(); petApp(btn, head); }
   else if (app === 'swell') { back(); swellApp(btn, head); }

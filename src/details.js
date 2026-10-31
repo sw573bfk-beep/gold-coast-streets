@@ -427,7 +427,7 @@ function buildRail() {
   // two trams running the whole G:link route (Burleigh to Parkwood) when it's loaded, otherwise the Surfers tracks
   if (window.TRAM_DATA) {
     const G = railLine(TRAM_DATA.line); G.stops = TRAM_DATA.stops.map((st) => st[0]); G.names = TRAM_DATA.stops.map((st) => st[1]); G.lane = 1.9;
-    trams.push(new Tram(G, G.len * 0.3, 1), new Tram(G, G.len * 0.7, -1));
+    for (let k = 0; k < 4; k++) trams.push(new Tram(G, G.len * (0.05 + k * 0.24), 1), new Tram(G, G.len * (0.17 + k * 0.24), -1)); // 8 trams: one every 6-7 minutes each way
   } else RAIL.forEach((L, li) => trams.push(new Tram(L, li === 0 ? L.len * 0.3 : L.len * 0.7, li === 0 ? 1 : -1)));
 }
 const TRAM_MOD = 8.7, TRAM_N = 5;
