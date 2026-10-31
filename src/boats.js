@@ -68,6 +68,7 @@ function spawnBoats(dt) {
     if (BOATS.some((b) => Math.hypot(b.x - x, b.z - z) < 12)) continue;
     let h = 0, run = -1; // nosed towards the longest clear stretch of water (canals are narrow)
     for (let q = 0; q < 16; q++) { const a = q / 16 * TAU, fx = Math.sin(a), fz = Math.cos(a); let d = 4; while (d < 80 && !isLand(x + fx * d, z + fz * d)) d += 4; if (d > run) { run = d; h = a; } }
+    if (run < 40) continue; // too tight a spot to ride out of
     new Boat(rand() < 0.65 ? 'jetski' : 'speedboat', x, z, h); break;
   }
 }

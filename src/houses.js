@@ -191,7 +191,7 @@ function buildHouseInterior(H) {
   }
   // lining just inside the outer walls (the outside walls only face out), with the door gaps and a window per long wall
   let cx = 0, cz = 0; for (let q = 0; q < n; q++) { cx += f[2 * q]; cz += f[2 * q + 1]; } cx /= n; cz /= n;
-  const glass = col('#bcd7e6');
+  const frameC = col('#f2f0ea'), windows = [];
   for (let q = 0; q < n; q++) {
     const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
     const ex = (bx - ax) / L, ez = (bz - az) / L; let nx = -ez, nz = ex;
@@ -199,11 +199,18 @@ function buildHouseInterior(H) {
     const ix = nx * 0.08, iz = nz * 0.08;
     const gaps = H.doors.filter((d) => Math.abs((d.x - ax) * nx + (d.z - az) * nz) < 0.2 && (d.x - ax) * ex + (d.z - az) * ez > 0 && (d.x - ax) * ex + (d.z - az) * ez < L)
       .map((d) => { const t = (d.x - ax) * ex + (d.z - az) * ez; return [t - d.w / 2, t + d.w / 2]; });
-    let from = 0;
     const piece = (t0, t1, ya, yb) => { if (t1 - t0 > 0.01) wallInto(B, ax + ex * t0 + ix, az + ez * t0 + iz, ax + ex * t1 + ix, az + ez * t1 + iz, ya, yb, nx, nz, wallC); };
-    for (const [t0, t1] of gaps) { piece(from, t0, y0, top); piece(t0, t1, y0 + DOOR_H, top); from = t1; }
-    piece(from, L, y0, top);
-    if (!gaps.length && L > 3) quadInto(B, ax + ex * L / 2 + nx * 0.1, y0 + 1.5, az + ez * L / 2 + nz * 0.1, nx, nz, Math.min(1.6, L - 1.2), 1.0, null, glass);
+    // real windows: an opening in the middle of each stretch of wall long enough (the outside wall gets the same hole, see houseWindows)
+    const runs = []; let from = 0; for (const [t0, t1] of gaps.sort((a, b) => a[0] - b[0])) { runs.push([from, t0]); from = t1; } runs.push([from, L]);
+    for (const [r0, r1] of runs) {
+      const len = r1 - r0, ww = Math.min(1.6, len - 1.2);
+      if (ww < 0.8 || top - y0 < 2.3) { piece(r0, r1, y0, top); continue; }
+      const w0 = (r0 + r1) / 2 - ww / 2, w1 = w0 + ww, sill = y0 + 0.9, head = y0 + 2.05;
+      piece(r0, w0, y0, top); piece(w0, w1, y0, sill); piece(w0, w1, head, top); piece(w1, r1, y0, top);
+      const mx = ax + ex * (w0 + ww / 2), mz = az + ez * (w0 + ww / 2);
+      windows.push({ x: mx, z: mz, nx: -nx, nz: -nz, hw: ww / 2, y0: sill, y1: head });
+      for (const [u, v, w, h] of [[0, sill, ww + 0.12, 0.06], [0, head, ww + 0.12, 0.06]]) quadInto(B, mx + nx * 0.12 + ex * u, v, mz + nz * 0.12 + ez * u, nx, nz, w, h, null, frameC); // sill and head inside
+    }
   }
   // rooms: a cross wall splits the living area (front) from the bedrooms (back); the back splits into 2-3 rooms
   const ux = -fd.nz, uz = fd.nx, vx = -fd.nx, vz = -fd.nz; // u along the front, v from front to back
@@ -326,11 +333,15 @@ function buildHouseInterior(H) {
     if (!inRing(x, z, f) || resolveCircle(x, z, 0.4)) continue;
     const p = new Ped(x, z, 0, 1, 0, 1); p.home = H; p.idle = r() * 4; p.h = r() * TAU; p.m.root.position.set(x, y0, z); peds.push(p); residents.push(p); k++;
   }
-  H.inside = { mesh, geo, grid, loot, top, residents };
+  // the glass in each window (you can see in, and out)
+  let glassMesh = null;
+  if (windows.length) { const G = newBuf(); for (const w of windows) quadInto(G, w.x - w.nx * 0.04, (w.y0 + w.y1) / 2, w.z - w.nz * 0.04, w.nx, w.nz, w.hw * 2, w.y1 - w.y0, null, col('#cfe3ee')); glassMesh = new THREE.Mesh(toGeometry(G), HOUSE_GLASS); scene.add(glassMesh); }
+  H.windows = windows;
+  H.inside = { mesh, geo, grid, loot, top, residents, glassMesh };
 }
 function disposeHouseInterior(H) {
   const I = H.inside; if (!I) return;
-  scene.remove(I.mesh); I.geo.dispose(); I.mesh.material.dispose();
+  scene.remove(I.mesh); I.geo.dispose(); I.mesh.material.dispose(); if (I.glassMesh) { scene.remove(I.glassMesh); I.glassMesh.geometry.dispose(); } H.windows = null;
   for (const L of I.loot) if (L.mesh) scene.remove(L.mesh);
   for (const p of I.residents || []) { // those still indoors go with the house; anyone who ran outside carries on down the street
     if (inRing(p.x, p.z, H.f) || p.state === 'down') { p.remove(); continue; }
@@ -355,6 +366,31 @@ function nearestDoor(x, z, maxD) {
   for (const H of houseCandidates(x, z, 30)) for (const d of H.doors) { if (!d.mesh) continue; const dd = Math.hypot(d.x - x, d.z - z); if (dd < bd) { bd = dd; best = d; } }
   return best;
 }
+// ---------------------------------------------------------------- see-through windows on houses with their insides built
+// The outside walls are merged per tile, so the holes are cut in the shader: any wall fragment inside a window box is skipped.
+const WIN_MAX = 32, WIN_A = Array.from({ length: WIN_MAX }, () => new THREE.Vector4()), WIN_B = Array.from({ length: WIN_MAX }, () => new THREE.Vector4()), WIN_N = { value: 0 };
+const HOUSE_GLASS = new THREE.MeshStandardMaterial({ color: col('#cfe3ee'), transparent: true, opacity: 0.22, roughness: 0.05, metalness: 0.6, side: THREE.DoubleSide, depthWrite: false });
+function cutWindows(mat) { // patch a building material so it leaves the window holes open
+  const prev = mat.onBeforeCompile;
+  mat.onBeforeCompile = (sh, r) => {
+    if (prev) prev(sh, r);
+    sh.uniforms.uWinA = { value: WIN_A }; sh.uniforms.uWinB = { value: WIN_B }; sh.uniforms.uWinN = WIN_N;
+    sh.vertexShader = 'varying vec3 vWinPos;\n' + sh.vertexShader.replace('#include <worldpos_vertex>', '#include <worldpos_vertex>\nvWinPos = (modelMatrix * vec4(transformed, 1.0)).xyz;');
+    sh.fragmentShader = `varying vec3 vWinPos;\nuniform vec4 uWinA[${WIN_MAX}];\nuniform vec4 uWinB[${WIN_MAX}];\nuniform int uWinN;\n` + sh.fragmentShader.replace('void main() {', `void main() {
+  for (int i = 0; i < ${WIN_MAX}; i++) { if (i >= uWinN) break;
+    vec3 d = vWinPos - uWinA[i].xyz; vec2 n = uWinB[i].xy; float across = d.x * n.x + d.z * n.y, along = d.x * -n.y + d.z * n.x;
+    if (abs(across) < 0.3 && abs(along) < uWinA[i].w && vWinPos.y > uWinB[i].z && vWinPos.y < uWinB[i].w) discard; }`);
+  };
+  const prevKey = mat.customProgramCacheKey; mat.customProgramCacheKey = () => (prevKey ? prevKey.call(mat) : '') + '|cutWindows';
+  mat.needsUpdate = true;
+}
+let winPatched = false;
+function houseWindows() {
+  if (!winPatched && typeof buildingMats === 'object') { for (const m of Object.values(buildingMats)) cutWindows(m); winPatched = true; }
+  let n = 0;
+  for (const H of HOUSE_ACTIVE) for (const w of H.windows || []) { if (n >= WIN_MAX) break; WIN_A[n].set(w.x, 0, w.z, w.hw); WIN_B[n].set(w.nx, w.nz, w.y0, w.y1); n++; }
+  WIN_N.value = n;
+}
 function houseCandidates(x, z, r) {
   const T = tileAt(x, z); if (!T || !T.houses) return [];
   return T.houses.filter((H) => x > H.x0 - r && x < H.x1 + r && z > H.z0 - r && z < H.z1 + r);
@@ -367,10 +403,11 @@ function witnessed(x, z, r) {
 function updateHouses(dt) {
   if (!REGION) return;
   // build the interior of the house you're about to enter; drop ones you've left behind
-  if (player.state === 'foot') {
-    const d = nearestDoor(player.x, player.z, 16);
+  if (player.state === 'foot' || (player.state === 'car' && player.car && player.car.speed < 8)) { // close by (walking, or crawling past in a car): the house fills in behind its windows
+    const d = nearestDoor(player.x, player.z, 22);
     if (d && !d.house.inside) { buildHouseInterior(d.house); HOUSE_ACTIVE.push(d.house); }
   }
+  houseWindows();
   for (const H of HOUSE_ACTIVE.slice()) if (Math.hypot((H.x0 + H.x1) / 2 - player.x, (H.z0 + H.z1) / 2 - player.z) > 60) disposeHouseInterior(H);
   while (HOUSE_ACTIVE.length > 4) disposeHouseInterior(HOUSE_ACTIVE[0]);
   // doors swing

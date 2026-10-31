@@ -6,7 +6,7 @@ Inputs: data/region/osm_*.json (OpenStreetMap via Overpass), data/region/ms_buil
 Outputs: dist/tiles/t_<i>_<j>.json (one per non-empty tile), dist/tiles/region.json (overview for maps and the index).
 Run: python3 tools/build_tiles.py
 """
-import array, base64, glob, json, math, os, random, re, sys
+import array, base64, glob, json, math, os, random, re, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TILE = 1000.0
@@ -24,7 +24,7 @@ def tkey(x, z): return (int(math.floor(x / TILE)), int(math.floor(z / TILE)))
 
 # ---------------------------------------------------------------- load OSM blocks (deduplicated)
 els = {}
-for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json'))):
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poix_*.json'))):  # poix: gyms, arcades, bakeries, clinics (tools/fetch_pois_extra.py)
     for e in json.load(open(path))['elements']:
         els[(e['type'], e['id'])] = e
 els = list(els.values())
@@ -328,12 +328,16 @@ def near_fuel(x, z, r=18): return any(abs(x - fx) < r and abs(z - fz) < r for fx
 osm_polys = []
 BG = 50.0
 bgrid = {}
-def add_tile_building(pts, h, mh, kind, name=None):
+# hand fixes (data/fixes/buildings.json): places traced from the government aerial photos replace whatever the map had there
+FIXES = json.load(open(os.path.join(ROOT, 'data', 'fixes', 'buildings.json'))) if os.path.exists(os.path.join(ROOT, 'data', 'fixes', 'buildings.json')) else {'regions': []}
+FIX_RINGS = [[(r['replace'][i], r['replace'][i + 1]) for i in range(0, len(r['replace']), 2)] for r in FIXES['regions']]
+def add_tile_building(pts, h, mh, kind, name=None, manual=False):
     if area(pts) < 0: pts = pts[::-1]
     pts = simplify(pts + [pts[0]], 0.3)[:-1]
     if len(pts) < 3 or abs(area(pts)) < 6: return
     cx = sum(p[0] for p in pts) / len(pts); cz = sum(p[1] for p in pts) / len(pts)
     if in_core(cx, cz): return
+    if not manual and any(pip((cx, cz), r) for r in FIX_RINGS): return  # a traced place: the map's version gives way
     tt = T(tkey(cx, cz))
     if name: tt['bnames'][str(len(tt['buildings']))] = name
     tt['buildings'].append([round(h, 1), round(mh, 1), kind] + flat(pts))
@@ -377,6 +381,9 @@ for rec in ms:
     add_tile_building(pts, h + (0.6 if kind == 0 else 0), 0, kind)
     added += 1
 print('osm buildings', len(osm_polys), 'microsoft footprints added', added)
+for r in FIXES['regions']:
+    for h, kind, f in r['buildings']: add_tile_building([(f[i], f[i + 1]) for i in range(0, len(f), 2)], h, 0, kind, None, True)
+    print('traced', r['name'], len(r['buildings']), 'buildings')
 
 # ---------------------------------------------------------------- land use, parks, beaches and water
 def area_kind(t):
@@ -435,9 +442,11 @@ def cat_of(t):
     if a in ('bar', 'pub', 'nightclub', 'biergarten', 'stripclub'): return 'night'
     if a == 'casino': return 'fun'
     if tr in ('hotel', 'motel', 'hostel', 'apartment', 'guest_house'): return 'hotel'
-    if tr in ('attraction', 'museum', 'theme_park') or l in ('amusement_arcade', 'escape_game', 'bowling_alley') or a in ('cinema', 'theatre'): return 'fun'
+    if tr in ('attraction', 'museum', 'theme_park') or l in ('amusement_arcade', 'escape_game', 'bowling_alley', 'trampoline_park', 'water_park', 'miniature_golf', 'ice_rink') or a in ('cinema', 'theatre'): return 'fun'
     if s: return 'shop'
-    if a in ('pharmacy', 'post_office', 'police', 'clinic', 'doctors', 'dentist', 'car_rental', 'car_wash', 'hospital'): return 'service'
+    if l in ('fitness_centre', 'sports_centre') and t.get('name'): return 'shop'  # gyms (the game opens them as gyms)
+    if t.get('craft') in ('bakery', 'brewery', 'distillery', 'winery', 'confectionery'): return 'food'
+    if a in ('pharmacy', 'post_office', 'police', 'clinic', 'doctors', 'dentist', 'car_rental', 'car_wash', 'hospital', 'veterinary') or (t.get('healthcare') and t.get('name')): return 'service'
     return None
 BANK_NAMES = {}
 suburbs, landmarks = [], []
@@ -457,7 +466,7 @@ for e in els:
     if not c: continue
     name = t.get('name') or t.get('brand') or ({'fuel': 'Petrol station'}.get(c))
     if not name: continue
-    key = (name, round(p[0] / 50), round(p[1] / 50))
+    key = (name, round(p[0] / 15), round(p[1] / 15))  # the same name 15 m apart is one place mapped twice; further is a second store
     if key in seen_poi: continue
     seen_poi.add(key)
     sid = 'osm-%s-%s' % (e['type'], e['id'])
@@ -470,7 +479,7 @@ for e in els:
         # the level (inside shopping centres) and the OSM shop type (to tell anchor stores from small shops)
         try: lv = int(float(str(t.get('level', '')).split(';')[0]))
         except ValueError: lv = None
-        tt['pois'].append([round(p[0], 1), round(p[1], 1), CATS[c], name, sid, lv, t.get('shop') or t.get('amenity') or ''])
+        tt['pois'].append([round(p[0], 1), round(p[1], 1), CATS[c], name, sid, lv, t.get('shop') or t.get('amenity') or t.get('leisure') or t.get('craft') or ''])
     if t.get('shop') == 'mall' or t.get('tourism') in ('theme_park', 'attraction'):
         landmarks.append([round(p[0]), round(p[1]), name])
 for e in els:  # big named buildings and centres as map landmarks
@@ -549,16 +558,23 @@ def ground_raw(x, z):
     if h is None: return 0.0
     return max(0.0, h - GROUND_BASE) * core_fade(x, z)
 def tile_heights(ti, tj):
-    """101 x 101 heights for a tile, lightly smoothed (1-2-1) over a one-sample apron so neighbouring tiles agree at the seam
-    and short steep streets keep their slope."""
+    """Heights straight from the 5 m LiDAR model (no smoothing, so steep streets and ridges keep their real slope).
+    Flat tiles: 101 x 101 samples every 10 m. Hilly tiles (20 m of relief or a 15% slope): 201 x 201 every 5 m, with the
+    in-between samples along the tile edges matched to the 10 m line so they meet a flat neighbour without gaps.
+    Returns (heights, step)."""
     x0, z0 = ti * TILE, tj * TILE
-    raw = [[ground_raw(x0 + (i - 1) * HSTEP, z0 + (j - 1) * HSTEP) for i in range(HN + 2)] for j in range(HN + 2)]
-    W3 = ((-1, 1), (0, 2), (1, 1))
-    out = []
-    for j in range(1, HN + 1):
-        for i in range(1, HN + 1):
-            out.append(sum(raw[j + dj][i + di] * wj * wi for dj, wj in W3 for di, wi in W3) / 16)
-    return out
+    coarse = [ground_raw(x0 + i * HSTEP, z0 + j * HSTEP) for j in range(HN) for i in range(HN)]
+    steep = max(abs(coarse[k + 1] - coarse[k]) for k in range(len(coarse) - 1) if (k + 1) % HN) if coarse else 0
+    steep = max(steep, max(abs(coarse[k + HN] - coarse[k]) for k in range(len(coarse) - HN)))
+    if max(coarse) - min(coarse) < 20 and steep < 1.5: return coarse, HSTEP  # gentle: 10 m is plenty (20 m of relief, or a 15% slope, earns 5 m)
+    n = 2 * HN - 1
+    fine = [ground_raw(x0 + i * HSTEP / 2, z0 + j * HSTEP / 2) for j in range(n) for i in range(n)]
+    for k in range(n):
+        for (i, j) in ((k, 0), (k, n - 1), (0, k), (n - 1, k)):
+            if k % 2: # an edge midpoint: the average of the two 10 m samples either side
+                a, b = ((i - 1, j), (i + 1, j)) if j in (0, n - 1) else ((i, j - 1), (i, j + 1))
+                fine[j * n + i] = (fine[a[1] * n + a[0]] + fine[b[1] * n + b[0]]) / 2
+    return fine, HSTEP / 2
 
 # roof colours: the median photo colour inside each footprint (leaves and shadow-black left out)
 def roof_colour(f):
@@ -743,9 +759,10 @@ for (ti, tj), tt in tiles.items():
 if HAVE_DEM or HAVE_AIR:
     for (ti, tj), tt in tiles.items():
         if HAVE_DEM:
-            hs = tile_heights(ti, tj)
+            hs, step = tile_heights(ti, tj)
             if max(hs) > 0.3:
                 tt['hgt'] = base64.b64encode(array.array('h', [int(round(v * 10)) for v in hs]).tobytes()).decode()
+                if step != HSTEP: tt['hs'] = step
         if HAVE_AIR:
             rnd = random.Random(ti * 7919 + tj)
             tt['bcol'] = []
@@ -924,6 +941,7 @@ print('search entries', len(search), {SEARCH_KINDS[k]: sum(1 for s_ in search if
 
 region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,
               suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS, airport=AIRPORT)
+region['built'] = int(time.time())  # tells browsers the tiles changed (they fetch tiles with ?b=built)
 json.dump(region, open(os.path.join(out_dir, 'region.json'), 'w'), separators=(',', ':'))
 print('tiles', len(index), 'total', total // 1024, 'KB; region.json', os.path.getsize(os.path.join(out_dir, 'region.json')) // 1024, 'KB')
 print('largest tiles', sorted(index, key=lambda q: -q[3])[:5])

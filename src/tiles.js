@@ -17,7 +17,7 @@ const GPS_ADJ = new Map();         // extra routing links inside the Surfers cor
 
 async function loadRegion() {
   try {
-    const r = await fetch('tiles/region.json');
+    const r = await fetch(`tiles/region.json?t=${Math.floor(Date.now() / 600000)}`); // never more than 10 minutes stale
     if (!r.ok) throw new Error('HTTP ' + r.status);
     REGION = await r.json();
   } catch (e) { console.warn('[tiles] no region data, Surfers only', e); return; }
@@ -51,9 +51,9 @@ const HGT_N = 101, HGT_STEP = 10;
 function groundAt(x, z) {
   if (!REGION || inCore(x, z)) return 0;
   const T = tileAt(x, z); if (!T || !T.hgt) return 0;
-  const gx = (x - T.x0) / HGT_STEP, gz = (z - T.z0) / HGT_STEP;
-  const i = Math.min(HGT_N - 2, Math.max(0, Math.floor(gx))), j = Math.min(HGT_N - 2, Math.max(0, Math.floor(gz))), fx = gx - i, fz = gz - j, H = T.hgt, k = j * HGT_N + i;
-  return (H[k] * (1 - fx) + H[k + 1] * fx) * (1 - fz) + (H[k + HGT_N] * (1 - fx) + H[k + HGT_N + 1] * fx) * fz;
+  const N = T.hn, gx = (x - T.x0) / T.hs, gz = (z - T.z0) / T.hs; // 10 m samples, or 5 m on hilly tiles
+  const i = Math.min(N - 2, Math.max(0, Math.floor(gx))), j = Math.min(N - 2, Math.max(0, Math.floor(gz))), fx = gx - i, fz = gz - j, H = T.hgt, k = j * N + i;
+  return (H[k] * (1 - fx) + H[k + 1] * fx) * (1 - fz) + (H[k + N] * (1 - fx) + H[k + N + 1] * fx) * fz;
 }
 // rise per metre along x and z
 function groundSlope(x, z) { const d = 2; return [(groundAt(x + d, z) - groundAt(x - d, z)) / (2 * d), (groundAt(x, z + d) - groundAt(x, z - d)) / (2 * d)]; }
@@ -95,14 +95,14 @@ const PACKS = new Map();
 async function fetchTile(i, j) {
   const P = window.TILE_PACK;
   if (!P) {
-    const res = await fetch(`tiles/t_${i}_${j}.json`);
+    const res = await fetch(`tiles/t_${i}_${j}.json?b=${REGION.built || 0}`); // the build number: a rebuilt map is fetched fresh, not from the cache
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
   }
   const pk = Math.floor(i / P) + '_' + Math.floor(j / P), key = i + '_' + j;
   for (let attempt = 0; attempt < 2; attempt++) {
     if (!PACKS.has(pk)) {
-      PACKS.set(pk, fetch(`packs/p_${pk}.json`).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }));
+      PACKS.set(pk, fetch(`packs/p_${pk}.json?b=${REGION.built || 0}`).then((r) => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); }));
       if (PACKS.size > 6) PACKS.delete(PACKS.keys().next().value);
     }
     let pack;
@@ -122,7 +122,7 @@ async function loadTile(i, j) {
   try {
     const data = await fetchTile(i, j);
     if (!TILES.has(k)) return; // unloaded while fetching
-    T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) T.hgt = decodeHeights(data.hgt);
+    T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) { T.hgt = decodeHeights(data.hgt); T.hs = data.hs || HGT_STEP; T.hn = Math.round(REGION.tile / T.hs) + 1; }
     tileGround(T, data); await tileYield(); if (!TILES.has(k)) return;
     tileRoads(T, data); await tileYield(); if (!TILES.has(k)) return;
     markBrokenBuildings(data);
@@ -222,7 +222,7 @@ function tileGround(T, data) {
   tileGrassMask(T, data, c);
   const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = MAX_ANISO;
   const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }));
-  const seg = T.hgt ? HGT_N - 1 : 1, g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);
+  const seg = T.hgt ? T.hn - 1 : 1, g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);
   if (T.hgt) { const P = g.attributes.position; for (let k = 0; k < P.count; k++) P.setY(k, T.hgt[k]); g.computeVertexNormals(); } // rows run north to south, like the grid
   const m = new THREE.Mesh(g, mat); m.position.set(T.x0 + S / 2, 0, T.z0 + S / 2); m.receiveShadow = true;
   T.meshes.push(m); T.disposables.push(g, mat, tex);

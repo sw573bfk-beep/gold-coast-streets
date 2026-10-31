@@ -143,10 +143,10 @@ window.runRegression = async () => {
   });
   await test('a car left on a slope rolls downhill and tilts with the road', async () => {
     let best = null;
-    for (const T of TILES.values()) if (T.hgt) for (let j = 1; j < 99; j += 2) for (let i = 1; i < 99; i += 2) {
-      const k = j * 101 + i, sx = (T.hgt[k + 1] - T.hgt[k - 1]) / 20, sz = (T.hgt[k + 101] - T.hgt[k - 101]) / 20, sl = Math.hypot(sx, sz);
-      if (sl > 0.08 && sl < 0.25 && (!best || sl > best.sl) && isLand(T.x0 + i * 10, T.z0 + j * 10) && !resolveCircle(T.x0 + i * 10, T.z0 + j * 10, 6)) best = { sl, x: T.x0 + i * 10, z: T.z0 + j * 10, sx, sz }; // clear of walls
-    }
+    for (const T of TILES.values()) if (T.hgt) { const N = T.hn, st = T.hs; for (let j = 1; j < N - 1; j += 2) for (let i = 1; i < N - 1; i += 2) {
+      const k = j * N + i, sx = (T.hgt[k + 1] - T.hgt[k - 1]) / (2 * st), sz = (T.hgt[k + N] - T.hgt[k - N]) / (2 * st), sl = Math.hypot(sx, sz);
+      if (sl > 0.08 && sl < 0.25 && (!best || sl > best.sl) && isLand(T.x0 + i * st, T.z0 + j * st) && !resolveCircle(T.x0 + i * st, T.z0 + j * st, 6)) best = { sl, x: T.x0 + i * st, z: T.z0 + j * st, sx, sz }; // clear of walls
+    } }
     expect(best, 'no slope found');
     const c = new Car('sedan', null, best.x, best.z, Math.atan2(-best.sx, -best.sz)); cars.push(c); c.setDriver('test'); c.input = { t: 0, b: 0, s: 0, hb: 0 };
     const g0 = groundAt(c.x, c.z); for (let k = 0; k < 120; k++) { c.step(1 / 60); c.sync(1 / 60); }
@@ -725,6 +725,31 @@ window.runRegression = async () => {
     for (const app of ['acts', 'jobs', 'missions', 'stats', 'notes']) { openPhone(); phoneApp(app); expect(document.querySelectorAll('#phone-body .papp').length > 0, app + ' app is empty'); closePhone(); }
     const d0 = actData().done.sandcastle || 0; actComplete('sandcastle', { money: 0, score: 1 }); const saved = JSON.parse(localStorage.getItem('gcs-save')).act.done.sandcastle;
     expect(saved === d0 + 1, 'activity progress not in the save'); return `${ACTS.length} activities · phone apps fine · progress saved`;
+  });
+  // ---------------------------------------------------------------- V17: sharper hills, see-through windows, missing places
+  await test('hills: hilly tiles use the 5 m height model (unsmoothed), flat ones 10 m, and the seams meet', async () => {
+    quiet(); await goToTile(...toLL(-15649, 20859)); const T = tileAt(player.x, player.z); // Springbrook, up in the hinterland
+    expect(T && T.hgt && T.hs === 5 && T.hn === 201, `Springbrook tile step ${T && T.hs}`);
+    const x = T.x0 + 1000; for (let k = 0; k < 600 && !(tileAt(x + 1, T.z0 + 500) && tileAt(x + 1, T.z0 + 500).hgt); k++) { updateTiles(0.5); await new Promise((r) => setTimeout(r, 10)); } // the neighbour too
+    let gap = 0; for (let z = T.z0 + 2; z < T.z0 + 998; z += 37) gap = Math.max(gap, Math.abs(groundAt(x - 0.01, z) - groundAt(x + 0.01, z)));
+    let steep = 0; for (let k = 0; k < 400; k++) { const px = T.x0 + 5 + rand() * 990, pz = T.z0 + 5 + rand() * 990, [sx, sz] = groundSlope(px, pz); steep = Math.max(steep, Math.hypot(sx, sz)); }
+    home(); const r = `5 m grid · steepest ${(steep * 100).toFixed(0)}% · seam gap ${gap.toFixed(2)} m`; expect(gap < 0.3 && steep > 0.3, r); return r;
+  });
+  await test('places: gyms, arcades and traced buildings — Robina Timezone and Fernwood, Emmanuel College', async () => {
+    quiet(); await goToTile(-28.0774, 153.38582);
+    const pois = [...TILES.values()].flatMap((T) => T.pois || []), names = pois.map((q) => q[3]); // [x, z, cat, name, id, level, type]
+    const tzp = pois.find((q) => /timezone/i.test(q[3])), fwp = pois.find((q) => /fernwood/i.test(q[3]));
+    const tz = tzp && { kind: shopKind(tzp[2], tzp[3], tzp[6]) }, fw = fwp && { kind: shopKind(fwp[2], fwp[3], fwp[6]) };
+    await goToTile(-28.0163, 153.37061); const T = tileAt(-5108, 1740), traced = T.blds.filter((b) => b[2] === 6 && Math.abs(b[3] + 5150) < 200 && Math.abs(b[4] - 1830) < 200).length;
+    home(); const r = `Timezone ${!!tz} (${tz && tz.kind}) · Fernwood ${!!fw} (${fw && fw.kind}) · Emmanuel school buildings ${traced}`;
+    expect(tz && tz.kind === 'arcade' && fw && fw.kind === 'gym' && traced >= 20, r); void names; return r;
+  });
+  await test('windows: a house with its inside built has real see-through windows (holes, glass, the room behind)', async () => {
+    quiet(); await goToTile(-28.0774, 153.38582); let H = null;
+    for (const T of TILES.values()) { H = (T.houses || []).find((h) => Math.hypot((h.x0 + h.x1) / 2 - player.x, (h.z0 + h.z1) / 2 - player.z) < 900); if (H) break; }
+    expect(H, 'no house nearby'); const d = H.doors[0]; player.x = d.x + d.nx * 6; player.z = d.z + d.nz * 6; for (let k = 0; k < 20; k++) stepWorld(1 / 60);
+    const A = HOUSE_ACTIVE.find((h) => (h.windows || []).length) || H, n = (A.windows || []).length, cut = WIN_N.value, glass = !!(A.inside && A.inside.glassMesh); home();
+    expect(n >= 2 && cut >= 2 && glass, `windows ${n}, cut ${cut}, glass ${glass}`); return `${n} windows open into the house`;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

@@ -44,7 +44,7 @@ const ITEMS = {
 function shopKind(cat, name, type) {
   const n = name.toLowerCase();
   if (type === 'car' || /car sales|motors\b|dealership|toyota|mazda|hyundai|\bkia\b|nissan|mitsubishi|subaru|volkswagen|isuzu|lexus|mercedes|bmw|audi\b/.test(n) && cat !== 0 && cat !== 1) return 'cars';
-  if (/\bgym\b|fitness|anytime|f45|crossfit|jetts|goodlife|snap fitness|plus fitness/.test(n)) return 'gym';
+  if (type === 'fitness_centre' || /\bgym\b|fitness|anytime|f45|crossfit|jetts|goodlife|snap fitness|plus fitness|fernwood/.test(n)) return 'gym';
   if (type === 'supermarket') return 'convenience';
   if (type === 'casino' || /casino|the star\b|jupiters/.test(n)) return 'casino';
   if (type === 'stripclub' || /strip club|gentlemen|showgirls|bada bing|men's club/.test(n)) return 'stripclub';

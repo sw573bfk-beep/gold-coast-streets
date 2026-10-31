@@ -114,7 +114,7 @@ function devUpdate() {
 // terrain readout: game height, height above sea level, slope, the tile it comes from and the data behind it
 function devTerrainText() {
   const g = groundAt(player.x, player.z), [sx, sz] = groundSlope(player.x, player.z), T = tileAt(player.x, player.z);
-  const src = inCore(player.x, player.z) ? 'Surfers core: flat (hand-built)' : T && T.hgt ? 'Qld LiDAR DEM (5 m), sampled every 10 m, 3x3 smoothed' : 'no height data (flat)';
+  const src = inCore(player.x, player.z) ? 'Surfers core: flat (hand-built)' : T && T.hgt ? `Qld LiDAR DEM (5 m), sampled every ${T.hs} m, unsmoothed` : 'no height data (flat)';
   return `<br><b>TERRAIN</b> ${g.toFixed(2)} m game · ~${(g > 0.01 ? g + 3 : '≤3')}${g > 0.01 ? ' m' : ''} above sea · slope ${(Math.hypot(sx, sz) * 100).toFixed(1)}%<br>tile ${T ? T.k : '—'} · ${src}<br><span style="color:#00e5ff">cyan: tile edges</span> · <span style="color:#ff9a3c">fence</span> · <span style="color:#b0b0b0">wall</span> · <span style="color:#33d17a">hedge</span> · <span style="color:#ffe14d">railing</span> · <span style="color:#ff4fd8">house side fence (estimated)</span>`;
 }
 window.gcsDev = { toggle: () => devToggle(), mallCheck: () => devMallCheck(), shop: (q) => SHOPS.filter((s) => s.name.toLowerCase().includes(String(q).toLowerCase()) || s.id === q) };
