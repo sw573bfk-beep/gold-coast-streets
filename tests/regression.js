@@ -615,7 +615,7 @@ window.runRegression = async () => {
     expect(player.state === 'foot' && Math.abs(t.s - s0) > 300, r); return r;
   });
   await test('buses run the main roads, pull in, and you can ride them', async () => {
-    quiet(); await tpXZ(740, 303); let bus = null; // let the streets stream in while waiting
+    quiet(); gameHour = 12; await tpXZ(740, 303); let bus = null; // midday traffic (life.js thins it out at night); let the streets stream in while waiting
     for (let k = 0; k < 60 * 120 && !bus; k++) { stepWorld(1 / 60); if (k % 120 === 0) await new Promise((r) => setTimeout(r, 5)); bus = cars.find((c) => c.bus && c.speed < 1 && c.ai && c.ai.dwell > 2); }
     expect(bus, 'no bus pulled in'); player.x = bus.x + 3; player.z = bus.z; player.money = 100;
     expect(boardRide() && player.state === 'ride', 'could not get on'); const x0 = bus.x, z0 = bus.z; step(20);
@@ -777,6 +777,29 @@ window.runRegression = async () => {
     player.x += 1000; lobbyT = 0; updateLobbies(0.1); home();
     const r = `${L && L.B.name}: ${L && L.windows.length} windows, cut ${cut} · ${rows[0]} · ${due} directions with trams due · lobby dropped ${LOBBIES.length === 0}`;
     expect(L && L.windows.length >= 2 && cut >= 2 && due === 2 && LOBBIES.length === 0, r); return r;
+  });
+  await test('online crews: a heist crew forms, gets the same bank, the vault and an even split; crewmates can visit houses', () => {
+    quiet(); const was = { status: NET.status, id: NET.id, crew: NET.crew }; NET.status = 'on'; NET.id = 'me'; NET.crew = 'TST';
+    const fake = { id: 'f1', name: 'Friend', crew: 'TST', props: [{ id: 'house-x', x: 0, z: 0, name: 'Friend house' }], open: false, s: null }; NET.peers.set('f1', fake);
+    partyMessage('f1', { a: 'invite' }); const invited = PARTY.invites.has('f1'); partyJoin('f1');
+    partyMessage('f1', { a: 'roster', members: ['f1', 'me'], roles: { f1: 'hacker', me: 'muscle' } }); const joined = inParty() && PARTY.leader === 'f1';
+    const bank = SHOPS.find((q) => q.kind === 'bank'); partyMessage('f1', { a: 'start', bank: { name: bank.name, x: bank.x, z: bank.z } });
+    const started = HEIST.stage === 2 && HEIST.party && HEIST.crew.hacker && HEIST.crew.muscle;
+    PARTY.drill.f1 = elapsed; const need = heistNeed(HEIST.bank);
+    partyMessage('f1', { a: 'vault', take: 20000, safe: { x: player.x, z: player.z } }); const m0 = player.money; player.stars = 0; updateHeist(); const share = player.money - m0;
+    const host = netHostOf('house-x'); partyMessage('f1', { a: 'quit' }); const reset = !PARTY.leader;
+    NET.peers.delete('f1'); Object.assign(NET, was); player.money = m0; home();
+    const r = `invited ${invited} · joined ${joined} · started ${started} · vault ${need}s with a crewmate drilling · share $${share} of $20,000 · visit ${host} · reset ${reset}`;
+    expect(invited && joined && started && need === 2.5 && share === 10000 && host === 'Friend' && reset, r); return r;
+  });
+  await test('north: the map reaches Coomera — Harbour Town, Dreamworld, Movie World and Wet’n’Wild, with houses, hills and ride activities', async () => {
+    quiet(); await goToTile(-27.8640, 153.3150); const T = tileAt(player.x, player.z), hs = T.hgt ? Math.max(...T.hgt) : 0;
+    const blds = [...TILES.values()].filter((q) => Math.hypot(q.x0 + 500 - player.x, q.z0 + 500 - player.z) < 1500).reduce((a, q) => a + (q.blds || []).length, 0);
+    const find = (re) => REGION.search.find((q) => re.test(q[0]));
+    const dw = find(/^Dreamworld$/i), mw = find(/Movie World$/i), ww = find(/^Wet 'n' Wild/i), ht = find(/^Harbour Town/i);
+    const acts = ['dreamworld', 'movieworld', 'wetnwild'].every((id) => ACTS.find((a) => a.id === id)); home();
+    const r = `Dreamworld ${!!dw} · Movie World ${!!mw} · Wet’n’Wild ${!!ww} · Harbour Town ${!!ht} · ${blds} buildings around Coomera · hills to ${hs.toFixed(0)} m · ride activities ${acts}`;
+    expect(dw && mw && ww && ht && blds > 300 && acts, r); return r;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

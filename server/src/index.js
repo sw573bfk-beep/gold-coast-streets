@@ -10,6 +10,8 @@
 //   GET  /save  ·  POST /save {data, world}      your multiplayer progress
 //   POST /record {board, value, detail, world}   a new best (public worlds only)
 //   GET  /leaders?board=B                        the top 20 (and where you are)
+//   GET  /crew  ·  POST /crew/create {name, tag}  ·  POST /crew/join {tag}  ·  POST /crew/leave   your crew
+//   GET  /crews                                  the biggest crews (members, and their richest players' worth)
 import { DurableObject } from 'cloudflare:workers';
 
 const SHOWN_MAX = 16, MAX_PLAYERS = 20; // public worlds fill to 16; friends with the code can still get in up to 20
@@ -57,6 +59,7 @@ async function userFor(env, req, url) {
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
   return env.DB.prepare('SELECT users.id, users.name FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token = ? AND sessions.expires > ?').bind(token, Date.now()).first();
 }
+async function crewOf(env, userId) { return env.DB.prepare('SELECT crews.id, crews.name, crews.tag, crews.owner FROM crew_members JOIN crews ON crews.id = crew_members.crew_id WHERE crew_members.user_id = ?').bind(userId).first(); }
 async function readJson(req) { try { const t = await req.text(); return t.length > 70000 ? null : JSON.parse(t); } catch (e) { return null; } }
 async function publicWorld(env, code) { // records only count in public worlds that have players in them
   if (typeof code !== 'string') return false;
@@ -103,8 +106,46 @@ async function api(req, env, url) {
     }
     return json({ board, leaders: top.results, me });
   }
+  if (url.pathname === '/crews') {
+    const r = await env.DB.prepare(`SELECT crews.name, crews.tag, COUNT(crew_members.user_id) AS members, COALESCE(SUM(records.value), 0) AS worth FROM crews
+      JOIN crew_members ON crew_members.crew_id = crews.id LEFT JOIN records ON records.user_id = crew_members.user_id AND records.board = 'money'
+      GROUP BY crews.id ORDER BY worth DESC, members DESC LIMIT 20`).all();
+    return json({ crews: r.results });
+  }
   const u = await userFor(env, req, url); if (!u) return json({ error: 'log in first' }, 401);
-  if (url.pathname === '/me') return json({ name: u.name });
+  if (url.pathname === '/me') return json({ name: u.name, crew: await crewOf(env, u.id) });
+  if (url.pathname === '/crew' && req.method === 'GET') {
+    const c = await crewOf(env, u.id); if (!c) return json({ crew: null });
+    const m = await env.DB.prepare('SELECT users.name FROM crew_members JOIN users ON users.id = crew_members.user_id WHERE crew_id = ? ORDER BY joined').bind(c.id).all();
+    return json({ crew: { name: c.name, tag: c.tag, boss: c.owner === u.id, members: m.results.map((x) => x.name) } });
+  }
+  if (url.pathname === '/crew/create' && req.method === 'POST') {
+    const b = await readJson(req); if (!b) return json({ error: 'bad request' }, 400);
+    if (await crewOf(env, u.id)) return json({ error: 'Leave your crew first' }, 409);
+    const name = clean(b.name, 24, ''), tag = clean(b.tag, 4, '').replace(/[^A-Za-z0-9]/g, '').toUpperCase();
+    if (name.length < 3) return json({ error: 'Crew names are 3–24 letters or numbers (nothing rude)' }, 400);
+    if (tag.length < 2) return json({ error: 'Tags are 2–4 letters or numbers' }, 400);
+    if (await env.DB.prepare('SELECT id FROM crews WHERE tag_lc = ?').bind(tag.toLowerCase()).first()) return json({ error: 'That tag is taken' }, 409);
+    const r = await env.DB.prepare('INSERT INTO crews (name, tag, tag_lc, owner, created) VALUES (?, ?, ?, ?, ?)').bind(name, tag, tag.toLowerCase(), u.id, Date.now()).run();
+    await env.DB.prepare('INSERT INTO crew_members (user_id, crew_id, joined) VALUES (?, ?, ?)').bind(u.id, r.meta.last_row_id, Date.now()).run();
+    return json({ ok: true, crew: { name, tag } });
+  }
+  if (url.pathname === '/crew/join' && req.method === 'POST') {
+    const b = await readJson(req); if (!b) return json({ error: 'bad request' }, 400);
+    if (await crewOf(env, u.id)) return json({ error: 'Leave your crew first' }, 409);
+    const c = await env.DB.prepare('SELECT id, name, tag FROM crews WHERE tag_lc = ?').bind(String(b.tag || '').trim().toLowerCase()).first(); if (!c) return json({ error: 'No crew has that tag' }, 404);
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM crew_members WHERE crew_id = ?').bind(c.id).first(); if (n.n >= 30) return json({ error: 'That crew is full (30)' }, 409);
+    await env.DB.prepare('INSERT INTO crew_members (user_id, crew_id, joined) VALUES (?, ?, ?)').bind(u.id, c.id, Date.now()).run();
+    return json({ ok: true, crew: { name: c.name, tag: c.tag } });
+  }
+  if (url.pathname === '/crew/leave' && req.method === 'POST') {
+    const c = await crewOf(env, u.id); if (!c) return json({ ok: true });
+    await env.DB.prepare('DELETE FROM crew_members WHERE user_id = ?').bind(u.id).run();
+    const left = await env.DB.prepare('SELECT user_id FROM crew_members WHERE crew_id = ? ORDER BY joined LIMIT 1').bind(c.id).first();
+    if (!left) await env.DB.prepare('DELETE FROM crews WHERE id = ?').bind(c.id).run(); // the last one out closes it
+    else if (c.owner === u.id) await env.DB.prepare('UPDATE crews SET owner = ? WHERE id = ?').bind(left.user_id, c.id).run(); // the longest-serving member takes over
+    return json({ ok: true });
+  }
   if (url.pathname === '/logout' && req.method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind((req.headers.get('Authorization') || '').replace(/^Bearer /, '')).run(); return json({ ok: true }); }
   if (url.pathname === '/save' && req.method === 'GET') { const r = await env.DB.prepare('SELECT data FROM saves WHERE user_id = ?').bind(u.id).first(); return json({ data: r ? JSON.parse(r.data) : null }); }
   if (url.pathname === '/save' && req.method === 'POST') {
@@ -135,9 +176,10 @@ export default {
       const u = await userFor(env, req, url); if (!u) return json({ error: 'log in first' }, 401);
       // the world gets the account's name from here, never from the player
       const q = new URL(url); q.searchParams.delete('token'); q.searchParams.set('name', u.name); q.searchParams.set('uid', String(u.id));
+      const c = await crewOf(env, u.id); q.searchParams.set('crew', c ? c.tag : ''); // the crew tag comes from the database too
       return env.WORLD.get(env.WORLD.idFromName(code)).fetch(new Request(q, req));
     }
-    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record'].includes(url.pathname)) return api(req, env, url);
+    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews'].includes(url.pathname)) return api(req, env, url);
     return json({ ok: true, game: 'Gold Coast Streets online' });
   },
 };
@@ -170,10 +212,11 @@ export class World extends DurableObject {
     const pair = new WebSocketPair(), [client, server] = Object.values(pair);
     const id = crypto.randomUUID().slice(0, 8), name = clean(url.searchParams.get('name'), 16, 'Player ' + id.slice(0, 3));
     this.ctx.acceptWebSocket(server);
-    server.serializeAttachment({ id, name, look: null, n: 0, t0: Date.now() });
-    const players = this.sockets().filter((ws) => ws !== server).map((ws) => { const I = this.info(ws); return { id: I.id, name: I.name, look: I.look, s: this.last.get(I.id) || null }; });
-    this.send(server, { t: 'hello', id, name, world: m, players, max: SHOWN_MAX });
-    this.broadcast({ t: 'join', id, name }, server);
+    const crew = String(url.searchParams.get('crew') || '').replace(/[^A-Z0-9]/g, '').slice(0, 4);
+    server.serializeAttachment({ id, name, crew, look: null, props: [], open: false, n: 0, t0: Date.now() });
+    const players = this.sockets().filter((ws) => ws !== server).map((ws) => { const I = this.info(ws); return { id: I.id, name: I.name, crew: I.crew || '', look: I.look, props: I.props || [], open: !!I.open, s: this.last.get(I.id) || null }; });
+    this.send(server, { t: 'hello', id, name, crew, world: m, players, max: SHOWN_MAX });
+    this.broadcast({ t: 'join', id, name, crew }, server);
     await this.report();
     return new Response(null, { status: 101, webSocket: client });
   }
@@ -191,6 +234,13 @@ export class World extends DurableObject {
     } else if (m.t === 'down') this.broadcast({ t: 'down', id: I.id, by: typeof m.by === 'string' ? m.by : null });
     else if (m.t === 'say' && Number.isInteger(m.k) && m.k >= 0 && m.k < 20) this.broadcast({ t: 'say', id: I.id, k: m.k }, ws);
     else if (m.t === 'race' && Number.isFinite(m.x) && Number.isFinite(m.z)) this.broadcast({ t: 'race', id: I.id, x: m.x, z: m.z, name: clean(m.name, 40, 'the finish') }, ws);
+    else if (m.t === 'party' && Array.isArray(m.to) && m.d && typeof m.d === 'object') { // heist crews: passed on only to the players named (up to 8)
+      const to = new Set(m.to.filter((x) => typeof x === 'string').slice(0, 8));
+      for (const o of this.sockets()) if (o !== ws && to.has(this.info(o).id)) this.send(o, { t: 'party', from: I.id, d: m.d });
+    } else if (m.t === 'props' && Array.isArray(m.props)) { // the houses you own, so friends can come over
+      I.props = m.props.slice(0, 12).filter((p) => p && typeof p.id === 'string' && Number.isFinite(p.x) && Number.isFinite(p.z)).map((p) => ({ id: p.id.slice(0, 40), x: Math.round(p.x), z: Math.round(p.z), name: clean(p.name, 40, 'a house') }));
+      I.open = m.open === true; this.broadcast({ t: 'props', id: I.id, props: I.props, open: I.open }, ws);
+    }
     ws.serializeAttachment(I);
   }
   async webSocketClose(ws) { await this.left(ws); }

@@ -328,9 +328,16 @@ async function playCamping(id) {
 }
 // ---------------------------------------------------------------- Sea World rides: hold on through the twists (quick prompts)
 const RIDES = [['Storm Coaster', 6], ['Jet Rescue', 7], ['Vikings Revenge Flume Ride', 5], ['Leviathan', 8], ['Sea Viper', 7]];
-async function playRide(id) {
-  const body = agOpen('Sea World rides', 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
-  const R = await new Promise((r) => { const row = agEl(body, 'div'); for (const q of RIDES) agBtn(row, `🎢 ${q[0]}${(actData().coll.rides || []).includes(q[0]) ? ' ✅' : ''}`, () => { row.remove(); r(q); }); });
+const PARKS = { // the theme parks up the M1 (the northern strip of the map): real, long-running rides
+  seaworld: ['Sea World rides', RIDES],
+  movieworld: ['Movie World rides', [['DC Rivals HyperCoaster', 9], ['Superman Escape', 7], ['Green Lantern Coaster', 8], ['Batwing Spaceshot', 5], ['Scooby-Doo Spooky Coaster', 6], ['Road Runner Rollercoaster', 5]]],
+  dreamworld: ['Dreamworld rides', [['Steel Taipan', 9], ['The Giant Drop', 5], ['The Claw', 7], ['Tail Spin', 5], ['Sky Voyager', 6], ['Dreamworld Express', 4]]],
+  wetnwild: ['Wet’n’Wild slides', [['Kamikaze', 6], ['Tornado', 6], ['Black Hole', 7], ['Aqualoop', 5], ['Mammoth Falls', 5]]],
+};
+async function playRide(id, park = 'seaworld') {
+  const [title, LIST] = PARKS[park] || PARKS.seaworld;
+  const body = agOpen(title, 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
+  const R = await new Promise((r) => { const row = agEl(body, 'div'); for (const q of LIST) agBtn(row, `🎢 ${q[0]}${(actData().coll.rides || []).includes(q[0]) ? ' ✅' : ''}`, () => { row.remove(); r(q); }); });
   const say = agEl(body, 'p', 'font:700 18px sans-serif'), arrow = agEl(body, 'p', 'font:700 48px sans-serif;text-align:center'), row = agEl(body, 'div', 'text-align:center'); let thrill = 0, got = '';
   const map = [['←', 'ArrowLeft'], ['↑', 'ArrowUp'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']]; map.forEach(([a]) => agBtn(row, a, () => { got = a; }, true));
   for (let k = 0; k < R[1]; k++) {
@@ -339,7 +346,7 @@ async function playRide(id) {
     thrill += Math.round(ok * 100); sfxNoise(0.2, 400 + ok * 800, 0.3);
   }
   arrow.textContent = ''; if (!agAlive(gen)) return; const badge = collect('rides', R[0], R[0] + ' badge');
-  agResult(id, { complete: true, score: thrill, money: 0, msg: `${R[0]}: thrill score ${thrill}${badge ? ' · new ride badge!' : ''} (${collCount('rides')}/${RIDES.length} rides)` });
+  agResult(id, { complete: true, score: thrill, money: 0, msg: `${R[0]}: thrill score ${thrill}${badge ? ' · new ride badge!' : ''} (${LIST.filter((q) => (actData().coll.rides || []).includes(q[0])).length}/${LIST.length} at this park)` });
 }
 // ---------------------------------------------------------------- the cinema: a ticket and a (made-up) short film
 const FILMS = [

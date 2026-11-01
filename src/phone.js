@@ -23,7 +23,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', transit: 'Transit', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -36,6 +36,7 @@ function phoneApp(app) {
     tile('🌤️', 'Weather', () => phoneApp('weather'));
     tile('🐶', 'Pet', () => phoneApp('pet'));
     tile('🚋', 'Transit', () => phoneApp('transit'));
+    if (MODE === 'multi') tile('🛡️', 'Crew', () => phoneApp('crew'), NET.status === 'on' && PARTY.invites.size ? '!' : '');
     tile('💼', 'Business', () => phoneApp('business'), (ECON.biz || []).some((b) => b.till > 0) ? '$' : '');
     tile('📢', 'Events', () => phoneApp('events'), LIFE.ev ? '!' : '');
     tile('🔔', 'Alerts', () => phoneApp('notes'), unreadNotes() ? String(unreadNotes()) : '');
@@ -84,6 +85,7 @@ function phoneApp(app) {
   } else if (app === 'jobs') { back(); jobsApp(btn, head); }
   else if (app === 'job') { jobApp(btn, head); }
   else if (app === 'transit') { back(); transitApp(btn, head); }
+  else if (app === 'crew') { back(); crewApp(btn, head); }
   else if (app === 'business') { back(); businessApp(btn, head); }
   else if (app === 'events') { back(); eventsApp(btn, head); }
   else if (app === 'weather') { back(); weatherApp(btn, head); }
@@ -196,10 +198,19 @@ const CREW = {
 const HEIST = { stage: 0, bank: null, crew: {}, take: 0, safe: null }; // stage 1 planning, 2 go rob, 3 escape
 function heistPlanner(btn, head) {
   const banks = SHOPS.filter((q) => q.kind === 'bank').sort((a, b) => Math.hypot(a.x - player.x, a.z - player.z) - Math.hypot(b.x - player.x, b.z - player.z));
+  if (inParty() && !partyLead()) { head('You’re on a crew heist'); btn(HEIST.party && HEIST.stage > 1 ? (HEIST.stage === 2 ? `Rob ${HEIST.bank.name} together` : 'Get to the safehouse') : `${(NET.peers.get(PARTY.leader) || {}).name || 'The leader'} picks the bank`, 'phone → Online for the crew', () => {}, false); if (HEIST.party && HEIST.stage > 1) { const w = HEIST.stage === 3 ? { name: 'Safehouse', ...HEIST.safe } : HEIST.bank; btn('Directions', `${w.name} · ${km(w.x, w.z)}`, () => directions(w.name, w.x, w.z)).classList.add('go'); } return; }
   if (!HEIST.stage) {
     head('1 · Pick a bank to hit');
     if (!banks.length) { btn('No bank nearby', 'banks show green on the map', () => {}, false); return; }
     for (const b of banks.slice(0, 5)) btn(`🏦 ${b.name}`, `${km(b.x, b.z)} · vault $6,000–15,000 · 4 stars when it goes off`, () => { HEIST.stage = 1; HEIST.bank = b; HEIST.crew = HEIST.crew || {}; phoneApp('heist'); });
+    return;
+  }
+  if (HEIST.stage === 1 && inParty()) { // a crew of real players: no one to hire, the take is split evenly
+    head(`2 · Your crew for ${HEIST.bank.name}`);
+    for (const id of PARTY.members) btn(id === NET.id ? 'You' : (NET.peers.get(id) || {}).name || '…', ROLES[PARTY.roles[id]] || '', () => {}, false);
+    head(`3 · Split ${PARTY.members.length} ways: about $${Math.round(15000 / PARTY.members.length).toLocaleString()}–${Math.round(37500 / PARTY.members.length).toLocaleString()} each`);
+    btn('▶ Start the job for everyone', `the whole crew goes to ${HEIST.bank.name}`, () => partyStart(HEIST.bank)).classList.add('go');
+    btn('Pick a different bank', '', () => { HEIST.stage = 0; phoneApp('heist'); });
     return;
   }
   if (HEIST.stage === 1) {
@@ -224,23 +235,24 @@ function heistPlanner(btn, head) {
   btn('Directions', `${where.name} · ${km(where.x, where.z)}`, () => directions(where.name, where.x, where.z)).classList.add('go');
 }
 function heistRobDone(target, cash) { // called by the robbery code; returns the cash to pay out now (the rest comes at the safehouse)
-  if (HEIST.stage !== 2 || target !== HEIST.bank) return cash;
-  HEIST.take = Math.round(cash * 2.5); HEIST.stage = 3;
+  if (HEIST.stage !== 2 || !sameBank(target, HEIST.bank)) return cash;
+  HEIST.take = Math.round(cash * 2.5 * (HEIST.party ? Math.max(1, HEIST.n * 0.75) : 1)); HEIST.stage = 3; // a bigger crew carries out more
   const ang = rand() * TAU, s = sidewalkNear(player.x + Math.cos(ang) * 1500, player.z + Math.sin(ang) * 1500);
-  HEIST.safe = { x: s.x, z: s.z }; WAYPOINT = { name: 'Safehouse', x: s.x, z: s.z }; GPS.t = 0;
+  HEIST.safe = { x: s.x, z: s.z }; if (HEIST.party) partySend({ a: 'vault', take: HEIST.take, safe: HEIST.safe }); WAYPOINT = { name: 'Safehouse', x: s.x, z: s.z }; GPS.t = 0;
   toast(`Vault cleaned out: $${HEIST.take.toLocaleString()}! Get to the safehouse and lose the cops.`);
   return 0;
 }
-function heistNeed(target) { return HEIST.stage === 2 && target === HEIST.bank && HEIST.crew.hacker ? 5 : 10; }
+function heistNeed(target) { const base = HEIST.stage === 2 && sameBank(target, HEIST.bank) && HEIST.crew.hacker ? 5 : 10; return HEIST.party ? Math.max(2.5, base / (1 + DRILLERS())) : base; } // crewmates at the vault speed it up
 function updateHeist() {
   if (HEIST.stage !== 3) return;
   if (HEIST.crew.muscle && player.stars > 3) player.stars = 3;
   const d = Math.hypot(HEIST.safe.x - player.x, HEIST.safe.z - player.z);
   $('jobhud').hidden = false; $('jobhud').textContent = `Bank job · safehouse ${Math.round(d)} m · ${player.stars ? 'lose the cops first' : 'clear'} · $${HEIST.take.toLocaleString()}`;
   if (d < 25 && player.stars === 0) {
-    const cut = Object.keys(HEIST.crew).reduce((a, k) => a + CREW[k].cut, 0), mine = Math.round(HEIST.take * (1 - cut));
-    player.money += mine; HEIST.stage = 0; HEIST.crew = {}; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true; saveGame();
-    toast(`Clean getaway! Your share: $${mine.toLocaleString()} (crew took ${Math.round(cut * 100)}%)`); sfxTone([523, 659, 784, 1046], 0.6, 0.07, 'triangle');
+    const cut = HEIST.party ? 0 : Object.keys(HEIST.crew).reduce((a, k) => a + CREW[k].cut, 0), mine = Math.round(HEIST.party ? HEIST.take / Math.max(1, HEIST.n) : HEIST.take * (1 - cut));
+    if (HEIST.party) { partySend({ a: 'home' }); stat('crewheists'); }
+    player.money += mine; HEIST.stage = 0; HEIST.crew = {}; HEIST.party = false; WAYPOINT = null; clearGPS(); $('jobhud').hidden = true; saveGame();
+    toast(cut ? `Clean getaway! Your share: $${mine.toLocaleString()} (crew took ${Math.round(cut * 100)}%)` : `Clean getaway! Your even share: $${mine.toLocaleString()}`); sfxTone([523, 659, 784, 1046], 0.6, 0.07, 'triangle');
   }
 }
 

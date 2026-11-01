@@ -5,7 +5,7 @@
 // Each player's game still runs its own traffic, pedestrians and police; the server (server/) only relays players.
 // ============================================================================
 const ONLINE_URL = (() => { try { return localStorage.getItem('gcs-server') || ''; } catch (e) { return ''; } })() || 'https://gold-coast-streets-online.sw573bfk.workers.dev'; // gcs-server: a local test server
-const NET = { ws: null, id: null, world: null, peers: new Map(), sendT: 0, status: 'off', lastHitBy: null, race: null, list: null };
+const NET = { ws: null, id: null, world: null, peers: new Map(), sendT: 0, status: 'off', lastHitBy: null, race: null, list: null, crew: '', open: (() => { try { return localStorage.getItem('gcs-open') === '1'; } catch (e) { return false; } })() };
 const SAYINGS = ['👋 G’day!', 'Follow me', 'Race?', 'Help!', 'Nice one!', 'Get in', 'Over here', 'Watch this', '😂', 'Bye!', '🏁 Finished!'];
 const NET_RATE = 1 / 8; // state updates a second: smooth enough, and kind to the free server plan
 const HEX = /^#[0-9a-f]{6}$/i;
@@ -49,18 +49,20 @@ function netJoin(code, opts = {}) {
 function netLeave(quiet) {
   const ws = NET.ws; NET.ws = null; NET.status = 'off'; NET.id = null; NET.world = null; NET.race = null;
   if (ws) try { ws.close(); } catch (e) { /* already closed */ }
-  for (const P of NET.peers.values()) dropPeer(P); NET.peers.clear();
+  for (const P of NET.peers.values()) dropPeer(P); NET.peers.clear(); partyReset(); PARTY.invites.clear();
   netHud(); if (!quiet) toast('You left the online world');
 }
 function netSend(m) { if (NET.ws && NET.ws.readyState === 1) NET.ws.send(JSON.stringify(m)); }
 function netLook() { if (NET.status === 'on') netSend({ t: 'look', look: player.look }); }
 function netMessage(m) {
   if (m.t === 'hello') {
-    NET.id = m.id; NET.world = m.world; NET.max = m.max || 16; NET.status = 'on'; netLook(); netHud();
-    for (const p of m.players || []) { const P = addPeer(p.id, p.name, p.look); if (p.s) peerState(P, p.s); }
+    NET.id = m.id; NET.world = m.world; NET.max = m.max || 16; NET.status = 'on'; NET.crew = typeof m.crew === 'string' ? m.crew : ''; PARTY.propKey = ''; netLook(); netHud();
+    for (const p of m.players || []) { const P = addPeer(p.id, p.name, p.look, p.crew); peerProps(P, p.props, p.open); if (p.s) peerState(P, p.s); }
     toast(`You’re in world ${m.world.code} · ${NET.peers.size + 1}/${NET.max} players${m.world.public ? '' : ' · give your friends the code'}`); sfxTone([523, 784], 0.2, 0.05);
-  } else if (m.t === 'join') { addPeer(m.id, m.name, null); toast(`${m.name} joined`); }
-  else if (m.t === 'leave') { const P = NET.peers.get(m.id); if (P) { toast(`${P.name} left`); dropPeer(P); NET.peers.delete(m.id); } }
+  } else if (m.t === 'join') { addPeer(m.id, m.name, null, m.crew); toast(`${m.crew ? `[${m.crew}] ` : ''}${m.name} joined`); }
+  else if (m.t === 'leave') { const P = NET.peers.get(m.id); if (P) { toast(`${P.name} left`); dropPeer(P); NET.peers.delete(m.id); partyPeerLeft(m.id); } }
+  else if (m.t === 'party') partyMessage(m.from, m.d);
+  else if (m.t === 'props') { const P = NET.peers.get(m.id); if (P) peerProps(P, m.props, m.open); }
   else if (m.t === 's') { const P = NET.peers.get(m.id); if (P) peerState(P, m.s); }
   else if (m.t === 'look') { const P = NET.peers.get(m.id); if (P) { P.look = safeLook(m.look); rebuildPeer(P); } }
   else if (m.t === 'hit') {
@@ -75,9 +77,10 @@ function netMessage(m) {
   else if (m.t === 'race') { const P = NET.peers.get(m.id); if (P && Number.isFinite(m.x)) { NET.race = { x: m.x, z: m.z, name: m.name }; WAYPOINT = { name: '🏁 ' + m.name, x: m.x, z: m.z }; GPS.t = 0; toast(`${P.name} called a race to ${m.name} — GO!`); sfxTone([440, 440, 880], 0.5, 0.08); } }
 }
 // ---------------------------------------------------------------- other players
-function addPeer(id, name, look) {
+function peerProps(P, props, open) { P.props = Array.isArray(props) ? props.filter((h) => h && typeof h.id === 'string' && Number.isFinite(h.x) && Number.isFinite(h.z)).slice(0, 12).map((h) => ({ id: h.id, x: h.x, z: h.z, name: String(h.name || 'a house').slice(0, 40) })) : []; P.open = open === true; }
+function addPeer(id, name, look, crew) {
   if (NET.peers.has(id)) return NET.peers.get(id);
-  const P = { id, name: String(name || 'Player').slice(0, 16), look: safeLook(look), s: null, x: 0, z: 0, y: 0, h: 0, vx: 0, vz: 0, t: 0, person: null, veh: null, vkey: '', tag: null, say: '', sayT: 0, phase: 0, hitT: 0 };
+  const P = { id, name: String(name || 'Player').slice(0, 16), crew: typeof crew === 'string' ? crew.replace(/[^A-Z0-9]/g, '').slice(0, 4) : '', props: [], open: false, look: safeLook(look), s: null, x: 0, z: 0, y: 0, h: 0, vx: 0, vz: 0, t: 0, person: null, veh: null, vkey: '', tag: null, say: '', sayT: 0, phase: 0, hitT: 0 };
   P.canvas = document.createElement('canvas'); P.canvas.width = 256; P.canvas.height = 96;
   P.tex = new THREE.CanvasTexture(P.canvas); P.tag = new THREE.Sprite(new THREE.SpriteMaterial({ map: P.tex, depthTest: false, transparent: true, toneMapped: false }));
   P.tag.scale.set(2.6, 0.98, 1); P.tag.renderOrder = 10; scene.add(P.tag); drawTag(P); rebuildPeer(P);
@@ -86,7 +89,7 @@ function addPeer(id, name, look) {
 function drawTag(P) {
   const c = P.canvas.getContext('2d'); c.clearRect(0, 0, 256, 96);
   if (P.say) { c.font = '600 26px sans-serif'; const w = Math.min(250, c.measureText(P.say).width + 20); c.fillStyle = 'rgba(255,255,255,.92)'; c.fillRect(128 - w / 2, 2, w, 38); c.fillStyle = '#111'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.fillText(P.say, 128, 22, 240); }
-  c.font = '700 30px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,.75)'; c.strokeText(P.name, 128, 68); c.fillStyle = '#5ee0c8'; c.fillText(P.name, 128, 68);
+  c.font = '700 30px sans-serif'; c.textAlign = 'center'; c.textBaseline = 'middle'; c.lineWidth = 6; c.strokeStyle = 'rgba(0,0,0,.75)'; const label = (P.crew ? `[${P.crew}] ` : '') + P.name; c.strokeText(label, 128, 68, 250); c.fillStyle = NET.crew && P.crew === NET.crew ? '#ffd24a' : '#5ee0c8'; c.fillText(label, 128, 68, 250); // crewmates in gold
   P.tex.needsUpdate = true;
 }
 function rebuildPeer(P) { if (P.person) disposePerson(P.person); P.person = makePerson(P.look); scene.add(P.person.root); P.vkey = ''; peerVehicle(P); }
@@ -165,7 +168,7 @@ function myState() {
 function updateNet(dt) {
   if (NET.status !== 'on') return;
   NET.sendT -= dt; if (NET.sendT <= 0) { NET.sendT = NET_RATE; netSend({ t: 's', s: myState() }); }
-  updatePeers(dt);
+  updatePeers(dt); updateParty(dt);
   if (NET.race && Math.hypot(NET.race.x - player.x, NET.race.z - player.z) < 25) { NET.race = null; netSend({ t: 'say', k: 10 }); toast('🏁 You finished!'); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); }
   netHud();
 }
@@ -177,11 +180,13 @@ function onlineApp(btn, head) {
     btn(NET.world.public ? `Public world · code ${NET.world.code}` : `Friends-only world · code ${NET.world.code}`, 'friends can join with this code, even when it shows 16/16', () => {}, false);
     head(`Here now (${NET.peers.size + 1}/${NET.max || 16})`);
     btn(`🙂 ${ACCT.name || 'You'} (you)`, '', () => {}, false);
-    for (const P of NET.peers.values()) btn(`🧍 ${P.name}`, P.s ? km(P.x, P.z) + ' away · tap for directions' : 'just arrived', () => P.s && directions(P.name, P.x, P.z));
+    for (const P of NET.peers.values()) btn(`🧍 ${P.crew ? `[${P.crew}] ` : ''}${P.name}`, P.s ? km(P.x, P.z) + ' away · tap for directions' : 'just arrived', () => P.s && directions(P.name, P.x, P.z));
     head('Quick messages');
     const row = document.createElement('div'); row.className = 'psays';
     SAYINGS.slice(0, 10).forEach((t, k) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = t; b.addEventListener('click', () => { netSend({ t: 'say', k }); toast(`You: ${t}`); }); row.appendChild(b); });
     body.appendChild(row);
+    partyOnlineRows(btn, head);
+    head('Race');
     btn('🏁 Race everyone to my destination', WAYPOINT ? WAYPOINT.name : 'set a destination on the map first', () => { NET.race = { x: WAYPOINT.x, z: WAYPOINT.z, name: WAYPOINT.name }; netSend({ t: 'race', x: WAYPOINT.x, z: WAYPOINT.z, name: WAYPOINT.name }); closePhone(); toast('Race on — GO!'); }, !!WAYPOINT);
     btn('Leave this world', 'back to playing on your own', () => { netLeave(); phoneApp('online'); });
     return;
