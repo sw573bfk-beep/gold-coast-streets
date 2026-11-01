@@ -187,6 +187,23 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
 .acct-tabs { display: flex; gap: 6px; margin-bottom: 8px; } .acct-tabs button { flex: 1; padding: 8px; border-radius: 8px; border: 0; background: #26343d; color: #fff; font: 600 15px var(--hud); cursor: pointer; } .acct-tabs button.on { background: var(--gold); color: #111; }
 .acct input { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px; border-radius: 8px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
 #acct-go { width: 100%; } #acct-msg { color: #ff8a7a; font: 600 14px var(--hud); min-height: 18px; margin-top: 6px; } .acct-note { color: #9fb0b8; font: 500 13px var(--hud); }
+.online-now { font: 700 16px var(--hud); color: #dfe7ea; margin: 4px 0 10px; text-shadow: 0 1px 3px rgba(0,0,0,.9); } .online-now.live { color: #5ee0c8; }
+.admin-btn { margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 2px solid var(--gold); background: transparent; color: var(--gold); font: 700 14px var(--hud); cursor: pointer; }
+#announce { position: fixed; top: 64px; left: 50%; transform: translateX(-50%); z-index: 40; max-width: min(640px, calc(100vw - 32px)); background: rgba(8,14,18,.92); border: 2px solid var(--gold); color: #fff; border-radius: 12px; padding: 12px 16px; font: 700 17px var(--hud); text-align: center; }
+#admin { position: fixed; inset: 0; z-index: 50; background: #0b1216; color: #e8eef1; overflow-y: auto; font: 500 15px var(--hud); padding: 0 max(16px, env(safe-area-inset-left, 0px)) 40px; }
+.adm-top { display: flex; justify-content: space-between; align-items: center; padding: 14px 0 8px; font-size: 20px; color: var(--gold); position: sticky; top: 0; background: #0b1216; z-index: 1; }
+.adm-x { border: 0; background: #26343d; color: #fff; border-radius: 8px; width: 36px; height: 36px; font-size: 18px; cursor: pointer; }
+.adm-tabs { display: flex; gap: 6px; flex-wrap: wrap; margin-bottom: 12px; } .adm-tabs button { padding: 8px 14px; border-radius: 8px; border: 0; background: #1b262d; color: #cfd8dc; font: 700 14px var(--hud); cursor: pointer; } .adm-tabs button.on { background: var(--gold); color: #111; }
+.adm-body { max-width: 900px; } .adm-body h3 { color: var(--gold); margin: 18px 0 8px; font: 700 17px var(--hud); }
+.adm-tiles { display: grid; grid-template-columns: repeat(auto-fill, minmax(120px, 1fr)); gap: 8px; } .adm-tile { background: #15212a; border-radius: 10px; padding: 10px; } .adm-tile b { display: block; font: 800 24px var(--hud); color: #fff; } .adm-tile span { color: #9fb0b8; font-size: 13px; }
+.adm-card { background: #15212a; border-radius: 10px; padding: 10px; margin-bottom: 8px; }
+.adm-row { display: flex; flex-wrap: wrap; align-items: center; gap: 4px 10px; padding: 8px 10px; border-bottom: 1px solid #1f2c34; } .adm-row span { font-weight: 700; color: #fff; min-width: 140px; } .adm-row em { font-style: normal; color: #9fb0b8; font-size: 13px; flex: 1; min-width: 180px; }
+.adm-row.click { cursor: pointer; } .adm-row.click:hover { background: #15212a; }
+.adm-tag { font-style: normal; font-size: 11px; padding: 1px 6px; border-radius: 6px; margin-left: 6px; } .adm-tag.gold { background: var(--gold); color: #111; } .adm-tag.red { background: #c0392b; color: #fff; }
+.adm-grid { display: grid; grid-template-columns: max-content 1fr; gap: 4px 14px; } .adm-grid span { color: #9fb0b8; }
+.adm-bar { display: flex; flex-wrap: wrap; gap: 8px; margin: 6px 0; } .adm-in { flex: 1; min-width: 140px; box-sizing: border-box; padding: 9px; border-radius: 8px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 15px var(--hud); } textarea.adm-in { width: 100%; min-height: 60px; display: block; margin-bottom: 8px; }
+.adm-b { padding: 8px 12px; border-radius: 8px; border: 0; background: #26343d; color: #fff; font: 700 14px var(--hud); cursor: pointer; } .adm-b.go { background: #2e9e6a; } .adm-b.warn { background: #9a3b2f; }
+.adm-dim { color: #9fb0b8; font-size: 13px; }
 .acct-who { font: 700 18px var(--hud); color: #5ee0c8; margin-bottom: 6px; } .acct-row { display: flex; gap: 8px; } .acct-row button { padding: 6px 10px; border-radius: 8px; border: 0; background: #26343d; color: #fff; cursor: pointer; font: 600 14px var(--hud); }
 .lrow { display: flex; align-items: baseline; gap: 8px; padding: 7px 10px; border-radius: 10px; background: #1b262d; margin-bottom: 5px; color: #fff; font: 600 15px var(--hud); } .lrow span { flex: 1; color: #8fa3ab; font-size: 13px; } .lrow em { font-style: normal; color: var(--gold); } .lrow.me { outline: 2px solid #5ee0c8; }
 </style>
@@ -263,7 +280,7 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
 <div id="menu">
   <div class="card">
     <h1>Gold Coast Streets</h1>
-    <h2>Southport to Coolangatta</h2>
+    <h2>Coomera to Coolangatta</h2>
     <div class="keys">
       <div><b>W A S D</b> move / drive</div>
       <div><b>Mouse</b> look around</div>

@@ -616,7 +616,7 @@ window.runRegression = async () => {
   });
   await test('buses run the main roads, pull in, and you can ride them', async () => {
     quiet(); gameHour = 12; await tpXZ(740, 303); let bus = null; // midday traffic (life.js thins it out at night); let the streets stream in while waiting
-    for (let k = 0; k < 60 * 120 && !bus; k++) { stepWorld(1 / 60); if (k % 120 === 0) await new Promise((r) => setTimeout(r, 5)); bus = cars.find((c) => c.bus && c.speed < 1 && c.ai && c.ai.dwell > 2); }
+    for (let k = 0; k < 60 * 240 && !bus; k++) { stepWorld(1 / 60); if (k % 120 === 0) await new Promise((r) => setTimeout(r, 5)); bus = cars.find((c) => c.bus && c.speed < 1 && c.ai && c.ai.dwell > 2); } // up to 4 game minutes: a fresh bus can take over 1 to reach a stop
     expect(bus, 'no bus pulled in'); player.x = bus.x + 3; player.z = bus.z; player.money = 100;
     expect(boardRide() && player.state === 'ride', 'could not get on'); const x0 = bus.x, z0 = bus.z; step(20);
     const r = `rode ${Math.hypot(bus.x - x0, bus.z - z0).toFixed(0)} m`; RIDE.v = null; home(); return r;

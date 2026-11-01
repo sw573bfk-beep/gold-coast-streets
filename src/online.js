@@ -62,6 +62,9 @@ function netMessage(m) {
   } else if (m.t === 'join') { addPeer(m.id, m.name, null, m.crew); toast(`${m.crew ? `[${m.crew}] ` : ''}${m.name} joined`); }
   else if (m.t === 'leave') { const P = NET.peers.get(m.id); if (P) { toast(`${P.name} left`); dropPeer(P); NET.peers.delete(m.id); partyPeerLeft(m.id); } }
   else if (m.t === 'party') partyMessage(m.from, m.d);
+  else if (m.t === 'gifts') claimGifts(); // the admin sent money: pick it up now
+  else if (m.t === 'announce' && typeof m.text === 'string') showAnnouncement(m.text);
+  else if (m.t === 'kicked') { const why = m.why === 'banned' ? 'This account has been banned' : 'The admin removed you from this world'; netLeave(true); toast(why); if (m.why === 'banned') setTimeout(signOut, 3000); }
   else if (m.t === 'props') { const P = NET.peers.get(m.id); if (P) peerProps(P, m.props, m.open); }
   else if (m.t === 's') { const P = NET.peers.get(m.id); if (P) peerState(P, m.s); }
   else if (m.t === 'look') { const P = NET.peers.get(m.id); if (P) { P.look = safeLook(m.look); rebuildPeer(P); } }

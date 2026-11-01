@@ -12,6 +12,9 @@
 //   GET  /leaders?board=B                        the top 20 (and where you are)
 //   GET  /crew  ·  POST /crew/create {name, tag}  ·  POST /crew/join {tag}  ·  POST /crew/leave   your crew
 //   GET  /crews                                  the biggest crews (members, and their richest players' worth)
+//   GET  /online                                 how many are playing online right now (all worlds)
+//   POST /ping  ·  GET /gifts                    time played (once a minute)  ·  money the admin sent you
+//   /admin/...                                   the admin panel (only the accounts named in ADMINS)
 import { DurableObject } from 'cloudflare:workers';
 
 const SHOWN_MAX = 16, MAX_PLAYERS = 20; // public worlds fill to 16; friends with the code can still get in up to 20
@@ -57,7 +60,99 @@ async function newSession(env, userId) {
 async function userFor(env, req, url) {
   const token = (req.headers.get('Authorization') || '').replace(/^Bearer /, '') || (url && url.searchParams.get('token')) || '';
   if (!/^[0-9a-f]{64}$/.test(token)) return null;
-  return env.DB.prepare('SELECT users.id, users.name FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token = ? AND sessions.expires > ?').bind(token, Date.now()).first();
+  return env.DB.prepare('SELECT users.id, users.name FROM sessions JOIN users ON users.id = sessions.user_id WHERE sessions.token = ? AND sessions.expires > ? AND users.banned = 0').bind(token, Date.now()).first();
+}
+const isAdmin = (env, u) => !!u && String(env.ADMINS || '').toLowerCase().split(',').map((s) => s.trim()).filter(Boolean).includes(u.name.toLowerCase());
+const lobby = (env, path, body) => env.LOBBY.get(env.LOBBY.idFromName('lobby')).fetch('https://lobby' + path, body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+const world = (env, code, path, body) => env.WORLD.get(env.WORLD.idFromName(code)).fetch('https://world' + path, body ? { method: 'POST', body: JSON.stringify(body) } : undefined);
+async function liveWorlds(env) { return (await (await lobby(env, '/all')).json()).worlds || []; }
+async function toWorlds(env, path, body) { // tell every live world something (a gift nudge, a kick, an announcement); how many players it reached
+  let n = 0; for (const w of await liveWorlds(env)) { try { n += (await (await world(env, w.code, path, body)).json()).n || 0; } catch (e) { /* that world just closed */ } } return n;
+}
+async function claimGifts(env, userId) { // money the admin sent: handed over once, then gone from the table
+  const r = await env.DB.prepare('DELETE FROM gifts WHERE user_id = ? RETURNING amount, note').bind(userId).all();
+  return r.results || [];
+}
+async function adminLog(env, action, target, detail) { await env.DB.prepare('INSERT INTO admin_log (at, action, target, detail) VALUES (?, ?, ?, ?)').bind(Date.now(), action, String(target || ''), String(detail || '').slice(0, 200)).run(); }
+function saveSummary(raw) { // the bits of a player's save the admin panel shows
+  let d = {}; try { d = JSON.parse(raw || '{}') || {}; } catch (e) { /* a bad save */ }
+  return { money: Math.round(Number(d.money) || 0), bank: Math.round(Number(d.bank) || 0), cars: (d.garage || []).length, houses: (d.props || []).length, biz: (d.biz || []).length, pet: d.pet ? `${d.pet.name} the ${d.pet.breed}` : '', health: d.health };
+}
+// ---------------------------------------------------------------- the admin panel's routes
+async function admin(req, env, url, me) {
+  const b = req.method === 'POST' ? (await readJson(req)) || {} : {}, path = url.pathname.slice(7);
+  const target = async (id) => env.DB.prepare('SELECT id, name, name_lc FROM users WHERE id = ?').bind(Number(id) || 0).first();
+  if (path === 'overview') {
+    const worlds = await liveWorlds(env), who = [];
+    for (const w of worlds) { try { const r = await (await world(env, w.code, '/who')).json(); who.push({ ...w, people: r.people || [] }); } catch (e) { who.push({ ...w, people: [] }); } }
+    const q = (sql, ...a) => env.DB.prepare(sql).bind(...a).first();
+    const week = Date.now() - 7 * 86400000, day = Date.now() - 86400000;
+    return json({
+      accounts: (await q('SELECT COUNT(*) AS n FROM users')).n, newWeek: (await q('SELECT COUNT(*) AS n FROM users WHERE created > ?', week)).n,
+      activeDay: (await q('SELECT COUNT(*) AS n FROM users WHERE last_seen > ?', day)).n, banned: (await q('SELECT COUNT(*) AS n FROM users WHERE banned = 1')).n,
+      playHours: Math.round(((await q('SELECT COALESCE(SUM(play_ms), 0) AS n FROM users')).n) / 360000) / 10, crews: (await q('SELECT COUNT(*) AS n FROM crews')).n,
+      online: who.reduce((a, w) => a + w.players, 0), worlds: who,
+    });
+  }
+  if (path === 'users') {
+    const sort = { name: 'users.name_lc ASC', new: 'users.created DESC', seen: 'users.last_seen DESC', time: 'users.play_ms DESC' }[url.searchParams.get('sort')] || 'users.last_seen DESC';
+    const r = await env.DB.prepare(`SELECT users.id, users.name, users.created, users.last_seen, users.play_ms, users.banned, saves.data, crews.tag,
+      (SELECT COUNT(*) FROM records WHERE records.user_id = users.id) AS records, (SELECT COALESCE(SUM(amount), 0) FROM gifts WHERE gifts.user_id = users.id) AS pending
+      FROM users LEFT JOIN saves ON saves.user_id = users.id LEFT JOIN crew_members ON crew_members.user_id = users.id LEFT JOIN crews ON crews.id = crew_members.crew_id
+      ORDER BY ${sort} LIMIT 500`).all();
+    return json({ users: r.results.map(({ data, ...x }) => ({ ...x, ...saveSummary(data), admin: isAdmin(env, x) })) });
+  }
+  if (path === 'user') {
+    const u = await env.DB.prepare('SELECT users.id, users.name, users.created, users.last_seen, users.play_ms, users.banned, saves.data, saves.updated FROM users LEFT JOIN saves ON saves.user_id = users.id WHERE users.id = ?').bind(Number(url.searchParams.get('id')) || 0).first();
+    if (!u) return json({ error: 'no such account' }, 404);
+    const recs = await env.DB.prepare('SELECT board, value, detail, at FROM records WHERE user_id = ? ORDER BY board').bind(u.id).all();
+    const gifts = await env.DB.prepare('SELECT amount, note, at FROM gifts WHERE user_id = ? ORDER BY at').bind(u.id).all();
+    const { data, ...rest } = u;
+    return json({ user: { ...rest, ...saveSummary(data), crew: await crewOf(env, u.id), admin: isAdmin(env, u) }, records: recs.results, pending: gifts.results });
+  }
+  if (path === 'money' && req.method === 'POST') { // give (or take, with a minus) game money: it reaches them the next time their game checks in
+    const t = await target(b.id); if (!t) return json({ error: 'no such account' }, 404);
+    const amount = Math.round(Number(b.amount) || 0); if (!amount || Math.abs(amount) > 10000000) return json({ error: 'Pick an amount up to $10,000,000' }, 400);
+    const note = String(b.note || '').replace(/[<>]/g, '').slice(0, 80);
+    await env.DB.prepare('INSERT INTO gifts (user_id, amount, note, at) VALUES (?, ?, ?, ?)').bind(t.id, amount, note, Date.now()).run();
+    const live = await toWorlds(env, '/nudge', { uid: t.id });
+    await adminLog(env, amount > 0 ? 'give money' : 'take money', t.name, `$${Math.abs(amount).toLocaleString()}${note ? ' · ' + note : ''}`);
+    return json({ ok: true, live: live > 0 });
+  }
+  if (path === 'ban' && req.method === 'POST') {
+    const t = await target(b.id); if (!t) return json({ error: 'no such account' }, 404); if (isAdmin(env, t)) return json({ error: 'You can’t ban an admin' }, 400);
+    const on = b.banned === true; await env.DB.prepare('UPDATE users SET banned = ? WHERE id = ?').bind(on ? 1 : 0, t.id).run();
+    if (on) { await env.DB.prepare('DELETE FROM sessions WHERE user_id = ?').bind(t.id).run(); await toWorlds(env, '/kick', { uid: t.id, why: 'banned' }); }
+    await adminLog(env, on ? 'ban' : 'unban', t.name, ''); return json({ ok: true });
+  }
+  if (path === 'kick' && req.method === 'POST') {
+    const t = await target(b.id); if (!t) return json({ error: 'no such account' }, 404);
+    const n = await toWorlds(env, '/kick', { uid: t.id, why: 'kicked' }); await adminLog(env, 'kick', t.name, ''); return json({ ok: true, n });
+  }
+  if (path === 'record-delete' && req.method === 'POST') {
+    const t = await target(b.id); if (!t) return json({ error: 'no such account' }, 404);
+    const r = await env.DB.prepare('DELETE FROM records WHERE user_id = ? AND board = ?').bind(t.id, String(b.board || '')).run();
+    await adminLog(env, 'delete record', t.name, String(b.board || '')); return json({ ok: true, removed: r.meta.changes });
+  }
+  if (path === 'boards') { // every board with its top 20, for the Records tab
+    const r = await env.DB.prepare('SELECT records.board, records.value, records.detail, users.id, users.name FROM records JOIN users ON users.id = records.user_id ORDER BY records.board, records.value DESC').all();
+    return json({ records: r.results });
+  }
+  if (path === 'crews') {
+    const r = await env.DB.prepare('SELECT crews.id, crews.name, crews.tag, crews.created, owner.name AS boss, COUNT(crew_members.user_id) AS members FROM crews JOIN users AS owner ON owner.id = crews.owner LEFT JOIN crew_members ON crew_members.crew_id = crews.id GROUP BY crews.id ORDER BY members DESC').all();
+    return json({ crews: r.results });
+  }
+  if (path === 'crew-delete' && req.method === 'POST') {
+    const c = await env.DB.prepare('SELECT id, tag, name FROM crews WHERE id = ?').bind(Number(b.id) || 0).first(); if (!c) return json({ error: 'no such crew' }, 404);
+    await env.DB.prepare('DELETE FROM crew_members WHERE crew_id = ?').bind(c.id).run(); await env.DB.prepare('DELETE FROM crews WHERE id = ?').bind(c.id).run();
+    await adminLog(env, 'delete crew', `[${c.tag}] ${c.name}`, ''); return json({ ok: true });
+  }
+  if (path === 'announce' && req.method === 'POST') { // a message on everyone's screen in every world
+    const text = String(b.text || '').replace(/[<>]/g, '').trim().slice(0, 140); if (!text) return json({ error: 'Type a message first' }, 400);
+    const n = await toWorlds(env, '/announce', { text }); await adminLog(env, 'announce', '', `${text} (reached ${n})`); return json({ ok: true, n });
+  }
+  if (path === 'log') { const r = await env.DB.prepare('SELECT at, action, target, detail FROM admin_log ORDER BY id DESC LIMIT 100').all(); return json({ log: r.results }); }
+  return json({ error: 'not found' }, 404);
 }
 async function crewOf(env, userId) { return env.DB.prepare('SELECT crews.id, crews.name, crews.tag, crews.owner FROM crew_members JOIN crews ON crews.id = crew_members.crew_id WHERE crew_members.user_id = ?').bind(userId).first(); }
 async function readJson(req) { try { const t = await req.text(); return t.length > 70000 ? null : JSON.parse(t); } catch (e) { return null; } }
@@ -91,8 +186,9 @@ async function api(req, env, url) {
   if (url.pathname === '/login' && req.method === 'POST') {
     const b = await readJson(req); if (!b) return json({ error: 'bad request' }, 400);
     if (await tooMany(env, ip, 'login', 10, 600000)) return json({ error: 'Too many tries — wait 10 minutes' }, 429);
-    const u = await env.DB.prepare('SELECT id, name, pass_hash, salt FROM users WHERE name_lc = ?').bind(String(b.name || '').trim().toLowerCase()).first();
+    const u = await env.DB.prepare('SELECT id, name, pass_hash, salt, banned FROM users WHERE name_lc = ?').bind(String(b.name || '').trim().toLowerCase()).first();
     if (!u || !sameText(await hashPassword(String(b.password || ''), u.salt), u.pass_hash)) return json({ error: 'Wrong name or password' }, 401);
+    if (u.banned) return json({ error: 'This account has been banned' }, 403);
     return json({ token: await newSession(env, u.id), name: u.name });
   }
   if (url.pathname === '/leaders') {
@@ -106,6 +202,7 @@ async function api(req, env, url) {
     }
     return json({ board, leaders: top.results, me });
   }
+  if (url.pathname === '/online') { const r = await lobby(env, '/count'); return json(await r.json()); }
   if (url.pathname === '/crews') {
     const r = await env.DB.prepare(`SELECT crews.name, crews.tag, COUNT(crew_members.user_id) AS members, COALESCE(SUM(records.value), 0) AS worth FROM crews
       JOIN crew_members ON crew_members.crew_id = crews.id LEFT JOIN records ON records.user_id = crew_members.user_id AND records.board = 'money'
@@ -113,7 +210,14 @@ async function api(req, env, url) {
     return json({ crews: r.results });
   }
   const u = await userFor(env, req, url); if (!u) return json({ error: 'log in first' }, 401);
-  if (url.pathname === '/me') return json({ name: u.name, crew: await crewOf(env, u.id) });
+  if (url.pathname === '/me') return json({ name: u.name, crew: await crewOf(env, u.id), admin: isAdmin(env, u) });
+  if (url.pathname === '/ping' && req.method === 'POST') { // once a minute while the game runs: adds the time since the last ping (gaps over 90 s don't count)
+    const now = Date.now();
+    await env.DB.prepare('UPDATE users SET play_ms = play_ms + CASE WHEN last_seen IS NOT NULL AND ? - last_seen < 90000 THEN ? - last_seen ELSE 0 END, last_seen = ? WHERE id = ?').bind(now, now, now, u.id).run();
+    const b = await readJson(req); return json({ ok: true, gifts: b && b.claim === true ? await claimGifts(env, u.id) : [] }); // only the multiplayer game takes gifts (they're for the online save)
+  }
+  if (url.pathname === '/gifts') return json({ gifts: await claimGifts(env, u.id) });
+  if (url.pathname.startsWith('/admin/')) { if (!isAdmin(env, u)) return json({ error: 'not allowed' }, 403); return admin(req, env, url, u); }
   if (url.pathname === '/crew' && req.method === 'GET') {
     const c = await crewOf(env, u.id); if (!c) return json({ crew: null });
     const m = await env.DB.prepare('SELECT users.name FROM crew_members JOIN users ON users.id = crew_members.user_id WHERE crew_id = ? ORDER BY joined').bind(c.id).all();
@@ -147,7 +251,7 @@ async function api(req, env, url) {
     return json({ ok: true });
   }
   if (url.pathname === '/logout' && req.method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind((req.headers.get('Authorization') || '').replace(/^Bearer /, '')).run(); return json({ ok: true }); }
-  if (url.pathname === '/save' && req.method === 'GET') { const r = await env.DB.prepare('SELECT data FROM saves WHERE user_id = ?').bind(u.id).first(); return json({ data: r ? JSON.parse(r.data) : null }); }
+  if (url.pathname === '/save' && req.method === 'GET') { const r = await env.DB.prepare('SELECT data FROM saves WHERE user_id = ?').bind(u.id).first(); return json({ data: r ? JSON.parse(r.data) : null, gifts: await claimGifts(env, u.id) }); }
   if (url.pathname === '/save' && req.method === 'POST') {
     const b = await readJson(req); if (!b || !b.data || typeof b.data !== 'object') return json({ error: 'bad save' }, 400);
     await env.DB.prepare('INSERT INTO saves (user_id, data, updated) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated = excluded.updated').bind(u.id, JSON.stringify(b.data), Date.now()).run();
@@ -179,7 +283,7 @@ export default {
       const c = await crewOf(env, u.id); q.searchParams.set('crew', c ? c.tag : ''); // the crew tag comes from the database too
       return env.WORLD.get(env.WORLD.idFromName(code)).fetch(new Request(q, req));
     }
-    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews'].includes(url.pathname)) return api(req, env, url);
+    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews', '/online', '/ping', '/gifts'].includes(url.pathname) || url.pathname.startsWith('/admin/')) return api(req, env, url);
     return json({ ok: true, game: 'Gold Coast Streets online' });
   },
 };
@@ -203,6 +307,14 @@ export class World extends DurableObject {
   }
   async fetch(req) {
     const url = new URL(req.url);
+    if (url.hostname === 'world') { // from the Worker itself (the admin panel), never from players: their requests all come in on /ws
+      const b = req.method === 'POST' ? await req.json().catch(() => ({})) : {}, mine = (o) => this.info(o).uid === b.uid;
+      if (url.pathname === '/who') return json({ people: this.sockets().map((o) => { const I = this.info(o); return { name: I.name, crew: I.crew || '', uid: I.uid, since: I.since }; }) });
+      if (url.pathname === '/nudge') { const ws = this.sockets().filter(mine); for (const o of ws) this.send(o, { t: 'gifts' }); return json({ n: ws.length }); }
+      if (url.pathname === '/kick') { const ws = this.sockets().filter(mine); for (const o of ws) { this.send(o, { t: 'kicked', why: b.why === 'banned' ? 'banned' : 'kicked' }); try { o.close(4001, 'kicked'); } catch (e) { /* gone */ } await this.left(o); } return json({ n: ws.length }); }
+      if (url.pathname === '/announce') { const text = String(b.text || '').slice(0, 140); this.broadcast({ t: 'announce', text }); return json({ n: this.sockets().length }); }
+      return json({ error: 'not found' }, 404);
+    }
     if (this.sockets().length >= MAX_PLAYERS) return json({ error: 'world full' }, 403);
     let m = await this.loadMeta();
     if (!m || !this.sockets().length) { // the first player in starts the world (codes get reused once a world empties)
@@ -212,8 +324,8 @@ export class World extends DurableObject {
     const pair = new WebSocketPair(), [client, server] = Object.values(pair);
     const id = crypto.randomUUID().slice(0, 8), name = clean(url.searchParams.get('name'), 16, 'Player ' + id.slice(0, 3));
     this.ctx.acceptWebSocket(server);
-    const crew = String(url.searchParams.get('crew') || '').replace(/[^A-Z0-9]/g, '').slice(0, 4);
-    server.serializeAttachment({ id, name, crew, look: null, props: [], open: false, n: 0, t0: Date.now() });
+    const crew = String(url.searchParams.get('crew') || '').replace(/[^A-Z0-9]/g, '').slice(0, 4), uid = Number(url.searchParams.get('uid')) || 0;
+    server.serializeAttachment({ id, name, crew, uid, since: Date.now(), look: null, props: [], open: false, n: 0, t0: Date.now() });
     const players = this.sockets().filter((ws) => ws !== server).map((ws) => { const I = this.info(ws); return { id: I.id, name: I.name, crew: I.crew || '', look: I.look, props: I.props || [], open: !!I.open, s: this.last.get(I.id) || null }; });
     this.send(server, { t: 'hello', id, name, crew, world: m, players, max: SHOWN_MAX });
     this.broadcast({ t: 'join', id, name, crew }, server);
@@ -262,6 +374,8 @@ export class Lobby extends DurableObject {
     const now = Date.now(), live = (w) => w.players > 0 && now - w.t < 6 * 3600 * 1000;
     const worlds = Object.fromEntries(Object.entries(all).filter(([, w]) => live(w)));
     const freeCode = () => { for (let k = 0; k < 200; k++) { const c = String(1000 + Math.floor(Math.random() * 9000)); if (!worlds[c]) return c; } return String(Date.now() % 9000 + 1000); };
+    if (url.pathname === '/count') return json({ players: Object.values(worlds).reduce((a, w) => a + w.players, 0), worlds: Object.keys(worlds).length });
+    if (url.pathname === '/all') return json({ worlds: Object.values(worlds).map(({ code, title, public: pub, players }) => ({ code, title, public: pub, players })) });
     if (url.pathname === '/has') { const w = worlds[url.searchParams.get('code')]; return json({ public: !!(w && w.public) }); }
     if (url.pathname === '/newcode') return json({ code: freeCode() });
     if (url.pathname === '/match') { // the busiest public world that still has room, or a fresh one

@@ -22,3 +22,7 @@ binding = "DB"
 database_name = "gold-coast-streets-db"
 database_id = "1c8b1dab-5f8c-472c-bb2e-2c446a78ec0e"
 migrations_dir = "migrations"
+
+# the accounts that can open the admin panel (lower case, comma separated)
+[vars]
+ADMINS = "beau"

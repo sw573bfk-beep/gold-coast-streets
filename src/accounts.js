@@ -37,6 +37,7 @@ function initModeMenu() {
     const out = document.createElement('button'); out.type = 'button'; out.textContent = 'Log out'; out.addEventListener('click', signOut);
     row.append(sp, out); box.appendChild(row);
   }
+  initHomeExtras(box); // players online now, and the admin button (admin.js)
 }
 function accountForm(box) {
   box.innerHTML = `<div class="acct"><div class="acct-tabs"><button type="button" data-t="login" class="on">Log in</button><button type="button" data-t="signup">Create account</button></div>
@@ -62,7 +63,7 @@ function loadAccount() {
   $('play').disabled = true; $('play').textContent = 'Loading your account…';
   api('/save').then((d) => {
     if (d.data) applySave(d.data);
-    rebuildPlayer(); ACCT.loaded = true; $('play').disabled = false; $('play').textContent = $('play').dataset.label;
+    rebuildPlayer(); ACCT.loaded = true; applyGifts(d.gifts); $('play').disabled = false; $('play').textContent = $('play').dataset.label;
   }).catch((e) => { $('play').textContent = e.message === 'log in first' ? 'Signed out — log in again' : 'Couldn’t reach the server'; if (e.message === 'log in first') signOut(); });
 }
 function cloudSave(obj) { // called by saveGame in multiplayer: sent at most every 15 s
