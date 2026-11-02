@@ -50,6 +50,7 @@ function landmarkSkip(T, data) { // the stadium's own box would poke through the
   }
 }
 function landmarkTile(T, data, segs) {
+  storyBridgeTile(T, data); // Brisbane's Story Bridge (brisbane.js)
   const S = REGION.tile, inT = (x, z) => x >= T.x0 && z >= T.z0 && x < T.x0 + S && z < T.z0 + S;
   for (const st of LANDMARK.stadiums) if (inT(st.x, st.z)) stadiumBowl(T, st, segs);
   const sr = LANDMARK.star; if (inT(sr.x, sr.z)) { // THE STAR in gold on its tallest tower

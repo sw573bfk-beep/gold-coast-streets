@@ -244,20 +244,20 @@ function makeWaveNormals() {
   }
   x.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(420, 420);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1260, 1260); // the same ripple size over the bigger sheet
   return t;
 }
 function buildWater() {
   // a glassy surface: deep blue-green with sky reflections that brighten towards the horizon and glints of sun
   waterMat = new THREE.MeshPhysicalMaterial({ color: col('#147fa3'), roughness: 0.06, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, normalMap: makeWaveNormals(), normalScale: new THREE.Vector2(0.4, 0.4), clearcoatNormalMap: null, envMapIntensity: 1.35 });
-  const w = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), waterMat);
-  w.rotation.x = -Math.PI / 2; w.position.set((MINX + MAXX) / 2, -0.55, (MINZ + MAXZ) / 2);
+  const w = new THREE.Mesh(new THREE.PlaneGeometry(120000, 120000), waterMat); // the Gold Coast and Brisbane
+  w.rotation.x = -Math.PI / 2; w.position.set(-19000, -0.55, -24000);
   w.receiveShadow = true;
   scene.add(w);
   // the water is a little see-through: deep water over a dark floor, and the aerial photo under the rivers and canals
   // (tiles.js lays it per tile), so the sandbanks and shallows of the Broadwater show like they do from the air
   waterMat.transparent = true; waterMat.opacity = 0.8;
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), new THREE.MeshBasicMaterial({ color: col('#0b4a5e') })); floor.rotation.x = -Math.PI / 2; floor.position.set(w.position.x, -2.6, w.position.z); scene.add(floor);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(120000, 120000), new THREE.MeshBasicMaterial({ color: col('#0b4a5e') })); floor.rotation.x = -Math.PI / 2; floor.position.set(w.position.x, -2.6, w.position.z); scene.add(floor);
 
   // surf: a white foam band just offshore of the coastline
   const fc = document.createElement('canvas'); fc.width = 64; fc.height = 256;

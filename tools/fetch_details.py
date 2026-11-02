@@ -7,7 +7,10 @@ mangroves.
 """
 import json, os, subprocess, sys, time
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from region_bounds import S, W, N, E
+from region_bounds import S, W, N, E, BRIS
+PREFIX = 'det'
+if sys.argv[1:] == ['brisbane']: S, W, N, E = BRIS[0], BRIS[1], BRIS[2], 153.270; PREFIX = 'detb'  # python3 tools/fetch_details.py brisbane
+if sys.argv[1:] == ['east']: from region_bounds import BRIS_EAST as _BE; S, W, N, E = _BE; PREFIX = 'detc'
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUT = os.path.join(ROOT, 'data', 'region')
@@ -25,7 +28,7 @@ STEP = 0.1
 rows, cols = int(round((N - S) / STEP + 0.4999)), int(round((E - W) / STEP + 0.4999))
 for r in range(rows):
     for c in range(cols):
-        path = os.path.join(OUT, 'det_%d_%d.json' % (r, c))
+        path = os.path.join(OUT, '%s_%d_%d.json' % (PREFIX, r, c))
         if os.path.exists(path): continue
         s, n = S + r * STEP, min(N, S + (r + 1) * STEP); w, e = W + c * STEP, min(E, W + (c + 1) * STEP)
         q = Q.format(s=s, w=w, n=n, e=e)

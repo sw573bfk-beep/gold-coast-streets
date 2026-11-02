@@ -42,7 +42,7 @@ function groundRect(B, cx, cz, ux, uz, len, wid, lift) {
   const A = p(-hl, -hw), Bp = p(hl, -hw), C = p(hl, hw), D = p(-hl, hw);
   triInto(B, A, Bp, C, 1); triInto(B, A, C, D, 1); for (let k = 0; k < 6; k++) B.nor.push(0, 1, 0);
 }
-function streetMesh(T, B, mat, shadow) { if (!B.pos.length) return null; const g = toGeometry(B), m = new THREE.Mesh(g, mat); m.receiveShadow = true; if (shadow) m.castShadow = true; T.meshes.push(m); T.disposables.push(g); return m; }
+function streetMesh(T, B, mat, shadow) { if (!B.pos.length) return null; const g = toGeometry(B), m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.userData.detail = true; if (shadow) m.castShadow = true; T.meshes.push(m); T.disposables.push(g); return m; }
 // a box turned to face a direction (boxInto only does axis-aligned ones)
 function boxAt(B, x, y, z, sx, sy, sz, c, a) {
   const s0 = B.pos.length, n0 = B.nor.length; boxInto(B, 0, y, 0, sx, sy, sz, c);

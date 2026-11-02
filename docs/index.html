@@ -581,20 +581,20 @@ function makeWaveNormals() {
   }
   x.putImageData(img, 0, 0);
   const t = new THREE.CanvasTexture(c);
-  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(420, 420);
+  t.wrapS = t.wrapT = THREE.RepeatWrapping; t.repeat.set(1260, 1260); // the same ripple size over the bigger sheet
   return t;
 }
 function buildWater() {
   // a glassy surface: deep blue-green with sky reflections that brighten towards the horizon and glints of sun
   waterMat = new THREE.MeshPhysicalMaterial({ color: col('#147fa3'), roughness: 0.06, metalness: 0.05, clearcoat: 1, clearcoatRoughness: 0.03, normalMap: makeWaveNormals(), normalScale: new THREE.Vector2(0.4, 0.4), clearcoatNormalMap: null, envMapIntensity: 1.35 });
-  const w = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), waterMat);
-  w.rotation.x = -Math.PI / 2; w.position.set((MINX + MAXX) / 2, -0.55, (MINZ + MAXZ) / 2);
+  const w = new THREE.Mesh(new THREE.PlaneGeometry(120000, 120000), waterMat); // the Gold Coast and Brisbane
+  w.rotation.x = -Math.PI / 2; w.position.set(-19000, -0.55, -24000);
   w.receiveShadow = true;
   scene.add(w);
   // the water is a little see-through: deep water over a dark floor, and the aerial photo under the rivers and canals
   // (tiles.js lays it per tile), so the sandbanks and shallows of the Broadwater show like they do from the air
   waterMat.transparent = true; waterMat.opacity = 0.8;
-  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), new THREE.MeshBasicMaterial({ color: col('#0b4a5e') })); floor.rotation.x = -Math.PI / 2; floor.position.set(w.position.x, -2.6, w.position.z); scene.add(floor);
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(120000, 120000), new THREE.MeshBasicMaterial({ color: col('#0b4a5e') })); floor.rotation.x = -Math.PI / 2; floor.position.set(w.position.x, -2.6, w.position.z); scene.add(floor);
 
   // surf: a white foam band just offshore of the coastline
   const fc = document.createElement('canvas'); fc.width = 64; fc.height = 256;
@@ -1468,12 +1468,24 @@ function renderFrame() {
   U.bloom.value = GFX.cfg.bloom; U.exposure.value = renderer.toneMappingExposure; U.time.value = (performance.now() % 10000) / 1000;
   postPass(FINAL_MAT, null);
 }
+// automatic resolution: when the frame rate drops (big screens on laptop graphics), draw fewer pixels until it's
+// smooth again, and go back up when there's room. Measured over a second or two so it doesn't flicker.
+const AUTORES = { scale: 1, ema: 16, t: 0, last: 0 };
+function autoResolution(now) {
+  const dt = AUTORES.last ? now - AUTORES.last : 16; AUTORES.last = now;
+  if (dt > 3000 || !document.hasFocus()) { AUTORES.t = 0; return; } // hidden or in the background: browsers slow those down on purpose, so it says nothing about the computer
+  AUTORES.ema += (dt - AUTORES.ema) * 0.2; AUTORES.t += dt; if (AUTORES.t < 1500) return; AUTORES.t = 0;
+  const before = AUTORES.scale;
+  if (AUTORES.ema > 38 && AUTORES.scale > 0.4) AUTORES.scale = Math.max(0.4, AUTORES.scale * (AUTORES.ema > 120 ? 0.6 : 0.8)); // very slow: a bigger step
+  else if (AUTORES.ema < 19 && AUTORES.scale < 1) AUTORES.scale = Math.min(1, AUTORES.scale * 1.12);
+  if (AUTORES.scale !== before) { renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX.cfg.ratio) * AUTORES.scale); renderer.setSize(window.innerWidth, window.innerHeight); postTargets(); }
+}
 // apply a graphics level: resolution, shadow detail, post-processing and grass distance
 function applyGfx(level) {
   if (!GFX_LEVELS[level]) return;
   GFX.level = level; GFX.cfg = GFX_LEVELS[level];
   try { localStorage.setItem('gcs-gfx', level); } catch (e) { /* storage blocked */ }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX.cfg.ratio));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX.cfg.ratio) * AUTORES.scale);
   renderer.setSize(window.innerWidth, window.innerHeight);
   if (sun.shadow.mapSize.x !== GFX.cfg.shadow) { sun.shadow.mapSize.set(GFX.cfg.shadow, GFX.cfg.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   postTargets();
@@ -4980,15 +4992,24 @@ function boardRide() {
   let best = null, bd = 7;
   for (const t of trams) if (t.dwell > 1.5) for (const md of t.mods) { const d = Math.hypot(md.x - player.x, md.z - player.z); if (d < bd) { bd = d; best = t; } }
   for (const c of cars) if (c.bus && c.speed < 1 && c.driver === 'ai') { const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < bd) { bd = d; best = c; } }
+  const rv = nearRailVehicle(Math.min(bd, 8)); if (rv) best = rv; // a train or CityCat (rail.js)
   if (!best) return false;
   if (!pay(RIDE.fare, 'the fare')) return true;
-  RIDE.v = best; RIDE.kind = best instanceof Tram ? 'tram' : 'bus'; player.state = 'ride'; player.mode = 'car'; player.model.root.visible = false;
-  toast(RIDE.kind === 'tram' ? 'On the G:link — E at a stop to get off' : 'On the bus — E when it pulls in to get off'); sfxTone([660, 880], 0.15, 0.05);
+  RIDE.v = best; RIDE.kind = best instanceof Tram ? 'tram' : best instanceof RailVehicle ? best.kind : 'bus'; player.state = 'ride'; player.mode = 'car'; player.model.root.visible = false;
+  toast(RIDE.kind === 'tram' ? 'On the G:link — E at a stop to get off' : RIDE.kind === 'train' ? `On the ${best.L.title} — E at a station to get off` : RIDE.kind === 'ferry' ? 'On the CityCat — E at a terminal to get off' : 'On the bus — E when it pulls in to get off'); sfxTone([660, 880], 0.15, 0.05);
   return true;
 }
 function leaveRide() {
   const V = RIDE.v; if (!V) return;
   if (RIDE.kind === 'friend') return hopOut(false); // a friend's car (party.js)
+  if (RIDE.kind === 'train' || RIDE.kind === 'ferry') { // out onto the platform or the pontoon
+    if (V.dwell < 0.5) { toast(RIDE.kind === 'train' ? 'Wait for the next station' : 'Wait for the next terminal'); return; }
+    const md = V.mods[Math.floor(V.mods.length / 2)], side = RIDE.kind === 'train' ? 4.6 : 6;
+    let px = md.x - md.tz * side, pz = md.z + md.tx * side; if (!isLand(px, pz) || resolveCircle(px, pz, 0.4)) { px = md.x + md.tz * side; pz = md.z - md.tx * side; }
+    if (!isLand(px, pz)) { for (let d = 6; d < 60 && !isLand(px, pz); d += 3) for (let a = 0; a < 8; a++) { const qx = md.x + Math.cos(a * Math.PI / 4) * d, qz = md.z + Math.sin(a * Math.PI / 4) * d; if (isLand(qx, qz)) { px = qx; pz = qz; break; } } }
+    const out = freeSpotNear(px, pz, 20); if (out) { px = out[0]; pz = out[1]; }
+    player.x = px; player.z = pz; player.y = 0; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true; RIDE.v = null; $('jobhud').hidden = true; return;
+  }
   const stopped = RIDE.kind === 'tram' ? V.dwell > 0.5 : V.speed < 1.5;
   if (!stopped) { toast(RIDE.kind === 'tram' ? 'Wait for the next stop' : 'Wait for the bus to pull in'); return; }
   const P = RIDE.kind === 'tram' ? V.mods[2] : V, h = RIDE.kind === 'tram' ? Math.atan2(P.tx, P.tz) : V.h; // trams: out of the middle doors
@@ -5001,6 +5022,7 @@ function leaveRide() {
 function updateRide(dt) {
   const V = RIDE.v;
   if (V && RIDE.kind === 'friend') return updateFriendRide();
+  if (V && (RIDE.kind === 'train' || RIDE.kind === 'ferry')) { player.x = V.x; player.z = V.z; player.h = V.h; $('jobhud').hidden = false; $('jobhud').textContent = V.dwell > 0.5 ? `${V.L.title} · stopped at ${V.stopName(false)} · E to get off` : `${V.L.title} · next stop: ${V.stopName(true)}`; return; }
   if (!V || (RIDE.kind === 'bus' && !cars.includes(V))) { RIDE.v = null; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true; return; }
   player.x = V.x; player.z = V.z; player.h = V.h;
   $('jobhud').hidden = false;
@@ -5035,6 +5057,134 @@ function transitApp(btn, head) {
   head('Buses');
   btn(bus ? `🚌 Nearest bus · ${Math.round(bus.d)} m away` : 'No bus nearby right now', bus ? `about ${Math.max(1, Math.round(bus.d / 9 / 60))} min · it pulls in every few hundred metres (E to board, $${RIDE.fare})` : 'they run the main roads', () => bus && directions('the bus', bus.c.x, bus.c.z), !!bus);
   head('Trams run every 6–7 minutes each way, about like the real G:link timetable · $5 a ride');
+  for (const S of nearestTransitStops()) { head(S.L.kind === 'train' ? `🚆 ${S.L.title}` : '⛴ CityCat'); btn(`📍 ${S.name}`, `${km(S.x, S.z)} away · ${S.L.kind === 'train' ? 'Varsity Lakes to Roma Street' : 'Northshore Hamilton to UQ St Lucia'} · E to board when it’s stopped`, () => directions(S.name + (S.L.kind === 'train' ? ' station' : ' terminal'), S.x, S.z)); }
+}
+
+// ============================================================================
+// Gold Coast Streets — trains and CityCats (tools/build_transit.py works out their routes from OpenStreetMap).
+// Trains run the Gold Coast line, Varsity Lakes to Roma Street (88 km, 33 stations), both ways on their own tracks;
+// the CityCats run the Brisbane River, Northshore Hamilton to UQ St Lucia (20 terminals). Hop on with E while one
+// is stopped (like the G:link and the buses) and E at a stop to get off.
+// ============================================================================
+const TRANSIT = { lines: [], vehicles: [], track: new Map(), loaded: false, trackT: 0 };
+const TRAIN_CAR = 23.5, TRAIN_CARS = 6, CAT_LEN = 25;
+let transitGeos = null;
+function transitGeometries() {
+  if (transitGeos) return transitGeos;
+  const car = (front) => mergeGeos([ // a Queensland Rail suburban car: white, a dark window band, yellow on the front
+    box(3.0, 2.3, TRAIN_CAR - 0.6, 0, 1.75, 0, '#f2f2ef'), box(3.02, 1.0, TRAIN_CAR - 1.4, 0, 2.35, 0, '#1b232a'),
+    box(3.03, 0.28, TRAIN_CAR - 0.6, 0, 0.75, 0, '#2c5c9e'), box(2.8, 0.45, TRAIN_CAR - 1.0, 0, 3.15, 0, '#cfd3d6'),
+    box(2.3, 0.6, 2.6, 0, 0.35, -TRAIN_CAR / 2 + 3, '#2a2a2a'), box(2.3, 0.6, 2.6, 0, 0.35, TRAIN_CAR / 2 - 3, '#2a2a2a'),
+    ...(front ? [box(2.9, 1.2, 0.4, 0, 2.2, TRAIN_CAR / 2 - 0.4, '#141a1e'), box(3.0, 1.0, 0.3, 0, 1.2, TRAIN_CAR / 2 - 0.3, '#f2c200')] : []),
+  ]);
+  const cat = mergeGeos([ // a CityCat: twin white hulls, a blue-windowed cabin, the name stripe
+    box(1.2, 1.1, CAT_LEN, -2.3, 0.2, 0, '#f4f4f2'), box(1.2, 1.1, CAT_LEN, 2.3, 0.2, 0, '#f4f4f2'), box(5.6, 0.4, CAT_LEN - 2, 0, 0.9, 0, '#e9e9e6'),
+    box(5.0, 2.1, CAT_LEN - 7, 0, 2.15, -1, '#f4f4f2'), box(5.04, 0.9, CAT_LEN - 8, 0, 2.4, -1, '#1f4f78'), box(5.06, 0.25, CAT_LEN - 7, 0, 1.25, -1, '#c8102e'),
+    box(4.4, 0.25, CAT_LEN - 9, 0, 3.3, -1.5, '#d8dbdd'), box(1.6, 0.9, 1.6, 0, 3.7, 2, '#1f4f78'),
+  ]);
+  return (transitGeos = { mid: car(false), front: car(true), cat });
+}
+const transitMat = new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.4, metalness: 0.1 });
+// a train's height along its line: the ground, but held level across rivers (the rail bridges aren't in the ground model)
+function trackY(L, s) {
+  const P = {}, at = (q) => { railPoint(L, q, P); return isLand(P.x, P.z) ? groundAt(P.x, P.z) : null; };
+  const h = at(s); if (h !== null) return h;
+  let a = null, b = null, da = 0, db = 0;
+  for (let d = 10; d <= 800 && (a === null || b === null); d += 10) { if (a === null && (a = at(s - d)) !== null) da = d; if (b === null && (b = at(s + d)) !== null) db = d; }
+  if (a === null && b === null) return 3; if (a === null) return b; if (b === null) return a;
+  return Math.max(a + (b - a) * da / (da + db), WATER_Y + 4);
+}
+class RailVehicle {
+  constructor(L, s, dir) {
+    this.L = L; this.s = s; this.dir = dir; this.v = 0; this.dwell = 0; this.mods = []; this.kind = L.kind;
+    const G = transitGeometries(), n = L.kind === 'ferry' ? 1 : TRAIN_CARS;
+    for (let k = 0; k < n; k++) { const m = new THREE.Mesh(L.kind === 'ferry' ? G.cat : k === 0 || k === n - 1 ? G.front : G.mid, transitMat); m.castShadow = true; scene.add(m); this.mods.push({ m, x: 0, z: 0, tx: 0, tz: 1 }); }
+    this.place();
+  }
+  get carLen() { return this.kind === 'ferry' ? CAT_LEN : TRAIN_CAR; }
+  place() {
+    const P = {}, lane = this.L.lane, near = Math.hypot(this.mods[0].x - player.x, this.mods[0].z - player.z) < 2500 || this.mods[0].x === 0;
+    this.mods.forEach((md, k) => {
+      const s = this.s - this.dir * (k * this.carLen + this.carLen / 2); railPoint(this.L, s, P);
+      md.tx = P.tx * this.dir; md.tz = P.tz * this.dir; md.x = P.x - md.tz * lane; md.z = P.z + md.tx * lane;
+      md.m.visible = near; if (!near) return;
+      md.m.position.set(md.x, this.kind === 'ferry' ? WATER_Y + 0.1 + Math.sin(elapsed * 1.6 + k) * 0.05 : trackY(this.L, s) + 0.25, md.z);
+      md.m.rotation.y = Math.atan2(md.tx, md.tz) + (this.kind !== 'ferry' && k === this.mods.length - 1 ? Math.PI : 0);
+    });
+    const m0 = this.mods[Math.floor(this.mods.length / 2)]; this.x = m0.x; this.z = m0.z; this.h = Math.atan2(m0.tx, m0.tz);
+  }
+  update(dt) {
+    const L = this.L, vmax = this.kind === 'ferry' ? 9 : 24, acc = this.kind === 'ferry' ? 0.6 : 0.9;
+    if (this.dwell > 0) { this.dwell -= dt; if (this.dwell <= 0) this.v = 0.5; return this.place(); }
+    const ahead = L.stops.map((s) => (s - this.s) * this.dir).filter((d) => d > 0.5), dStop = ahead.length ? Math.min(...ahead) : Infinity;
+    let vt = vmax;
+    if (dStop < 400) vt = Math.min(vt, Math.max(1.2, Math.sqrt(2 * acc * dStop)));
+    if (dStop < 2 && this.v < 3) { this.dwell = this.kind === 'ferry' ? 16 : 20; this.v = 0; this.s += this.dir * dStop; return this.place(); }
+    const end = this.dir > 0 ? L.len - this.s : this.s;
+    if (end < 300) vt = Math.min(vt, Math.max(0.8, Math.sqrt(2 * acc * end)));
+    if (end < 1) { this.dir = -this.dir; this.s += this.dir * this.mods.length * this.carLen; this.dwell = 30; return this.place(); }
+    if (this.kind !== 'ferry') { // something on the track: brake
+      const P = {};
+      for (const d of [10, 25, 45]) { railPoint(L, this.s + this.dir * d, P); const tx = P.tx * this.dir, tz = P.tz * this.dir, x = P.x - tz * L.lane, z = P.z + tx * L.lane;
+        if ((player.deadT === 0 && Math.abs(player.x - x) < 2.8 && Math.abs(player.z - z) < 2.8) || cars.some((c) => Math.abs(c.x - x) < 2.8 && Math.abs(c.z - z) < 2.8)) { vt = Math.min(vt, Math.max(0, d - 10) * 0.3); if (rand() < dt * 0.5) sfxTone([520, 440], 0.6, 0.05, 'square'); break; } }
+    }
+    this.v += clamp(vt - this.v, -2.2 * dt, acc * dt); this.s += this.dir * this.v * dt;
+    this.place();
+  }
+  stopName(next) { // the stop it's at (or, with next, the one coming up)
+    const L = this.L; let best = null, bd = 1e9;
+    L.stops.forEach((s, i) => { const d = (s - this.s) * this.dir; const k = next ? (d > -1 ? d : 1e9) : Math.abs(d); if (k < bd) { bd = k; best = L.names[i]; } });
+    return best || L.title;
+  }
+}
+async function initTransitLines() {
+  if (TRANSIT.loaded || !REGION) return; TRANSIT.loaded = true;
+  let d; try { d = await (await fetch(`tiles/transit.json?b=${REGION.built || 0}`)).json(); } catch (e) { return; }
+  for (const [kind, list] of [['train', d.trains || []], ['ferry', d.ferries || []]]) for (const T of list) {
+    const L = railLine(T.line); Object.assign(L, { kind, title: T.name, stops: T.stops.map((q) => q[0]), names: T.stops.map((q) => q[1]), lane: kind === 'ferry' ? 6 : 2.1 });
+    TRANSIT.lines.push(L);
+    const n = kind === 'ferry' ? 3 : 4;
+    for (let k = 0; k < n; k++) TRANSIT.vehicles.push(new RailVehicle(L, L.len * (0.08 + k / n), k % 2 ? -1 : 1));
+  }
+}
+// the tracks: ballast and two rails each way, built in 400 m pieces near you once the ground there has loaded
+const TRACK_MATS = { ballast: new THREE.MeshStandardMaterial({ color: col('#8a8173'), roughness: 1 }), rail: new THREE.MeshStandardMaterial({ color: col('#b9bcbf'), metalness: 0.7, roughness: 0.35 }) };
+function updateTrack() {
+  for (const L of TRANSIT.lines) {
+    if (L.kind !== 'train') continue;
+    const P = {}, PIECE = 400;
+    for (let s0 = 0; s0 < L.len; s0 += PIECE) {
+      const key = L.title + s0; railPoint(L, s0 + PIECE / 2, P); const d = Math.hypot(P.x - player.x, P.z - player.z), have = TRANSIT.track.get(key);
+      if (d > 1700 && have) { for (const m of have) { scene.remove(m); m.geometry.dispose(); } TRANSIT.track.delete(key); continue; }
+      if (d > 1100 || have || !tileAt(P.x, P.z) || !tileAt(P.x, P.z).mask) continue;
+      const B = newBuf(), R = newBuf(), pts = []; for (let s = s0; s <= Math.min(L.len, s0 + PIECE); s += 5) { railPoint(L, s, P); pts.push([P.x, P.z, P.tx, P.tz, trackY(L, s)]); }
+      for (const lane of [-L.lane, L.lane]) {
+        const strip = (B2, off, hw, lift) => { for (let i = 1; i < pts.length; i++) { const [ax, az, atx, atz, ay] = pts[i - 1], [bx, bz, btx, btz, by] = pts[i]; const q = (x, z, tx, tz, y, o) => [x - tz * o, y + lift, z + tx * o];
+          const a0 = q(ax, az, atx, atz, ay, lane + off - hw), a1 = q(ax, az, atx, atz, ay, lane + off + hw), b0 = q(bx, bz, btx, btz, by, lane + off - hw), b1 = q(bx, bz, btx, btz, by, lane + off + hw);
+          triInto(B2, a0, b0, b1, 1); triInto(B2, a0, b1, a1, 1); for (let k = 0; k < 6; k++) B2.nor.push(0, 1, 0); } };
+        strip(B, 0, 1.7, 0.06); strip(R, -0.72, 0.05, 0.2); strip(R, 0.72, 0.05, 0.2);
+      }
+      const ms = [new THREE.Mesh(toGeometry(B), TRACK_MATS.ballast), new THREE.Mesh(toGeometry(R), TRACK_MATS.rail)]; ms[0].receiveShadow = true;
+      for (const m of ms) scene.add(m); TRANSIT.track.set(key, ms);
+    }
+  }
+}
+function updateTransitLines(dt) {
+  if (!TRANSIT.loaded) { initTransitLines(); return; }
+  for (const V of TRANSIT.vehicles) V.update(dt);
+  TRANSIT.trackT -= dt; if (TRANSIT.trackT <= 0) { TRANSIT.trackT = 1; updateTrack(); }
+}
+// for boardRide: a stopped train or CityCat right beside you
+function nearRailVehicle(maxD) {
+  let best = null, bd = maxD;
+  for (const V of TRANSIT.vehicles) if (V.dwell > 1.5) for (const md of V.mods) { const d = Math.hypot(md.x - player.x, md.z - player.z) - (V.kind === 'ferry' ? 3 : 1.5); if (d < bd) { bd = d; best = V; } }
+  return best;
+}
+// for the phone: the nearest station and CityCat terminal
+function nearestTransitStops() {
+  const out = [];
+  for (const L of TRANSIT.lines) { const P = {}; let best = null; L.stops.forEach((s, i) => { railPoint(L, s, P); const d = Math.hypot(P.x - player.x, P.z - player.z); if (!best || d < best.d) best = { d, x: P.x, z: P.z, name: L.names[i], L }; }); if (best) out.push(best); }
+  return out;
 }
 
 // ============================================================================
@@ -6931,8 +7081,8 @@ const PARKS = { // the theme parks up the M1 (the northern strip of the map): re
   wetnwild: ['Wet’n’Wild slides', [['Kamikaze', 6], ['Tornado', 6], ['Black Hole', 7], ['Aqualoop', 5], ['Mammoth Falls', 5]]],
 };
 async function playRide(id, park = 'seaworld') {
-  const [title, LIST] = PARKS[park] || PARKS.seaworld;
-  const body = agOpen(title, 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
+  const [title, LIST, hint] = PARKS[park] || PARKS.seaworld;
+  const body = agOpen(title, hint || 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
   const R = await new Promise((r) => { const row = agEl(body, 'div'); for (const q of LIST) agBtn(row, `🎢 ${q[0]}${(actData().coll.rides || []).includes(q[0]) ? ' ✅' : ''}`, () => { row.remove(); r(q); }); });
   const say = agEl(body, 'p', 'font:700 18px sans-serif'), arrow = agEl(body, 'p', 'font:700 48px sans-serif;text-align:center'), row = agEl(body, 'div', 'text-align:center'); let thrill = 0, got = '';
   const map = [['←', 'ArrowLeft'], ['↑', 'ArrowUp'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']]; map.forEach(([a]) => agBtn(row, a, () => { got = a; }, true));
@@ -7767,6 +7917,86 @@ function updateDrag(dt) {
     start: (cur) => startLeagueRace(cur, ((actData().league || {}).round || 0) % LEAGUE.length), tick: () => {}, quit: () => endRace(false, 'Race abandoned') });
   defAct({ id: 'carmeet', name: 'Night car meet', icon: '🌃', cat: 'fun', diff: 1, at: () => (MEET.on ? { name: 'Bundall car meet', x: MEET.x, z: MEET.z } : meetSpot()), range: 80, desc: 'After 7 pm the street machine crowd parks up in Bundall with the neon on. Show off your car (mods count) or put $200 on a 400 m drag race.', reward: 'up to $400', req: () => (gameHour >= 19 || gameHour < 3 ? null : 'Car meets start after 7 pm (phone → Weather to skip ahead)'), start: (cur) => openMeet(cur) });
 })();
+
+// ============================================================================
+// Gold Coast Streets — Brisbane: the Story Bridge (its steel cantilever truss over the deck, built along the bridge's
+// real line from the map), Brisbane landmarks for the photography activity, and Brisbane activities: the Story Bridge
+// Climb, the Wheel of Brisbane, Lone Pine, a CityCat cruise and the train up from the Gold Coast.
+// ============================================================================
+const SBRIDGE = { pts: [], mesh: null, w: 12 };
+// the bridge's road, gathered from whichever tiles hold it; once the whole span has turned up, the truss goes on top
+function storyBridgeTile(T, data) {
+  const idx = (data.names || []).indexOf('Story Bridge'); if (idx < 0) return;
+  for (const r of data.roads) if (r[2] === idx && r[3]) { SBRIDGE.w = Math.max(SBRIDGE.w, r[1]); for (let q = 4; q < r.length; q += 2) if (!SBRIDGE.pts.some((p) => Math.abs(p[0] - r[q]) < 1 && Math.abs(p[1] - r[q + 1]) < 1)) SBRIDGE.pts.push([r[q], r[q + 1]]); }
+  buildStoryBridge();
+}
+function buildStoryBridge() {
+  if (SBRIDGE.mesh || SBRIDGE.pts.length < 2) return;
+  // order the points along the bridge (its long axis) and measure it
+  let ax = 0, az = 0; for (const p of SBRIDGE.pts) { ax += p[0]; az += p[1]; } ax /= SBRIDGE.pts.length; az /= SBRIDGE.pts.length;
+  let best = 0, ux = 1, uz = 0; for (const p of SBRIDGE.pts) for (const q of SBRIDGE.pts) { const d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d > best) { best = d; ux = (q[0] - p[0]) / d; uz = (q[1] - p[1]) / d; } }
+  if (best < 600) return; // not all of it loaded yet
+  const pts = SBRIDGE.pts.slice().sort((p, q) => ((p[0] - ax) * ux + (p[1] - az) * uz) - ((q[0] - ax) * ux + (q[1] - az) * uz));
+  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); const L = cum[cum.length - 1];
+  const at = (s) => { let i = 0; while (i < cum.length - 2 && cum[i + 1] < s) i++; const t = (s - cum[i]) / ((cum[i + 1] - cum[i]) || 1); const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t; const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) || 1; return { x, z, tx: (pts[i + 1][0] - pts[i][0]) / l, tz: (pts[i + 1][1] - pts[i][1]) / l }; };
+  const deck = (x, z) => { const d = typeof deckAt === 'function' ? deckAt(x, z) : null; return d === null ? groundAt(x, z) : d; };
+  // the top chord: low at the ends, up to ~48 m over the two river piers, dipping to ~14 m at mid-span (282 m of 777)
+  const t1 = 0.318, t2 = 0.682, hTop = (t) => { const e = Math.min(t, 1 - t); return e < t1 ? 8 + 40 * Math.pow(e / t1, 1.6) : 48 - 34 * Math.sin(Math.min(1, (e - t1) / (0.5 - t1)) * Math.PI / 2); };
+  const B = newBuf(), steel = col('#5f6b74'), stone = col('#b8ae9e'), off = SBRIDGE.w / 2 + 1.2;
+  const beam = (a, b, th) => { // a thin box between two points
+    const dx = b[0] - a[0], dy = b[1] - a[1], dz = b[2] - a[2], len = Math.hypot(dx, dy, dz); if (len < 0.1) return;
+    const g = new THREE.BoxGeometry(th, th, len); const m = new THREE.Matrix4().lookAt(new THREE.Vector3(...a), new THREE.Vector3(...b), new THREE.Vector3(0, 1, 0)); m.setPosition((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2); g.applyMatrix4(m);
+    const p = g.toNonIndexed().attributes.position.array, n = g.toNonIndexed().attributes.normal.array; for (let k = 0; k < p.length; k++) { B.pos.push(p[k]); B.nor.push(n[k]); } for (let k = 0; k < p.length / 3; k++) B.col.push(steel.r, steel.g, steel.b); g.dispose();
+  };
+  const STEP = 12, n = Math.max(8, Math.round(L / STEP));
+  for (const side of [-1, 1]) {
+    let prevTop = null, prevBot = null;
+    for (let k = 0; k <= n; k++) {
+      const s = L * k / n, P = at(s), y = deck(P.x, P.z), px = P.x - P.tz * off * side, pz = P.z + P.tx * off * side;
+      const top = [px, y + hTop(s / L), pz], bot = [px, y - 1.2, pz];
+      beam(bot, top, 0.7); // the verticals
+      if (prevTop) { beam(prevTop, top, 1.1); beam(prevBot, bot, 1.1); beam(k % 2 ? prevBot : prevTop, k % 2 ? top : bot, 0.5); } // chords and the diagonals
+      prevTop = top; prevBot = bot;
+    }
+  }
+  for (let k = 0; k <= n; k += 3) { const s = L * k / n, P = at(s), y = deck(P.x, P.z), h = hTop(s / L); if (h < 10) continue; beam([P.x - P.tz * off, y + h, P.z + P.tx * off], [P.x + P.tz * off, y + h, P.z - P.tx * off], 0.6); } // cross bracing overhead
+  for (const t of [t1, t2]) { // the two river piers, stone, from the riverbed up to the deck
+    const P = at(L * t), y = deck(P.x, P.z);
+    for (const side of [-1, 1]) boxInto(B, P.x - P.tz * off * side, WATER_Y - 3, P.z + P.tx * off * side, 5, y - WATER_Y + 1.5, 9, stone);
+  }
+  const mesh = new THREE.Mesh(toGeometry(B), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.45 }));
+  mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh); SBRIDGE.mesh = mesh; SBRIDGE.at = at; SBRIDGE.L = L;
+}
+function updateBrisbane() { // let the bridge go when you're far away (its tiles go too)
+  if (SBRIDGE.mesh && SBRIDGE.pts.length && Math.hypot(SBRIDGE.pts[0][0] - player.x, SBRIDGE.pts[0][1] - player.z) > 5000) { scene.remove(SBRIDGE.mesh); SBRIDGE.mesh.geometry.dispose(); SBRIDGE.mesh = null; SBRIDGE.pts.length = 0; }
+}
+// ---------------------------------------------------------------- landmarks for the photography activity
+LANDMARKS.push(['Story Bridge', /^Story Bridge$/i, -38137, -59257], ['Brisbane City Hall', /^Brisbane City Hall$/i, -39316, -58670], ['Wheel of Brisbane', /^Wheel of Brisbane/i, -39591, -57974],
+  ['Kangaroo Point Cliffs', /^Kangaroo Point Cliffs/i, -38323, -57476], ['Suncorp Stadium', /^Suncorp Stadium/i, -40692, -59124], ['The Gabba', /^The Gabba|^Brisbane Cricket Ground/i, -37881, -56802]);
+// ---------------------------------------------------------------- activities
+PARKS.storybridge = ['Story Bridge Climb', [['The climb to the top', 9], ['Across the arch at sunset', 7]], 'Clip on and climb. Press the arrow shown at each step to keep your footing — the faster, the better the view.'];
+PARKS.wheel = ['Wheel of Brisbane', [['A turn on the Wheel', 5]], 'Ride the Wheel over South Bank. Press the arrow shown to spot each landmark as the city turns below you.'];
+PARKS.lonepine = ['Lone Pine Koala Sanctuary', [['Meet the koalas', 6], ['Feed the kangaroos', 6], ['The platypus house', 5]], 'Gently does it. Press the arrow shown at each moment to keep the animals happy.'];
+function brisbaneActivities() {
+  const V = (n, re, x, z) => () => venue(n, re, x, z);
+  defAct({ id: 'storyclimb', name: 'Story Bridge Climb', icon: '🌉', cat: 'fun', diff: 2, at: V('Story Bridge', /^Story Bridge Adventure Climb|^Story Bridge$/i, -38137, -59257), range: 160, desc: 'Brisbane’s Story Bridge: clip on and climb the steel arch above the river, 80 m up.', reward: 'climb badges', progress: () => `${PARKS.storybridge[1].filter((q) => (actData().coll.rides || []).includes(q[0])).length}/2 climbs`, unit: 'pts', start: () => playRide('storyclimb', 'storybridge') });
+  defAct({ id: 'wheel', name: 'Wheel of Brisbane', icon: '🎡', cat: 'fun', diff: 1, at: V('Wheel of Brisbane', /^Wheel of Brisbane/i, -39591, -57974), range: 120, desc: 'A turn on the big wheel at South Bank, with the CBD and the river below.', reward: 'a ride badge', unit: 'pts', start: () => playRide('wheel', 'wheel') });
+  defAct({ id: 'lonepine', name: 'Lone Pine Koala Sanctuary', icon: '🐨', cat: 'explore', diff: 1, at: V('Lone Pine Koala Sanctuary', /^Lone Pine Koala Sanctuary/i, -44712, -51494), range: 250, desc: 'The world’s first koala sanctuary, out at Fig Tree Pocket: meet the koalas, feed the kangaroos, see the platypus.', reward: 'animal badges', progress: () => `${PARKS.lonepine[1].filter((q) => (actData().coll.rides || []).includes(q[0])).length}/3`, unit: 'pts', start: () => playRide('lonepine', 'lonepine') });
+  defAct({ id: 'citycat', name: 'CityCat cruise', icon: '⛴', cat: 'explore', diff: 1, anywhere: true, where: 'any CityCat terminal on the Brisbane River', desc: 'Ride a CityCat at least three stops along the Brisbane River (E at a terminal when one’s in).', reward: '$40', start: (cur) => { cur.ride = 'ferry'; cur.stops = 0; toast('⛴ Find a CityCat terminal (phone → Transit) and ride three stops'); } });
+  defAct({ id: 'trainup', name: 'The train to Brisbane', icon: '🚆', cat: 'explore', diff: 1, anywhere: true, where: 'any Gold Coast station (Varsity Lakes, Robina, Nerang, Helensvale, Coomera)', desc: 'Catch the Gold Coast line from the coast and ride it all the way up to Brisbane (South Brisbane or Roma Street).', reward: '$120', start: (cur) => { cur.ride = 'train'; toast('🚆 Get to a Gold Coast station (phone → Transit) and ride up to Brisbane'); } });
+}
+// the ride-along activities: count stops on the CityCat, notice arriving in Brisbane on the train
+const BRIS_RIDE = { last: null, from: null };
+function updateBrisbaneRides() {
+  const cur = typeof ACT_CUR !== 'undefined' && ACT_CUR; if (!cur || !cur.ride) return;
+  if (player.state !== 'ride' || RIDE.kind !== cur.ride || !RIDE.v) { BRIS_RIDE.last = null; return; }
+  const V = RIDE.v, at = V.dwell > 0.5 ? V.stopName(false) : null;
+  if (!at || at === BRIS_RIDE.last) return;
+  if (!BRIS_RIDE.last) BRIS_RIDE.from = at; BRIS_RIDE.last = at;
+  if (cur.ride === 'ferry') { cur.stops = (cur.stops || 0) + 1; if (cur.stops > 3) actComplete('citycat', { msg: `⛴ CityCat cruise done — ${BRIS_RIDE.from} to ${at}`, money: 40 }); }
+  if (cur.ride === 'train' && /South Brisbane|Roma Street/.test(at) && /Varsity|Robina|Nerang|Helensvale|Coomera|Hope Island|Pimpama/.test(BRIS_RIDE.from)) actComplete('trainup', { msg: `🚆 From ${BRIS_RIDE.from} all the way to ${at}!`, money: 120 });
+}
+brisbaneActivities();
 
 // ============================================================================
 // Gold Coast Streets — a day in the life, and the big events.
@@ -8690,6 +8920,10 @@ function updateTiles(dt) {
   const S = REGION.tile, px = player.x, pz = player.z;
   const dist = (i, j) => { const cx = clamp(px, i * S, (i + 1) * S), cz = clamp(pz, j * S, (j + 1) * S); return Math.hypot(px - cx, pz - cz); };
   for (const [k, T] of TILES) if (dist(T.i, T.j) > UNLOAD_RADIUS) unloadTile(k);
+  // small things (trees, lamps, poles, furniture, wires, paint) only on the tiles near you: far off they're a few pixels
+  // each but millions of triangles, and drawing them halved the frame rate on a laptop
+  const near = GFX.level === 'ultra' ? 900 : GFX.level === 'low' ? 420 : 650;
+  for (const T of TILES.values()) { const vis = dist(T.i, T.j) < near; if (T.detailVis === vis) continue; T.detailVis = vis; for (const m of T.meshes) if (m.isInstancedMesh || m.isLineSegments || m.userData.detail) m.visible = vis; }
   if (tileBusy) return;
   let best = null, bd = LOAD_RADIUS;
   const i0 = Math.floor((px - LOAD_RADIUS) / S), i1 = Math.floor((px + LOAD_RADIUS) / S), j0 = Math.floor((pz - LOAD_RADIUS) / S), j1 = Math.floor((pz + LOAD_RADIUS) / S);
@@ -9730,7 +9964,7 @@ function groundRect(B, cx, cz, ux, uz, len, wid, lift) {
   const A = p(-hl, -hw), Bp = p(hl, -hw), C = p(hl, hw), D = p(-hl, hw);
   triInto(B, A, Bp, C, 1); triInto(B, A, C, D, 1); for (let k = 0; k < 6; k++) B.nor.push(0, 1, 0);
 }
-function streetMesh(T, B, mat, shadow) { if (!B.pos.length) return null; const g = toGeometry(B), m = new THREE.Mesh(g, mat); m.receiveShadow = true; if (shadow) m.castShadow = true; T.meshes.push(m); T.disposables.push(g); return m; }
+function streetMesh(T, B, mat, shadow) { if (!B.pos.length) return null; const g = toGeometry(B), m = new THREE.Mesh(g, mat); m.receiveShadow = true; m.userData.detail = true; if (shadow) m.castShadow = true; T.meshes.push(m); T.disposables.push(g); return m; }
 // a box turned to face a direction (boxInto only does axis-aligned ones)
 function boxAt(B, x, y, z, sx, sy, sz, c, a) {
   const s0 = B.pos.length, n0 = B.nor.length; boxInto(B, 0, y, 0, sx, sy, sz, c);
@@ -10068,6 +10302,7 @@ function landmarkSkip(T, data) { // the stadium's own box would poke through the
   }
 }
 function landmarkTile(T, data, segs) {
+  storyBridgeTile(T, data); // Brisbane's Story Bridge (brisbane.js)
   const S = REGION.tile, inT = (x, z) => x >= T.x0 && z >= T.z0 && x < T.x0 + S && z < T.z0 + S;
   for (const st of LANDMARK.stadiums) if (inT(st.x, st.z)) stadiumBowl(T, st, segs);
   const sr = LANDMARK.star; if (inT(sr.x, sr.z)) { // THE STAR in gold on its tallest tower
@@ -13303,7 +13538,8 @@ function initSetup() {
   const lg = document.createElement('optgroup'); lg.label = 'Landmarks'; sel.appendChild(lg);
   const qi = Object.keys(MAP.details.bnames || {}).find((k) => /^Q1/.test(MAP.details.bnames[k]));
   if (qi) { const f = MAP.buildings[qi].slice(3); let x = 0, z = 0; for (let q = 0; q < f.length; q += 2) { x += f[q]; z += f[q + 1]; } add(lg, 'Q1 Tower', x / (f.length / 2), z / (f.length / 2)); }
-  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School', 'Currumbin Wildlife Sanctuary', 'Kirra Beach']) {
+  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School', 'Currumbin Wildlife Sanctuary', 'Kirra Beach',
+    'Queen Street Mall', 'South Bank Parklands', 'Story Bridge', 'Brisbane City Hall', 'Fortitude Valley', 'Suncorp Stadium', 'The Gabba', 'Lone Pine Koala Sanctuary', 'Westfield Garden City', 'Westfield Chermside']) { // Brisbane too
     const e = REGION.search.find((q) => q[0] === nm) || REGION.search.find((q) => q[0].startsWith(nm)); if (e) add(lg, e[0], e[2], e[3]);
   }
   if (AIRPORT && AIRPORT.rw) { // on the apron beside the parked planes
@@ -13414,7 +13650,7 @@ function stepWorld(dt) {
   updatePickups(dt);
   updateDrift(dt);
   updateWanted(dt);
-  updateCopField(dt); updatePolice(dt); updateBoats(dt); updateTransit(dt);
+  updateCopField(dt); updatePolice(dt); updateBoats(dt); updateTransit(dt); updateTransitLines(dt); updateBrisbane(); updateBrisbaneRides(); // trains and CityCats (rail.js), the Story Bridge and Brisbane ride activities (brisbane.js)
   manageWorld(dt);
   updateParticles(dt);
   updateSky(dt); updateWeather(dt); updateRadio(dt);
@@ -13428,6 +13664,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!ready) return;
+  if (started) autoResolution(now); // fewer pixels when the frame rate drops (post.js)
   updateTouch(); updateNet(dt); // online: keeps sending and showing other players even while paused
   if (!started || paused || bigMapOpen || uiOpen) {
     if (!started) { camYaw += dt * 0.05; elapsed += dt; updateCamera(dt); updateSky(0); }

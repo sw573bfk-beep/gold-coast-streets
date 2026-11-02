@@ -15,9 +15,12 @@ KX = math.cos(math.radians(LAT0)) * 111320.0
 KZ = 110574.0
 def proj(lat, lon): return (round((lon - LON0) * KX, 1), round((LAT0 - lat) * KZ, 1))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from region_bounds import S as RS, W as RW, N as RN, E as RE  # the extended map: Southport to Coolangatta, ~30 km inland
-RX0, RZ0 = proj(RN, RW)
-RX1, RZ1 = proj(RS, RE)
+from region_bounds import S as RS, W as RW, N as RN, E as RE, BRIS  # the Gold Coast box (Coolangatta to Coomera, ~30 km inland) and Brisbane's
+GX0, GZ0 = proj(RN, RW); GX1, GZ1 = proj(RS, RE)
+BX0, BZ0 = proj(BRIS[2], BRIS[1]); BX1, BZ1 = proj(BRIS[0], BRIS[3])
+BOXES = [(GX0, GZ0, GX1, GZ1), (BX0, BZ0, BX1, BZ1)]
+RX0, RZ0, RX1, RZ1 = min(GX0, BX0), min(GZ0, BZ0), max(GX1, BX1), max(GZ1, BZ1)  # the rectangle round both
+def in_region(x, z, pad=0): return any(x0 - pad <= x <= x1 + pad and z0 - pad <= z <= z1 + pad for x0, z0, x1, z1 in BOXES)
 CORE = json.load(open(os.path.join(ROOT, 'data', 'map.json')))['bounds']  # [minx, minz, maxx, maxz]
 def in_core(x, z, pad=0): return CORE[0] - pad <= x <= CORE[2] + pad and CORE[1] - pad <= z <= CORE[3] + pad
 def tkey(x, z): return (int(math.floor(x / TILE)), int(math.floor(z / TILE)))
@@ -25,18 +28,26 @@ def tkey(x, z): return (int(math.floor(x / TILE)), int(math.floor(z / TILE)))
 # ---------------------------------------------------------------- load OSM blocks (deduplicated)
 els = {}
 for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'osm_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmx_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poix_*.json'))
-                   + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmn_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poin_*.json'))):  # osmn/poin: the northern strip (tools/fetch_north.py)  # poix: gyms, arcades, bakeries, clinics (tools/fetch_pois_extra.py)
+                   + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmn_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poin_*.json'))
+                   + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmb_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poib_*.json'))
+                   + glob.glob(os.path.join(ROOT, 'data', 'region', 'osmc_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'poic_*.json'))):  # osmn/poin: the northern strip; osmb/poib: Brisbane; poix: gyms, arcades, bakeries, clinics
     for e in json.load(open(path))['elements']:
+        if (e['type'], e['id']) in els: continue
+        # points kept as projected (x, z) pairs, not {'lat', 'lon'} dicts: Brisbane makes the map four times bigger
+        if 'geometry' in e: e['g'] = [proj(q['lat'], q['lon']) for q in e.pop('geometry') if q]
+        for m in e.get('members', ()):
+            if 'geometry' in m: m['g'] = [proj(q['lat'], q['lon']) for q in m.pop('geometry') if q]
+        e.pop('bounds', None)
         els[(e['type'], e['id'])] = e
 els = list(els.values())
 print('osm elements', len(els))
-def geom(e): return [proj(g['lat'], g['lon']) for g in e.get('geometry', []) if g]
+def geom(e): return e.get('g') or []
 def epos(e):
     if e['type'] == 'node': return proj(e['lat'], e['lon'])
     g = geom(e)
     if g: return (sum(p[0] for p in g) / len(g), sum(p[1] for p in g) / len(g))
     if e.get('members'):
-        pts = [p for m in e['members'] for p in [proj(q['lat'], q['lon']) for q in m.get('geometry', []) if q]]
+        pts = [p for m in e['members'] for p in m.get('g', ())]
         if pts: return (sum(p[0] for p in pts) / len(pts), sum(p[1] for p in pts) / len(pts))
     return None
 def flat(pts):
@@ -335,7 +346,11 @@ bgrid = {}
 # hand fixes (data/fixes/buildings.json): places traced from the government aerial photos replace whatever the map had there
 FIXES = json.load(open(os.path.join(ROOT, 'data', 'fixes', 'buildings.json'))) if os.path.exists(os.path.join(ROOT, 'data', 'fixes', 'buildings.json')) else {'regions': []}
 FIX_RINGS = [[(r['replace'][i], r['replace'][i + 1]) for i in range(0, len(r['replace']), 2)] for r in FIXES['regions']]
+TALL = {  # Brisbane towers whose heights are a matter of public record (metres to the top), when the map's guess is off
+    'Brisbane Skytower': 270, '1 William Street': 260, 'Infinity Tower': 249, 'Soleil': 243, 'Aurora Tower': 207, 'Riparian Plaza': 200,
+    'One One One Eagle Street': 195, 'Meriton Suites Herschel Street': 200}
 def add_tile_building(pts, h, mh, kind, name=None, manual=False):
+    if name in TALL and abs(h - TALL[name]) > 15: h = TALL[name]
     if area(pts) < 0: pts = pts[::-1]
     pts = simplify(pts + [pts[0]], 0.3)[:-1]
     if len(pts) < 3 or abs(area(pts)) < 6: return
@@ -349,7 +364,7 @@ for e in els:
     t = e.get('tags', {}); b = t.get('building')
     if not b: continue
     if e['type'] == 'way': rings = [ring_clean(geom(e))]
-    elif e['type'] == 'relation': rings = join_rings([[proj(q['lat'], q['lon']) for q in m.get('geometry', []) if q] for m in e.get('members', []) if m.get('role') == 'outer'])
+    elif e['type'] == 'relation': rings = join_rings([list(m.get('g', ())) for m in e.get('members', []) if m.get('role') == 'outer'])
     else: continue
     for pts in rings:
         if len(pts) < 3: continue
@@ -414,12 +429,12 @@ for e in els:
         if len(pts) < 3 or pts[0] != pts[-1]: continue
         rings = [ring_clean(pts)]
     elif e['type'] == 'relation':
-        rings = join_rings([[proj(q['lat'], q['lon']) for q in m.get('geometry', []) if q] for m in e.get('members', []) if m.get('type') == 'way'])
+        rings = join_rings([list(m.get('g', ())) for m in e.get('members', []) if m.get('type') == 'way'])
     else: continue
     rings = [simplify(r + [r[0]], 0.5)[:-1] for r in rings if len(r) > 2]
     if rings: polys.append((k, rings))
 water_polys = [p for p in ocean_polys] + [r for r in ocean_rings]
-all_tiles = [(i, j) for i in range(int(math.floor(RX0 / TILE)), int(math.floor(RX1 / TILE)) + 1) for j in range(int(math.floor(RZ0 / TILE)), int(math.floor(RZ1 / TILE)) + 1)]
+all_tiles = [(i, j) for i in range(int(math.floor(RX0 / TILE)), int(math.floor(RX1 / TILE)) + 1) for j in range(int(math.floor(RZ0 / TILE)), int(math.floor(RZ1 / TILE)) + 1) if in_region((i + 0.5) * TILE, (j + 0.5) * TILE, TILE / 2)]
 poly_bbox = [(k, rings, min(p[0] for r in rings for p in r), min(p[1] for r in rings for p in r), max(p[0] for r in rings for p in r), max(p[1] for r in rings for p in r)) for k, rings in polys]
 ocean_bbox = [(r, min(p[0] for p in r), min(p[1] for p in r), max(p[0] for p in r), max(p[1] for p in r)) for r in water_polys]
 for (ti, tj) in all_tiles:
@@ -524,9 +539,9 @@ class Chain:  # several height rasters side by side: the first that has a value 
             v = R.value(lat, lon)
             if v is not None: return v
         return None
-if DEM and os.path.exists(os.path.join(ROOT, 'data', 'region', 'demn.json')): DEM = Chain([DEM, Raster('demn')])
+if DEM: DEM = Chain([DEM] + [Raster(k) for k in ('demn', 'demb', 'demc') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))])  # the northern strip, Brisbane
 HAVE_DEM = HAVE_DEM or HAVE_DEMX
-AIRS = [Raster(k) for k in ('air', 'airx', 'airn') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]  # 2 m photos first, 3 m beyond
+AIRS = [Raster(k) for k in ('air', 'airx', 'airn', 'airb', 'airc') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]  # 2 m photos first, 3 m beyond
 HAVE_AIR = bool(AIRS)
 AIR = AIRS[0] if AIRS else None
 def air_rgb(lat, lon):
@@ -861,8 +876,12 @@ for (ti, tj), tt in tiles.items():
 # crossings and stop lines, bus stops, real street lights, power poles and wires, channel markers, lifeguard towers,
 # benches and bins, mangroves; then roundabout islands and the medians between divided roads
 det_els = {}
-for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'det_*.json'))):
-    for e in json.load(open(path))['elements']: det_els[(e['type'], e['id'])] = e
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'det_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'detb_*.json')) + glob.glob(os.path.join(ROOT, 'data', 'region', 'detc_*.json'))):
+    for e in json.load(open(path))['elements']:
+        if 'geometry' in e: e['g'] = [proj(q['lat'], q['lon']) for q in e.pop('geometry') if q]
+        for m in e.get('members', ()):
+            if 'geometry' in m: m['g'] = [proj(q['lat'], q['lon']) for q in m.pop('geometry') if q]
+        det_els[(e['type'], e['id'])] = e
 for e in els:  # benches and bins in the main map too
     if e['type'] == 'node' and e.get('tags', {}).get('amenity') in ('bench', 'waste_basket', 'drinking_water', 'bbq'): det_els[(e['type'], e['id'])] = e
 SEA_COL = {'port': 'r', 'starboard': 'g'}
@@ -897,8 +916,8 @@ for e in det_els.values():
             T(tkey(cx_, cz_))['areas'].setdefault('mangrove', []).append(flat(simplify(pts, 1.0))); n_det['mangrove areas'] += 1
     elif e['type'] == 'relation' and t.get('wetland') == 'mangrove':
         for m in e.get('members', []):
-            if m.get('role') != 'outer' or not m.get('geometry'): continue
-            pts = [proj(g['lat'], g['lon']) for g in m['geometry'] if g]
+            if m.get('role') != 'outer' or not m.get('g'): continue
+            pts = list(m['g'])
             if len(pts) < 4: continue
             cx_ = sum(q[0] for q in pts) / len(pts); cz_ = sum(q[1] for q in pts) / len(pts)
             T(tkey(cx_, cz_))['areas'].setdefault('mangrove', []).append(flat(simplify(pts, 1.0))); n_det['mangrove areas'] += 1
@@ -1017,7 +1036,7 @@ ov_coast = []
 for ln in coast:
     run = []
     for q in ln:
-        if in_core(q[0], q[1], 30) or not (RX0 <= q[0] <= RX1 and RZ0 <= q[1] <= RZ1):
+        if in_core(q[0], q[1], 30) or not in_region(q[0], q[1]):
             if len(run) > 1: ov_coast.append(flat(simplify(run, 1.5)))
             run = []
         else: run.append(q)
@@ -1092,7 +1111,7 @@ def search_kind(t):
     return None
 search, seen_s = [], {}
 def add_search(name, kind, x, z, spread, tag=None):
-    if not (RX0 <= x <= RX1 and RZ0 <= z <= RZ1): return
+    if not in_region(x, z): return
     key = (name.lower(), kind)
     for (px, pz) in seen_s.get(key, ()):
         if abs(px - x) < spread and abs(pz - z) < spread: return
@@ -1117,7 +1136,7 @@ for e in els:
     if p: add_search(nm, k, p[0], p[1], 150, place_tag(t))
 print('search entries', len(search), {SEARCH_KINDS[k]: sum(1 for s_ in search if s_[1] == k) for k in range(len(SEARCH_KINDS))})
 
-region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,
+region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], boxes=[[round(v) for v in b] for b in BOXES], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,
               suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS, airport=AIRPORT)
 region['built'] = int(time.time())  # tells browsers the tiles changed (they fetch tiles with ?b=built)
 json.dump(region, open(os.path.join(out_dir, 'region.json'), 'w'), separators=(',', ':'))

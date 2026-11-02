@@ -335,8 +335,8 @@ const PARKS = { // the theme parks up the M1 (the northern strip of the map): re
   wetnwild: ['Wet’n’Wild slides', [['Kamikaze', 6], ['Tornado', 6], ['Black Hole', 7], ['Aqualoop', 5], ['Mammoth Falls', 5]]],
 };
 async function playRide(id, park = 'seaworld') {
-  const [title, LIST] = PARKS[park] || PARKS.seaworld;
-  const body = agOpen(title, 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
+  const [title, LIST, hint] = PARKS[park] || PARKS.seaworld;
+  const body = agOpen(title, hint || 'Pick a ride. Press the arrow shown at each twist to hold on — the faster, the bigger the thrill.'), gen = AG.gen;
   const R = await new Promise((r) => { const row = agEl(body, 'div'); for (const q of LIST) agBtn(row, `🎢 ${q[0]}${(actData().coll.rides || []).includes(q[0]) ? ' ✅' : ''}`, () => { row.remove(); r(q); }); });
   const say = agEl(body, 'p', 'font:700 18px sans-serif'), arrow = agEl(body, 'p', 'font:700 48px sans-serif;text-align:center'), row = agEl(body, 'div', 'text-align:center'); let thrill = 0, got = '';
   const map = [['←', 'ArrowLeft'], ['↑', 'ArrowUp'], ['↓', 'ArrowDown'], ['→', 'ArrowRight']]; map.forEach(([a]) => agBtn(row, a, () => { got = a; }, true));

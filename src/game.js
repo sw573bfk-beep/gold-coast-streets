@@ -2082,7 +2082,8 @@ function initSetup() {
   const lg = document.createElement('optgroup'); lg.label = 'Landmarks'; sel.appendChild(lg);
   const qi = Object.keys(MAP.details.bnames || {}).find((k) => /^Q1/.test(MAP.details.bnames[k]));
   if (qi) { const f = MAP.buildings[qi].slice(3); let x = 0, z = 0; for (let q = 0; q < f.length; q += 2) { x += f[q]; z += f[q + 1]; } add(lg, 'Q1 Tower', x / (f.length / 2), z / (f.length / 2)); }
-  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School', 'Currumbin Wildlife Sanctuary', 'Kirra Beach']) {
+  for (const nm of ['Pacific Fair', 'Robina Town Centre', 'Australia Fair Shopping Centre', 'Broadbeach Mall', 'The Star Gold Coast', 'Gold Coast University Hospital', 'Southport State High School', 'Currumbin Wildlife Sanctuary', 'Kirra Beach',
+    'Queen Street Mall', 'South Bank Parklands', 'Story Bridge', 'Brisbane City Hall', 'Fortitude Valley', 'Suncorp Stadium', 'The Gabba', 'Lone Pine Koala Sanctuary', 'Westfield Garden City', 'Westfield Chermside']) { // Brisbane too
     const e = REGION.search.find((q) => q[0] === nm) || REGION.search.find((q) => q[0].startsWith(nm)); if (e) add(lg, e[0], e[2], e[3]);
   }
   if (AIRPORT && AIRPORT.rw) { // on the apron beside the parked planes
@@ -2193,7 +2194,7 @@ function stepWorld(dt) {
   updatePickups(dt);
   updateDrift(dt);
   updateWanted(dt);
-  updateCopField(dt); updatePolice(dt); updateBoats(dt); updateTransit(dt);
+  updateCopField(dt); updatePolice(dt); updateBoats(dt); updateTransit(dt); updateTransitLines(dt); updateBrisbane(); updateBrisbaneRides(); // trains and CityCats (rail.js), the Story Bridge and Brisbane ride activities (brisbane.js)
   manageWorld(dt);
   updateParticles(dt);
   updateSky(dt); updateWeather(dt); updateRadio(dt);
@@ -2207,6 +2208,7 @@ function frame(now) {
   requestAnimationFrame(frame);
   const dt = Math.min(0.05, (now - lastT) / 1000); lastT = now;
   if (!ready) return;
+  if (started) autoResolution(now); // fewer pixels when the frame rate drops (post.js)
   updateTouch(); updateNet(dt); // online: keeps sending and showing other players even while paused
   if (!started || paused || bigMapOpen || uiOpen) {
     if (!started) { camYaw += dt * 0.05; elapsed += dt; updateCamera(dt); updateSky(0); }

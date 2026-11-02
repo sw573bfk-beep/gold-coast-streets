@@ -118,6 +118,10 @@ function updateTiles(dt) {
   const S = REGION.tile, px = player.x, pz = player.z;
   const dist = (i, j) => { const cx = clamp(px, i * S, (i + 1) * S), cz = clamp(pz, j * S, (j + 1) * S); return Math.hypot(px - cx, pz - cz); };
   for (const [k, T] of TILES) if (dist(T.i, T.j) > UNLOAD_RADIUS) unloadTile(k);
+  // small things (trees, lamps, poles, furniture, wires, paint) only on the tiles near you: far off they're a few pixels
+  // each but millions of triangles, and drawing them halved the frame rate on a laptop
+  const near = GFX.level === 'ultra' ? 900 : GFX.level === 'low' ? 420 : 650;
+  for (const T of TILES.values()) { const vis = dist(T.i, T.j) < near; if (T.detailVis === vis) continue; T.detailVis = vis; for (const m of T.meshes) if (m.isInstancedMesh || m.isLineSegments || m.userData.detail) m.visible = vis; }
   if (tileBusy) return;
   let best = null, bd = LOAD_RADIUS;
   const i0 = Math.floor((px - LOAD_RADIUS) / S), i1 = Math.floor((px + LOAD_RADIUS) / S), j0 = Math.floor((pz - LOAD_RADIUS) / S), j1 = Math.floor((pz + LOAD_RADIUS) / S);

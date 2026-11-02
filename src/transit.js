@@ -30,15 +30,24 @@ function boardRide() {
   let best = null, bd = 7;
   for (const t of trams) if (t.dwell > 1.5) for (const md of t.mods) { const d = Math.hypot(md.x - player.x, md.z - player.z); if (d < bd) { bd = d; best = t; } }
   for (const c of cars) if (c.bus && c.speed < 1 && c.driver === 'ai') { const d = Math.hypot(c.x - player.x, c.z - player.z); if (d < bd) { bd = d; best = c; } }
+  const rv = nearRailVehicle(Math.min(bd, 8)); if (rv) best = rv; // a train or CityCat (rail.js)
   if (!best) return false;
   if (!pay(RIDE.fare, 'the fare')) return true;
-  RIDE.v = best; RIDE.kind = best instanceof Tram ? 'tram' : 'bus'; player.state = 'ride'; player.mode = 'car'; player.model.root.visible = false;
-  toast(RIDE.kind === 'tram' ? 'On the G:link — E at a stop to get off' : 'On the bus — E when it pulls in to get off'); sfxTone([660, 880], 0.15, 0.05);
+  RIDE.v = best; RIDE.kind = best instanceof Tram ? 'tram' : best instanceof RailVehicle ? best.kind : 'bus'; player.state = 'ride'; player.mode = 'car'; player.model.root.visible = false;
+  toast(RIDE.kind === 'tram' ? 'On the G:link — E at a stop to get off' : RIDE.kind === 'train' ? `On the ${best.L.title} — E at a station to get off` : RIDE.kind === 'ferry' ? 'On the CityCat — E at a terminal to get off' : 'On the bus — E when it pulls in to get off'); sfxTone([660, 880], 0.15, 0.05);
   return true;
 }
 function leaveRide() {
   const V = RIDE.v; if (!V) return;
   if (RIDE.kind === 'friend') return hopOut(false); // a friend's car (party.js)
+  if (RIDE.kind === 'train' || RIDE.kind === 'ferry') { // out onto the platform or the pontoon
+    if (V.dwell < 0.5) { toast(RIDE.kind === 'train' ? 'Wait for the next station' : 'Wait for the next terminal'); return; }
+    const md = V.mods[Math.floor(V.mods.length / 2)], side = RIDE.kind === 'train' ? 4.6 : 6;
+    let px = md.x - md.tz * side, pz = md.z + md.tx * side; if (!isLand(px, pz) || resolveCircle(px, pz, 0.4)) { px = md.x + md.tz * side; pz = md.z - md.tx * side; }
+    if (!isLand(px, pz)) { for (let d = 6; d < 60 && !isLand(px, pz); d += 3) for (let a = 0; a < 8; a++) { const qx = md.x + Math.cos(a * Math.PI / 4) * d, qz = md.z + Math.sin(a * Math.PI / 4) * d; if (isLand(qx, qz)) { px = qx; pz = qz; break; } } }
+    const out = freeSpotNear(px, pz, 20); if (out) { px = out[0]; pz = out[1]; }
+    player.x = px; player.z = pz; player.y = 0; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true; RIDE.v = null; $('jobhud').hidden = true; return;
+  }
   const stopped = RIDE.kind === 'tram' ? V.dwell > 0.5 : V.speed < 1.5;
   if (!stopped) { toast(RIDE.kind === 'tram' ? 'Wait for the next stop' : 'Wait for the bus to pull in'); return; }
   const P = RIDE.kind === 'tram' ? V.mods[2] : V, h = RIDE.kind === 'tram' ? Math.atan2(P.tx, P.tz) : V.h; // trams: out of the middle doors
@@ -51,6 +60,7 @@ function leaveRide() {
 function updateRide(dt) {
   const V = RIDE.v;
   if (V && RIDE.kind === 'friend') return updateFriendRide();
+  if (V && (RIDE.kind === 'train' || RIDE.kind === 'ferry')) { player.x = V.x; player.z = V.z; player.h = V.h; $('jobhud').hidden = false; $('jobhud').textContent = V.dwell > 0.5 ? `${V.L.title} · stopped at ${V.stopName(false)} · E to get off` : `${V.L.title} · next stop: ${V.stopName(true)}`; return; }
   if (!V || (RIDE.kind === 'bus' && !cars.includes(V))) { RIDE.v = null; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true; return; }
   player.x = V.x; player.z = V.z; player.h = V.h;
   $('jobhud').hidden = false;
@@ -85,4 +95,5 @@ function transitApp(btn, head) {
   head('Buses');
   btn(bus ? `🚌 Nearest bus · ${Math.round(bus.d)} m away` : 'No bus nearby right now', bus ? `about ${Math.max(1, Math.round(bus.d / 9 / 60))} min · it pulls in every few hundred metres (E to board, $${RIDE.fare})` : 'they run the main roads', () => bus && directions('the bus', bus.c.x, bus.c.z), !!bus);
   head('Trams run every 6–7 minutes each way, about like the real G:link timetable · $5 a ride');
+  for (const S of nearestTransitStops()) { head(S.L.kind === 'train' ? `🚆 ${S.L.title}` : '⛴ CityCat'); btn(`📍 ${S.name}`, `${km(S.x, S.z)} away · ${S.L.kind === 'train' ? 'Varsity Lakes to Roma Street' : 'Northshore Hamilton to UQ St Lucia'} · E to board when it’s stopped`, () => directions(S.name + (S.L.kind === 'train' ? ' station' : ' terminal'), S.x, S.z)); }
 }

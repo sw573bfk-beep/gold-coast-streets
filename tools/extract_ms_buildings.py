@@ -1,19 +1,21 @@
 """Extract Microsoft Global ML Building Footprints (ODbL) for the game region into game coordinates.
 
-Run: python3 -I tools/extract_ms_buildings.py <path to goldcoast.csv.gz>
+Run: python3 -I tools/extract_ms_buildings.py <quadkey .csv.gz files...>   (the Gold Coast file and the two Brisbane ones)
 Writes data/region/ms_buildings.json: list of [height, x0, z0, x1, z1, ...] (metres, same origin as the Surfers map).
 """
 import gzip, json, math, os, sys
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
-from region_bounds import S, W, N, E  # the extended map
+from region_bounds import S, W, N, E, BRIS  # the Gold Coast box, and Brisbane's
 LAT0, LON0 = (-28.013 + -27.986) / 2, (153.411 + 153.436) / 2  # the Surfers map origin
 KX = math.cos(math.radians(LAT0)) * 111320.0
 KZ = 110574.0
 
+BOXES = [(S, W, N, E), BRIS]
 out, kept, seen = [], 0, 0
-with gzip.open(sys.argv[1], 'rt') as f:
+for src in sys.argv[1:]:
+  with gzip.open(src, 'rt') as f:
     for line in f:
         seen += 1
         try:
@@ -25,7 +27,7 @@ with gzip.open(sys.argv[1], 'rt') as f:
             continue
         ring = geom['coordinates'][0]
         lon, lat = ring[0]
-        if not (W <= lon <= E and S <= lat <= N):
+        if not any(bw <= lon <= be and bs <= lat <= bn for bs, bw, bn, be in BOXES):
             continue
         h = (feat.get('properties') or {}).get('height')
         h = round(h, 1) if isinstance(h, (int, float)) and h > 0 else -1

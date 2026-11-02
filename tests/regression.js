@@ -859,6 +859,18 @@ window.runRegression = async () => {
     const safe = !box.querySelector('img') && /hello/.test(box.textContent); box.remove(); CHAT.msgs = keep; CHAT.el = null;
     const r = `typed "${typed}" · message drawn as text ${safe}`; expect(typed === 'hi bthereb me 100 ok!' && safe, r); return r;
   });
+  await test('trains and CityCats: the Gold Coast line (Varsity Lakes to Roma Street) and the river CityCat run, stop and can be ridden', async () => {
+    quiet(); for (let k = 0; k < 50 && !TRANSIT.lines.length; k++) { await initTransitLines(); await new Promise((r) => setTimeout(r, 100)); }
+    const T = TRANSIT.lines.find((l) => l.kind === 'train'), F = TRANSIT.lines.find((l) => l.kind === 'ferry');
+    expect(T && F, 'lines not loaded'); const i = T.names.indexOf('Robina'), P = {}; railPoint(T, T.stops[i], P);
+    const V = TRANSIT.vehicles.find((v) => v.kind === 'train'); V.s = T.stops[i] - 1.2 * V.dir; V.v = 1; V.dwell = 0; V.update(1 / 60); V.update(1 / 60);
+    const stopped = V.dwell > 0 && V.stopName(false) === 'Robina';
+    const md = V.mods[2]; player.x = md.x - md.tz * 4; player.z = md.z + md.tx * 4; player.state = 'foot'; player.money = Math.max(player.money, 100);
+    const boarded = boardRide() && player.state === 'ride' && RIDE.kind === 'train'; updateRide(0.1); V.dwell = 5; leaveRide(); const off = player.state === 'foot'; home();
+    const acts = ['storyclimb', 'wheel', 'lonepine', 'citycat', 'trainup'].every((id) => ACT_BY[id]);
+    const r = `${T.title}: ${(T.len / 1000).toFixed(0)} km, ${T.names.length} stations · CityCat ${F.names.length} terminals · stopped at Robina ${stopped} · boarded ${boarded} · got off ${off} · Brisbane activities ${acts}`;
+    expect(T.names.length > 25 && F.names.length > 12 && stopped && boarded && off && acts, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

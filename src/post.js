@@ -71,12 +71,24 @@ function renderFrame() {
   U.bloom.value = GFX.cfg.bloom; U.exposure.value = renderer.toneMappingExposure; U.time.value = (performance.now() % 10000) / 1000;
   postPass(FINAL_MAT, null);
 }
+// automatic resolution: when the frame rate drops (big screens on laptop graphics), draw fewer pixels until it's
+// smooth again, and go back up when there's room. Measured over a second or two so it doesn't flicker.
+const AUTORES = { scale: 1, ema: 16, t: 0, last: 0 };
+function autoResolution(now) {
+  const dt = AUTORES.last ? now - AUTORES.last : 16; AUTORES.last = now;
+  if (dt > 3000 || !document.hasFocus()) { AUTORES.t = 0; return; } // hidden or in the background: browsers slow those down on purpose, so it says nothing about the computer
+  AUTORES.ema += (dt - AUTORES.ema) * 0.2; AUTORES.t += dt; if (AUTORES.t < 1500) return; AUTORES.t = 0;
+  const before = AUTORES.scale;
+  if (AUTORES.ema > 38 && AUTORES.scale > 0.4) AUTORES.scale = Math.max(0.4, AUTORES.scale * (AUTORES.ema > 120 ? 0.6 : 0.8)); // very slow: a bigger step
+  else if (AUTORES.ema < 19 && AUTORES.scale < 1) AUTORES.scale = Math.min(1, AUTORES.scale * 1.12);
+  if (AUTORES.scale !== before) { renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX.cfg.ratio) * AUTORES.scale); renderer.setSize(window.innerWidth, window.innerHeight); postTargets(); }
+}
 // apply a graphics level: resolution, shadow detail, post-processing and grass distance
 function applyGfx(level) {
   if (!GFX_LEVELS[level]) return;
   GFX.level = level; GFX.cfg = GFX_LEVELS[level];
   try { localStorage.setItem('gcs-gfx', level); } catch (e) { /* storage blocked */ }
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX.cfg.ratio));
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, GFX.cfg.ratio) * AUTORES.scale);
   renderer.setSize(window.innerWidth, window.innerHeight);
   if (sun.shadow.mapSize.x !== GFX.cfg.shadow) { sun.shadow.mapSize.set(GFX.cfg.shadow, GFX.cfg.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   postTargets();
