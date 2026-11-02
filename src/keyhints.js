@@ -19,10 +19,11 @@ function keyHintList() {
     const bike = player.car.spec && (player.car.spec.bike || /bike/.test(player.car.type));
     add('W', 'Gas'); add('S', 'Brake / reverse'); add('A D', 'Steer'); add('Space', bike ? 'Brake hard' : 'Handbrake'); if (bike) add('Shift', 'Wheelie');
     add('E', 'Get out'); add('R', 'Radio'); add('C', 'Camera'); add('H', 'Horn');
-  } else if (st === 'plane') { add('Space', 'More power'); add('Shift', 'Less power'); add('S W', 'Nose up / down'); add('A D', 'Bank'); add('Q E', 'Rudder'); add('F', 'Get out (on the ground)'); }
-  else if (st === 'heli') { add('Space', 'Up'); add('Shift', 'Down'); add('W S', 'Forward / back'); add('A D', 'Lean'); add('Q E', 'Turn'); add('F', 'Get out (landed)'); }
+  } else if (st === 'plane') { add('Space', 'More power'); add('Shift', 'Less power'); add('S W', 'Nose up / down'); add('A D', 'Bank'); add('Q E', 'Rudder'); add('F', player.plane && !player.plane.ground ? 'Jump out (parachute)' : 'Get out (on the ground)'); }
+  else if (st === 'heli') { add('Space', 'Up'); add('Shift', 'Down'); add('W S', 'Forward / back'); add('A D', 'Lean'); add('Q E', 'Turn'); add('F', player.chopper && !player.chopper.ground && player.chopper.alt > 15 ? 'Jump out (parachute)' : 'Get out (landed)'); }
   else if (st === 'boat') { add('W', 'Throttle'); add('S', 'Slow / reverse'); add('A D', 'Steer'); add('E', player.items && player.items.rod ? 'Fish / hop off' : 'Hop off'); }
   else if (st === 'surf') { add('W', 'Paddle'); add('A D', 'Turn'); add('Space', 'Duck-dive'); add('E', 'Get off the board'); }
+  else if (st === 'sky') { if (SKY.open) { add('A D', 'Turn'); add('W', 'Dive faster'); add('S', 'Slow down'); } else { add('Space', 'Open the parachute', true); add('W A S D', 'Steer the fall'); } }
   else if (st === 'ride') { add('E', RIDE.kind === 'friend' ? 'Hop out' : 'Get off at the next stop'); }
   else if (st === 'foot') {
     add('W A S D', 'Move'); add('Shift', 'Sprint'); add('Space', 'Jump');

@@ -13,6 +13,9 @@ A GTA-style open-world browser game set on the real Gold Coast, Queensland, buil
 - **Leaderboards** (phone → Records) for public worlds: the richest, time trials between real places, the biggest fish and the best wave. **Fishing**: buy a rod at a servo and cast from the water's edge.
 - **Online**: phone → Online. Join a public world anyone can drop into, or start a friends-only one and share its code (up to 16 players). Drive, fly, race and fight each other, with quick preset messages.
 - **Getting around**: ride the G:link tram the whole real route (Burleigh to Parkwood) or a bus for $5, take a jet ski or speedboat out on the Broadwater, fly planes, surf.
+- **Base jumping and skydiving**: lift to any tower's roof, Space at the ledge to jump, Space again for the parachute. Bail out of a flying helicopter (E) or plane (F). Land hard without a chute and you're wasted.
+- **Contracts** (phone → Contracts): Tash, a made-up fixer, always has a paid job assigned to you, made up on the spot around you from a dozen kinds (parcels, car drop-offs, rush runs, base jumps, losing the cops, a bag snatcher, stunts, fly-overs, boat runs, fishing, surfing, scouting). Finish one and the next is assigned; levels raise the pay.
+- **What to do?** on the phone lists everything in the game, each in one line with a button that takes you there, plus Surprise me. New players get a short tutorial (skip a step with Enter, the lot with K).
 - **Story missions** for Rocco (a made-up crime boss) on your phone, ending in a heist at The Star.
 - **Buy a house or apartment**: it becomes your home and save point, has a garage for cars you take, and earns rent.
 - **Weather**: storms with rain, wet roads, lightning and bigger surf. A car radio with made-up stations.

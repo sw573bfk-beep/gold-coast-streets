@@ -1357,10 +1357,10 @@ function nearShop() {
 }
 function useKey() {
   if (player.deadT > 0) return;
-  if (player.state === 'plane') { if (player.plane.ground && player.plane.v < 2) leavePlane(false); return; } // in the air E is the rudder
+  if (player.state === 'plane') { if (player.plane.ground && player.plane.v < 2) leavePlane(false); else if (keys.KeyF || TOUCH.on) skyBail(); return; } // in the air E is the rudder; F jumps out
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state === 'surf') { surfUse(); return; }
-  if (player.state === 'heli') { leaveChopper(false); return; }
+  if (player.state === 'heli') { if (!skyBail()) leaveChopper(false); return; } // high enough in the air: jump out
   if (player.state === 'boat') { if (player.items.rod > 0 && deepSea()) { startFishing({ ocean: true, deep: true }); return; } leaveBoat(); return; } // stopped well out to sea with a rod: fish off the side
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
@@ -1397,6 +1397,7 @@ function updatePlayer(dt) {
     case 'surf': squeal = 0; return updateSurf(dt);
     case 'boat': squeal = 0; return updateBoatControls();
     case 'heli': squeal = 0; return updateHeliControls();
+    case 'sky': squeal = 0; return updateSkyControls(dt); // falling or under a parachute (skydive.js)
     case 'ride': squeal = 0; return updateRide(dt);
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
@@ -1437,7 +1438,7 @@ function updatePlayer(dt) {
   player.x += mx * sp * dt + player.kx * dt; player.z += mz * sp * dt + player.kz * dt;
   player.kx *= Math.exp(-6 * dt); player.kz *= Math.exp(-6 * dt);
   player.speed = ml > 0 ? sp : 0; player.vx = mx * sp; player.vz = mz * sp;
-  if (keys.Space && player.y <= 0 && !swim) { if (!tryVault()) player.vy = 5.2; keys.Space = false; }
+  if (keys.Space && player.y <= 0 && !swim) { if (!tryLedgeJump() && !tryVault()) player.vy = 5.2; keys.Space = false; } // at a roof's ledge: jump off (skydive.js)
   player.vy -= 16 * dt; player.y += player.vy * dt;
   const floor = swim ? -1.05 : 0;
   if (player.y < floor) { player.y = swim ? lerp(player.y, floor, Math.min(1, dt * 6)) : floor; player.vy = 0; }
@@ -1506,6 +1507,9 @@ function updateCamera(dt) {
       camPitch = lerp(camPitch, 0.2, Math.min(1, dt * 1.5));
     }
     camera.fov = lerp(camera.fov, 60 + Math.min(18, c.speed * 0.38), Math.min(1, dt * 3));
+  } else if (player.state === 'sky') { // falling: above and behind, pulled back as you speed up
+    tx = player.x; ty = SKY.alt + (SKY.open ? 1.3 : 0.6); tz = player.z; dist = SKY.open ? 8 : 6.5;
+    camPitch = lerp(camPitch, SKY.open ? 0.22 : 0.5, Math.min(1, dt * 1.5)); camera.fov = lerp(camera.fov, 62 + Math.min(16, -SKY.vy * 0.25), Math.min(1, dt * 3));
   } else {
     const low = player.state === 'tackled' || player.state === 'cuffed' || player.state === 'down';
     tx = player.x; ty = footFloor() + player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
@@ -1519,7 +1523,7 @@ function updateCamera(dt) {
   const cp = Math.cos(camPitch), fx = Math.sin(camYaw) * cp, fy = -Math.sin(camPitch), fz = Math.cos(camYaw) * cp;
   const cx = tx - fx * dist, cz = tz - fz * dist;
   const inside = player.state !== 'car' && indoorAt(player.x, player.z);
-  const t = player.state === 'plane' ? 1 : rayWalls(tx, tz, cx, cz, inside ? 1 : 3); // in the air, buildings below don't block the camera
+  const t = player.state === 'plane' || player.state === 'sky' ? 1 : rayWalls(tx, tz, cx, cz, inside ? 1 : 3); // in the air, buildings below don't block the camera
   const allowed = t < 1 ? Math.max(1.2, dist * t - 0.5) : dist;
   camDist = allowed < camDist ? allowed : lerp(camDist, allowed, Math.min(1, dt * 2.5));
   let px = tx - fx * camDist, py = ty - fy * camDist, pz = tz - fz * camDist;
@@ -2011,6 +2015,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (code === 'Escape' && !mouse.locked) { if (bigMapOpen) toggleMap(); else setPaused(!paused); return; }
   if (paused) return;
+  if (tutKey(code)) return; // Enter skips a tutorial step, K skips the tutorial
   if (code === 'KeyF' || code === 'KeyE') useKey();
   if (code === 'KeyQ') punch();
   if (code === 'Backquote' && MODE !== 'multi') devToggle(); // no dev tools or time skipping in multiplayer
@@ -2030,7 +2035,7 @@ window.addEventListener('keyup', (e) => { keys[keyCode(e)] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 function toggleMap() {
   bigMapOpen = !bigMapOpen; $('bigmap').hidden = !bigMapOpen;
-  if (bigMapOpen) { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
+  if (bigMapOpen) { tutSeen('map'); MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
   else { $('mapq').blur(); MAPV.pin = null; $('mappin').hidden = true; lockPointer(); }
 }
 initBigMap();
@@ -2044,6 +2049,7 @@ $('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
   const first = !started; if (first) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
+  if (first) tutMaybeStart(); // a short tutorial the very first time (guide.js)
   if (first && MODE === 'multi') netQuick(); // straight into a public world (phone → Online for friends and codes)
 });
 
@@ -2188,7 +2194,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateSkydive(dt); updateContracts(dt); updateTutorial(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

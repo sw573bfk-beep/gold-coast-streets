@@ -3818,7 +3818,7 @@ const km = (x, z) => { const d = Math.hypot(x - player.x, z - player.z); return 
 function directions(name, x, z) { WAYPOINT = { name, x, z }; GPS.t = 0; closePhone(); toast(`Heading to ${name} — ${km(x, z)} · follow the yellow line`); }
 function phoneApp(app) {
   setTimeout(refreshKeyHints, 0); // the key strip follows the app (the HUD doesn't update while the phone is up)
-  PHONE.app = app; const body = $('phone-body'); body.innerHTML = '';
+  PHONE.app = app; tutSeen(app); const body = $('phone-body'); body.innerHTML = '';
   const btn = (label, sub, fn, ok = true) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.disabled = !ok; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = label; b.lastChild.textContent = sub || ''; b.addEventListener('click', fn); body.appendChild(b); return b; };
   const head = (t) => { const h = document.createElement('div'); h.className = 'psec'; h.textContent = t; body.appendChild(h); };
   let grid = null;
@@ -3829,10 +3829,12 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', contracts: 'Contracts', guide: 'What to do?', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
+    tile('📋', 'Contracts', () => phoneApp('contracts'), CON.cur ? '!' : '1');
+    tile('❓', 'What to do?', () => phoneApp('guide'));
     tile('🎯', 'Activities', () => phoneApp('acts'), ACT_CUR ? '!' : '');
     tile('💼', 'Jobs', () => phoneApp('jobs'), ECON.shift ? '!' : '');
     tile('🏅', 'Missions', () => phoneApp('missions'), String(['daily', 'weekly'].reduce((n, k) => n + challengeRows(k).filter((r) => !r.done).length, 0) || ''));
@@ -3901,6 +3903,8 @@ function phoneApp(app) {
   else if (app === 'pet') { back(); petApp(btn, head); }
   else if (app === 'swell') { back(); swellApp(btn, head); }
   else if (app === 'acts') { back(); actsApp(btn, head); }
+  else if (app === 'contracts') { back(); contractsApp(btn, head); }
+  else if (app === 'guide') { back(); guideApp(btn, head); }
   else if (app === 'act') { actApp(btn, head); }
   else if (app === 'missions') { back(); missionsApp(btn, head); }
   else if (app === 'stats') { back(); statsApp(btn, head); }
@@ -3924,6 +3928,8 @@ function activeCard(body) {
     sub = HEIST.stage === 3 ? `take $${HEIST.take.toLocaleString()}${player.stars ? ' · lose the cops first' : ''}` : HEIST.bank.name;
     where = HEIST.stage === 3 ? { name: 'Safehouse', x: HEIST.safe.x, z: HEIST.safe.z } : { name: HEIST.bank.name, x: HEIST.bank.x, z: HEIST.bank.z };
     if (HEIST.stage === 1) quit = () => { HEIST.stage = 0; HEIST.crew = {}; phoneApp('home'); };
+  } else if (CON.cur) {
+    const C = CON.cur; title = `${C.icon} ${C.title}`; sub = `$${C.pay.toLocaleString()} · ${$('jobhud').textContent.split(' · ').slice(1).join(' · ') || 'in progress'}`; where = WAYPOINT; quit = () => { conEnd(false, 'You gave up.'); phoneApp('home'); };
   } else if (STORY.M) {
     const C = CHAPTERS[STORY.M.i]; title = C.title; sub = STORY.M.hud; where = WAYPOINT; quit = () => { endChapter(false, 'Job abandoned.'); phoneApp('home'); };
   } else if (MISSION) {
@@ -3938,7 +3944,7 @@ function activeCard(body) {
   const add = (label, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (primary) b.className = 'go'; b.addEventListener('click', fn); card.children[2].appendChild(b); };
   if (where) add('Directions', () => directions(where.name, where.x, where.z), true);
   if (HEIST.stage === 1) add('Crew & start', () => phoneApp('heist'), true);
-  if (quit) add(WAYPOINT && !MISSION && !HEIST.stage && !STORY.M ? 'Cancel' : 'Give up', quit);
+  if (quit) add(WAYPOINT && !MISSION && !HEIST.stage && !STORY.M && !CON.cur ? 'Cancel' : 'Give up', quit);
   body.appendChild(card);
 }
 
@@ -5971,6 +5977,7 @@ function punchPeers(hx, hz) {
 function myState() {
   const st = player.deadT > 0 ? 'd' : { car: 'c', plane: 'p', boat: 'b', surf: 's', ride: 'r' }[player.state] || 'f';
   const r2 = (v) => Math.round(v * 100) / 100, s = { m: st, x: r2(player.x), z: r2(player.z), y: r2(player.y || 0), h: r2(player.h || 0) };
+  if (player.state === 'sky') s.y = r2(SKY.alt - standAt(player.x, player.z)); // others see you up in the air on your way down
   if (st === 'c' && player.car) { s.ty = player.car.type; s.co = player.car.color; s.y = r2(player.car.y || 0); }
   else if (st === 'p' && player.plane) { const p = player.plane; s.ty = p.type; s.x = r2(p.x); s.z = r2(p.z); s.y = r2(p.y); s.h = r2(p.h); s.pi = r2(p.pitch); s.ro = r2(p.roll); }
   else if (st === 'b' && player.boat) { s.ty = player.boat.type; }
@@ -6577,10 +6584,11 @@ function keyHintList() {
     const bike = player.car.spec && (player.car.spec.bike || /bike/.test(player.car.type));
     add('W', 'Gas'); add('S', 'Brake / reverse'); add('A D', 'Steer'); add('Space', bike ? 'Brake hard' : 'Handbrake'); if (bike) add('Shift', 'Wheelie');
     add('E', 'Get out'); add('R', 'Radio'); add('C', 'Camera'); add('H', 'Horn');
-  } else if (st === 'plane') { add('Space', 'More power'); add('Shift', 'Less power'); add('S W', 'Nose up / down'); add('A D', 'Bank'); add('Q E', 'Rudder'); add('F', 'Get out (on the ground)'); }
-  else if (st === 'heli') { add('Space', 'Up'); add('Shift', 'Down'); add('W S', 'Forward / back'); add('A D', 'Lean'); add('Q E', 'Turn'); add('F', 'Get out (landed)'); }
+  } else if (st === 'plane') { add('Space', 'More power'); add('Shift', 'Less power'); add('S W', 'Nose up / down'); add('A D', 'Bank'); add('Q E', 'Rudder'); add('F', player.plane && !player.plane.ground ? 'Jump out (parachute)' : 'Get out (on the ground)'); }
+  else if (st === 'heli') { add('Space', 'Up'); add('Shift', 'Down'); add('W S', 'Forward / back'); add('A D', 'Lean'); add('Q E', 'Turn'); add('F', player.chopper && !player.chopper.ground && player.chopper.alt > 15 ? 'Jump out (parachute)' : 'Get out (landed)'); }
   else if (st === 'boat') { add('W', 'Throttle'); add('S', 'Slow / reverse'); add('A D', 'Steer'); add('E', player.items && player.items.rod ? 'Fish / hop off' : 'Hop off'); }
   else if (st === 'surf') { add('W', 'Paddle'); add('A D', 'Turn'); add('Space', 'Duck-dive'); add('E', 'Get off the board'); }
+  else if (st === 'sky') { if (SKY.open) { add('A D', 'Turn'); add('W', 'Dive faster'); add('S', 'Slow down'); } else { add('Space', 'Open the parachute', true); add('W A S D', 'Steer the fall'); } }
   else if (st === 'ride') { add('E', RIDE.kind === 'friend' ? 'Hop out' : 'Get off at the next stop'); }
   else if (st === 'foot') {
     add('W A S D', 'Move'); add('Shift', 'Sprint'); add('Space', 'Jump');
@@ -8837,6 +8845,441 @@ const MINIGAMES = {
     };
   },
 };
+
+// Gold Coast Streets — jumping off things. Take a tower's lift to the Roof, walk to the ledge and press Space to jump.
+// In free fall W A S D steer; Space opens the parachute (then A/D turn, W dives faster, S flares to slow down). Hit the
+// ground hard without a chute and you're wasted; land in the water and you just swim. You can also bail out of a
+// flying helicopter (E) or plane (F) and float down. Landing on a big building's roof puts you up there (lift down).
+
+const SKY = { alt: 0, top: 0, vx: 0, vz: 0, vy: 0, t: 0, open: false, chute: 0, from: '', mesh: null, hud: null, hintT: 0, last: null };
+function skyStart(x, z, alt, vx, vz, vy, from) {
+  player.state = 'sky'; player.mode = 'foot'; player.vault = null; player.model.root.visible = true;
+  player.x = x; player.z = z; player.y = 0; player.vy = 0;
+  Object.assign(SKY, { alt, top: alt, vx, vz, vy, t: 0, open: false, chute: 0, from });
+  player.model.root.rotation.order = 'YXZ'; // pitch the body about its own shoulders, whichever way it faces
+  stat('jumps'); sfxNoise(0.5, 500, 0.18);
+  refreshKeyHints();
+}
+// on a tower roof right by the ledge: where the ledge is and which way is out
+function roofEdge() {
+  if (!TOWER || TOWER.level <= TOWER.floors || player.state !== 'foot') return null;
+  const f = TOWER.f, n = f.length / 2; let best = null, bd = 1.4;
+  for (let q = 0; q < n; q++) {
+    const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], ex = bx - ax, ez = bz - az, L2 = ex * ex + ez * ez; if (L2 < 1) continue;
+    const t = clamp(((player.x - ax) * ex + (player.z - az) * ez) / L2, 0, 1), px = ax + ex * t, pz = az + ez * t, d = Math.hypot(player.x - px, player.z - pz);
+    if (d < bd) { const L = Math.sqrt(L2); let nx = ez / L, nz = -ex / L; if (inRing(px + nx * 0.5, pz + nz * 0.5, f)) { nx = -nx; nz = -nz; } bd = d; best = { px, pz, nx, nz }; }
+  }
+  return best;
+}
+// Space at the ledge: over it and off
+function tryLedgeJump() {
+  const E = roofEdge(); if (!E) return false;
+  const name = TOWER.name, y = TOWER.y + 1.2;
+  disposeTowerLevel(); TOWER = null;
+  player.h = Math.atan2(E.nx, E.nz);
+  skyStart(E.px + E.nx * 1.3, E.pz + E.nz * 1.3, y, E.nx * 4.5, E.nz * 4.5, 3.5, 'roof');
+  toast(`You jumped off ${name}! Space to open your parachute`);
+  return true;
+}
+// E in a flying helicopter, F in a flying plane: jump out
+function skyBail() {
+  const c = player.chopper || player.plane; if (!c) return false;
+  const heli = !!player.chopper, alt = heli ? c.alt : c.y - groundAt(c.x, c.z);
+  if (alt < 15) return false;
+  const vx = heli ? c.vx : Math.sin(c.h) * c.v * 0.6, vz = heli ? c.vz : Math.cos(c.h) * c.v * 0.6, x = c.x + Math.cos(c.h) * 2.5, z = c.z - Math.sin(c.h) * 2.5, y = c.y - 1;
+  if (heli) leaveChopper(true); else leavePlane(true);
+  player.h = c.h; skyStart(x, z, y, vx, vz, 0, heli ? 'heli' : 'plane');
+  toast(`You jumped out of the ${heli ? 'helicopter' : 'plane'}! Space to open your parachute`);
+  return true;
+}
+// the top of whatever building is under (x, z): { top, f } or null
+function roofUnder(x, z) {
+  let best = null;
+  const look = (blds, bb) => {
+    for (let i = 0; i < blds.length; i++) {
+      const b = blds[i], r = bb[i]; if (b.skip || x < r[0] || x > r[2] || z < r[1] || z > r[3]) continue;
+      const f = b.slice(3); if (!inRing(x, z, f)) continue;
+      const top = groundAt(x, z) + b[0]; if (!best || top > best.top) best = { top, f, b };
+    }
+  };
+  const boxes = (blds) => blds.map((b) => { let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let q = 3; q < b.length; q += 2) { x0 = Math.min(x0, b[q]); x1 = Math.max(x1, b[q]); z0 = Math.min(z0, b[q + 1]); z1 = Math.max(z1, b[q + 1]); } return [x0, z0, x1, z1]; });
+  if (inCore(x, z)) look(MAP.buildings, MAP._bb || (MAP._bb = boxes(MAP.buildings)));
+  const T = REGION && tileAt(x, z); if (T && T.blds) look(T.blds, T._bb || (T._bb = boxes(T.blds)));
+  return best;
+}
+// walls taller than you are stop you (you slide down the side of a tower)
+function skyWalls(x, z, alt) {
+  if (!_rc) resolveCircle(x, z, 0.1);
+  const g = groundAt(x, z), st = _rc, r = 0.5; st.px = x; st.pz = z; st.nx = 0; st.nz = 0; st.hit = false; st.r = r;
+  forSegs(x - r, z - r, x + r, z + r, (S, o) => { if (g + S[o + 4] > alt) pushOut(S, o); });
+  return st.hit ? [st.px, st.pz] : null;
+}
+function chuteMesh() {
+  if (SKY.mesh) return SKY.mesh;
+  const g = new THREE.Group();
+  const geo = new THREE.SphereGeometry(1, 20, 6, 0, TAU, 0, 0.8), cols = [];
+  for (let v = 0; v < geo.attributes.position.count; v++) { const x = geo.attributes.position.getX(v), z = geo.attributes.position.getZ(v), s = Math.floor((Math.atan2(z, x) + Math.PI) / TAU * 8) % 2; cols.push(...(s ? [1, 0.36, 0.2] : [1, 0.82, 0.25])); }
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cols, 3));
+  const dome = new THREE.Mesh(geo, new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide }));
+  dome.scale.set(4.2, 1.5, 2.1); dome.position.y = 3.6; g.add(dome);
+  const p = []; for (const sx of [-1, 1]) for (const sz of [-1, 1]) for (const k of [0.45, 1]) p.push(sx * 3.9 * k, 3.7 - 0.4 * k, sz * 1.1, sx * 0.25, 1.45, 0);
+  g.add(new THREE.LineSegments(new THREE.BufferGeometry().setAttribute('position', new THREE.Float32BufferAttribute(p, 3)), new THREE.LineBasicMaterial({ color: 0x2b2b2b })));
+  g.visible = false; scene.add(g); return (SKY.mesh = g);
+}
+function skyHud(text) {
+  let el = SKY.hud; if (!el) { el = SKY.hud = document.createElement('div'); el.id = 'skyhud'; el.className = 'hud'; el.style.cssText = 'position:fixed;left:50%;top:33%;transform:translateX(-50%);background:rgba(10,14,20,.72);color:#fff;padding:8px 14px;border-radius:10px;font:600 17px "Barlow Condensed",sans-serif;letter-spacing:.03em;text-align:center;pointer-events:none;z-index:6'; document.body.appendChild(el); }
+  el.hidden = !text; if (text) el.textContent = text;
+}
+function updateSkyControls(dt) {
+  const S = SKY, P = player.model; S.t += dt;
+  const kF = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  const kR = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  if (keys.Space) { keys.Space = false; if (!S.open && S.t > 0.25) { S.open = true; S.chute = 0; sfxNoise(0.45, 700, 0.3); toast('Parachute open · A/D turn · W dive · S slow down'); refreshKeyHints(); } }
+  if (!S.open) { // free fall: steer the way the camera looks; drag holds you at about 55 m/s
+    const fx = Math.sin(camYaw), fz = Math.cos(camYaw), rx = -Math.cos(camYaw), rz = Math.sin(camYaw);
+    S.vx += ((fx * kF + rx * kR) * 10 - S.vx * 0.22) * dt; S.vz += ((fz * kF + rz * kR) * 10 - S.vz * 0.22) * dt;
+    S.vy -= (9.81 + Math.sign(S.vy) * S.vy * S.vy * 0.0032) * dt;
+    if (kF || kR) player.h += angDiff(player.h, Math.atan2(S.vx, S.vz)) * Math.min(1, dt * 3);
+  } else { // under the canopy: it flies forward, you turn it and choose how fast it comes down
+    S.chute = Math.min(1, S.chute + dt * 1.5); const k = S.chute;
+    player.h -= kR * 1.2 * dt;
+    const fwd = kF > 0 ? 14 : kF < 0 ? 4 : 9, sink = kF > 0 ? -8 : kF < 0 ? -2.6 : -4.4;
+    S.vx = lerp(S.vx, Math.sin(player.h) * fwd, Math.min(1, dt * 1.4 * k)); S.vz = lerp(S.vz, Math.cos(player.h) * fwd, Math.min(1, dt * 1.4 * k));
+    S.vy = lerp(S.vy - 9.81 * dt * (1 - k), sink, Math.min(1, dt * 2.4 * k));
+    if (elapsed - mouse.last > 1) camYaw += angDiff(camYaw, player.h) * Math.min(1, dt * 1.5);
+  }
+  let nx = clamp(player.x + S.vx * dt, WORLD.x0 + 1, WORLD.x1 - 1), nz = clamp(player.z + S.vz * dt, WORLD.z0 + 1, WORLD.z1 - 1); const na = S.alt + S.vy * dt;
+  const w = skyWalls(nx, nz, na); if (w) { nx = w[0]; nz = w[1]; S.vx *= 0.3; S.vz *= 0.3; }
+  player.x = nx; player.z = nz;
+  const land = isLand(nx, nz), floor = land ? groundAt(nx, nz) : WATER_Y, R = land ? roofUnder(nx, nz) : null;
+  if (R && S.alt >= R.top - 0.3 && na <= R.top) { S.alt = R.top; return skyLand('roof', R); }
+  if (na <= floor) { S.alt = floor; return skyLand(land ? 'ground' : 'water'); }
+  S.alt = na; player.speed = Math.hypot(S.vx, S.vz);
+  // the body: spread out face-down falling, upright under the canopy
+  const M = chuteMesh(); M.visible = S.open; M.scale.setScalar(0.25 + 0.75 * S.chute); M.position.set(player.x, S.alt, player.z); M.rotation.set(0, player.h, 0);
+  animatePerson(P, 0, 0);
+  if (S.open) { P.root.rotation.set(0, player.h, 0); P.armL.rotation.set(-2.7, 0, 0.2); P.armR.rotation.set(-2.7, 0, -0.2); P.legL.rotation.x = 0.25; P.legR.rotation.x = 0.1; }
+  else { P.root.rotation.set(1.25, player.h, 0); P.armL.rotation.set(-1.2, 0, 1.0); P.armR.rotation.set(-1.2, 0, -1.0); P.legL.rotation.set(0.35, 0, 0.25); P.legR.rotation.set(0.35, 0, -0.25); }
+  if (S.open) P.root.position.set(player.x, S.alt, player.z);
+  else P.root.position.set(player.x - Math.sin(player.h) * 0.85, S.alt + 0.35, player.z - Math.cos(player.h) * 0.85); // tipped over at the feet: shift back so the middle of you is over the spot
+  const h = Math.max(0, Math.round(S.alt - (R ? Math.max(R.top, floor) : floor)));
+  skyHud(`${S.open ? '🪂' : '⬇'} ${h} m · ${Math.round(-S.vy * 3.6)} km/h${S.open ? '' : h < 60 ? ' · SPACE — PARACHUTE NOW!' : ' · Space: parachute'}`);
+}
+function skyLand(where, R) {
+  const S = SKY, P = player.model, v = -S.vy, safe = S.open && S.chute > 0.6;
+  if (SKY.mesh) SKY.mesh.visible = false; skyHud(null);
+  player.state = 'foot'; player.mode = 'foot'; player.y = 0; player.vy = 0; player.kx = player.kz = 0;
+  P.root.rotation.set(0, player.h, 0, 'XYZ'); animatePerson(P, 0, 0);
+  S.last = { x: player.x, z: player.z, where, ok: true, fell: Math.round(S.top - S.alt), chute: S.open, t: elapsed };
+  if (where === 'roof') {
+    const B = bigBuildingsNear(player.x, player.z, 2).find((q) => inRing(player.x, player.z, q.f));
+    const at = [player.x, player.z];
+    if (B && v < 16) { // up on a tower or a centre: that roof, with its lift down
+      const f = B.f, n = f.length / 2; let E = null, bd = 1e9;
+      for (let q = 0; q < n; q++) {
+        const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], ex = bx - ax, ez = bz - az, L = Math.hypot(ex, ez); if (L < 3) continue;
+        const t = clamp(((at[0] - ax) * ex + (at[1] - az) * ez) / (L * L), 0.1, 0.9), px = ax + ex * t, pz = az + ez * t, d = Math.hypot(at[0] - px, at[1] - pz);
+        let nx = ez / L, nz = -ex / L; if (inRing(px + nx * 0.5, pz + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+        if (d < bd) { bd = d; E = { B, q, px, pz, nx, nz, ex: ex / L, ez: ez / L, d }; }
+      }
+      if (E) {
+        enterTower(E); rideLift(TOWER.floors + 1);
+        if (inRing(at[0], at[1], TOWER.f)) { player.x = at[0]; player.z = at[1]; }
+        toast(`Landed on the roof of ${TOWER.name} · the lift goes back down (E)`); sfxNoise(0.2, 400, 0.2);
+        return conJumpLanded(S.last);
+      }
+    }
+    // a house or a small building: you slide off the roof to the ground beside it
+    const s = freeSpotNear(player.x, player.z, 40); if (s) { player.x = s[0]; player.z = s[1]; }
+    if (v >= 16 && !safe) { S.last.ok = false; damagePlayer(200); toast('You hit the roof far too fast'); shake = 1.2; return conJumpLanded(S.last); }
+    toast('You bounced off a roof and slid down to the ground'); damagePlayer(10); return conJumpLanded(S.last);
+  }
+  if (where === 'water') {
+    for (let i = 0; i < 24; i++) emit(player.x + rr(-1, 1), WATER_Y + 0.2, player.z + rr(-1, 1), rr(-2, 2), rr(3, 8), rr(-2, 2), 1.1, 0.4, 1.4, '#ffffff', 0.8);
+    sfxNoise(0.6, 900, 0.35);
+    if (v > 40) { S.last.ok = false; damagePlayer(200); toast('You hit the water far too fast'); }
+    else toast(safe ? 'Splashdown! Swim for the shore' : 'SPLASH! You dropped into the water');
+    return conJumpLanded(S.last);
+  }
+  if (safe && v < 9) { toast('Nice landing! 🪂'); sfxTone([523, 784], 0.2, 0.05, 'triangle'); }
+  else if (v < 9) toast('Landed');
+  else if (v < 16) { damagePlayer(Math.round((v - 9) * 12)); knockPlayer(S.vx * 0.3, S.vz * 0.3); shake = 0.6; toast('Ouch — hard landing. Open the parachute sooner!'); }
+  else { S.last.ok = false; shake = 1.4; sfxNoise(0.5, 160, 0.6); damagePlayer(200); toast('You hit the ground without opening your parachute'); }
+  conJumpLanded(S.last);
+}
+function updateSkydive(dt) {
+  if (player.state !== 'sky' && SKY.hud && !SKY.hud.hidden) skyHud(null);
+  SKY.hintT -= dt;
+  if (SKY.hintT <= 0 && roofEdge()) { toast('SPACE: jump off the edge — then SPACE again to open your parachute'); SKY.hintT = 8; }
+}
+
+// Gold Coast Streets — contracts (phone → Contracts). Tash (made up) runs a fixer agency and always has a job lined up
+// for you: accept it, do it, get paid, and the next one is assigned straight away, so the work never runs out. Each one
+// is made up on the spot around wherever you are, from a dozen kinds (parcels, car drop-offs, rush runs, base jumps,
+// losing the cops, catching a bag snatcher, stunts, fly-overs, boat runs, fishing, surfing, scouting), says in one line
+// what to do, and pays more as your contractor level goes up (a level every 4 contracts done).
+
+const CON = { offer: null, cur: null, beacon: null, last: '', hudT: 0 };
+function conData() { const A = actData(); return A.con || (A.con = { done: 0, earned: 0, failed: 0, best: 0 }); }
+const conLevel = () => 1 + Math.floor(conData().done / 4);
+const conPay = (base) => Math.round(base * (1 + (conLevel() - 1) * 0.2) / 10) * 10;
+const conDist = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
+const here = () => ({ x: player.x, z: player.z });
+function conPlaces(kinds, minD, maxD, from) { const o = from || here(); return (REGION && REGION.search ? REGION.search : []).filter((e) => kinds.includes(e[1]) && isLand(e[2], e[3]) && Math.hypot(e[2] - o.x, e[3] - o.z) > minD && Math.hypot(e[2] - o.x, e[3] - o.z) < maxD).map((e) => ({ name: e[0], x: e[2], z: e[3] })); }
+
+// each kind makes a contract here and now (or null when there's nothing suitable nearby)
+// a contract: { kind, icon, title, how, pay, t (seconds, 0 = no limit), steps: [{ name, x, z, r, need }], ... }
+const CON_KINDS = {
+  parcel: () => {
+    const shops = SHOPS.filter((s) => !s.mall && s.name && conDist(s, here()) > 150 && conDist(s, here()) < 1300); if (!shops.length) return null;
+    const A = pick(shops), B = pick(conPlaces([1, 6, 8, 12, 13, 10], 600, 2600, A)); if (!B) return null;
+    const d = conDist(here(), A) + conDist(A, B);
+    return { icon: '📦', title: `Parcel for ${B.name}`, how: `Pick up a parcel at ${A.name}, then drop it at ${B.name} before the timer runs out. Walk, drive, anything.`, pay: conPay(120 + d / 12), t: Math.round(d / 8 + 60),
+      steps: [{ name: 'Pick up: ' + A.name, x: A.x, z: A.z, r: 8, done: 'Got the parcel' }, { name: 'Drop off: ' + B.name, x: B.x, z: B.z, r: 14 }] };
+  },
+  car: () => {
+    const near = cars.filter((c) => CAR_LABEL[c.type] && !c.dead && c.kind !== 'police' && !c.owned && conDist(c, here()) < 200), type = near.length ? pick(near).type : null;
+    const B = pick(conPlaces([9, 13], 700, 2600)); if (!B) return null;
+    const label = type ? CAR_LABEL[type] : 'car';
+    return { icon: '🚗', title: `Bring a ${label}`, how: `Get any ${label.toLowerCase()} (borrow one off the street) and drive it to ${B.name}. It has to arrive in one piece.`, pay: conPay(type ? 320 : 220), t: Math.round(conDist(here(), B) / 8 + 150), type,
+      steps: [{ name: 'Drop-off: ' + B.name, x: B.x, z: B.z, r: 14, need: () => player.state === 'car' && player.car && (!type || player.car.type === type) && player.car.health >= 40, needText: type ? `you need to be driving a ${label} that isn't wrecked` : 'you need to arrive in a car that isn’t wrecked' }] };
+  },
+  rush: () => {
+    const pts = []; let at = here();
+    for (let k = 0; k < 4; k++) { const c = conPlaces([0, 3, 5, 9, 10, 11], 300, 900, at).filter((p) => !pts.some((q) => q.name === p.name)); if (!c.length) break; at = pick(c); pts.push(at); }
+    if (pts.length < 3) return null;
+    let d = conDist(here(), pts[0]); for (let k = 1; k < pts.length; k++) d += conDist(pts[k - 1], pts[k]);
+    return { icon: '⏱', title: `Rush run · ${pts.length} stops`, how: `Hit ${pts.length} checkpoints in a row before the clock runs out. A fast car helps.`, pay: conPay(180 + d / 10), t: Math.round(d / 13 + 25),
+      steps: pts.map((p, k) => ({ name: `Checkpoint ${k + 1}: ${p.name}`, x: p.x, z: p.z, r: 20, done: 'Checkpoint!' })) };
+  },
+  jump: () => {
+    const towers = bigBuildingsNear(player.x, player.z, 2500).filter((B) => ['hotel', 'apartments', 'offices'].includes(B.kind) && B.b[0] >= 45);
+    if (!towers.length) return null;
+    const B = pick(towers), cx = (B.x0 + B.x1) / 2, cz = (B.z0 + B.z1) / 2;
+    let T = null; for (let k = 0; k < 20 && !T; k++) { const a = rand() * TAU, d = 120 + rand() * 220, s = sidewalkNear(cx + Math.sin(a) * d, cz + Math.cos(a) * d); if (s && isLand(s.x, s.z) && !roofUnder(s.x, s.z)) T = s; }
+    if (!T) return null;
+    const name = B.name || 'the tower';
+    return { icon: '🪂', title: `Base jump off ${name}`, how: `Go inside ${name}, take the lift to the Roof, jump off the edge (Space) and open your parachute (Space). Land on the yellow marker.`, pay: conPay(450 + B.b[0] * 2), t: 600, tower: { name, x: cx, z: cz }, target: { x: T.x, z: T.z, r: 35 }, steps: [] };
+  },
+  heat: () => {
+    const n = conLevel() >= 4 ? 3 : 2;
+    return { icon: '🚨', title: `Lose the cops · ${'★'.repeat(n)}`, how: `Tash tips the cops off about you. Get out of sight and lose all ${n} stars within 3 minutes. Don't get busted!`, pay: conPay(260 * n), t: 180, stars: n, steps: [] };
+  },
+  thief: () => {
+    const p = peds.filter((q) => !q.cop && q.state === 'walk' && conDist(q, here()) > 20 && conDist(q, here()) < 70).sort(() => rand() - 0.5)[0]; if (!p) return null;
+    return { icon: '👜', title: 'Catch the bag snatcher', how: 'Someone just snatched a bag. Chase the runner with the red marker and knock them down (punch them or tackle them) to get it back.', pay: conPay(220), t: 90, ped: p, steps: [] };
+  },
+  stunt: () => {
+    const air = rand() < 0.5, kmh = 130 + Math.min(60, conLevel() * 8);
+    return air ? { icon: '🛞', title: 'Big air', how: 'Get a car or bike airborne for 1.5 seconds. Ramps at The Spit stunt park and on the beaches, or a fast crest.', pay: conPay(260), t: 300, air: 1.5, steps: [] }
+      : { icon: '💨', title: `Hit ${kmh} km/h`, how: `Get any car up to ${kmh} km/h. Find a long straight road (the M1 is good) and floor it.`, pay: conPay(200), t: 240, kmh, steps: [] };
+  },
+  flight: () => {
+    const L = (REGION ? REGION.landmarks : []).filter((l) => { const d = Math.hypot(l[0] - player.x, l[1] - player.z); return d > 1200 && d < 7000; });
+    if (!L.length) return null; const l = pick(L);
+    return { icon: '🚁', title: `Fly over ${l[2]}`, how: `Fly a helicopter or plane over ${l[2]}, at least 60 m up. Helicopters wait at Sea World, the university hospital and the airport.`, pay: conPay(420), t: 900,
+      steps: [{ name: 'Fly over ' + l[2], x: l[0], z: l[1], r: 140, need: () => (player.state === 'heli' && player.chopper && player.chopper.alt > 60) || (player.state === 'plane' && player.plane && player.plane.y - groundAt(player.x, player.z) > 60), needText: 'be up in a helicopter or plane, at least 60 m high' }] };
+  },
+  boat: () => {
+    const B = pick(conPlaces([3], 800, 4000)); if (!B) return null;
+    return { icon: '🚤', title: `Boat run to ${B.name}`, how: `Grab a jet ski or speedboat (they're tied up along the canals and beaches, E to board) and take it to ${B.name}.`, pay: conPay(320), t: 900,
+      steps: [{ name: 'By boat: ' + B.name, x: B.x, z: B.z, r: 140, need: () => player.state === 'boat', needText: 'arrive in a boat' }] };
+  },
+  fish: () => ({ icon: '🎣', title: 'Catch 2 fish', how: 'Buy a rod at any servo, stand at the water facing it and press E to cast. Catch 2 fish.', pay: conPay(180), t: 0, stat: 'fish', n: 2, steps: [] }),
+  surf: () => ({ icon: '🏄', title: 'Ride 2 waves', how: 'On any beach press E to hire a board, paddle out (W) and catch 2 waves.', pay: conPay(180), t: 0, stat: 'waves', n: 2, steps: [] }),
+  scout: () => {
+    const P = pick(conPlaces([2, 5, 8, 10, 11, 14], 400, 2500)); if (!P) return null;
+    return { icon: '🔭', title: `Scout ${P.name}`, how: `Go to ${P.name} and hang around for 10 seconds without the cops after you.`, pay: conPay(110 + conDist(here(), P) / 15), t: Math.round(conDist(here(), P) / 6 + 90),
+      steps: [{ name: 'Scout: ' + P.name, x: P.x, z: P.z, r: 40, stay: 10 }] };
+  },
+};
+function conGenerate() {
+  const kinds = Object.keys(CON_KINDS).filter((k) => k !== CON.last);
+  for (let tries = 0; tries < 12; tries++) {
+    const k = pick(kinds), C = CON_KINDS[k](); if (!C) continue;
+    C.kind = k; C.pay = Math.max(50, C.pay); return C;
+  }
+  return CON_KINDS.fish();
+}
+function conBusy() { return CON.cur || MISSION || STORY.M || MICK.M || ACT_CUR || ECON.shift || HEIST.stage > 1 || TRIAL; }
+function conOffer() { if (!CON.offer) { CON.offer = conGenerate(); CON.offer.kind = CON.offer.kind || 'fish'; } return CON.offer; }
+function conAccept() {
+  if (conBusy()) { toast('Finish (or give up) what you’re doing first'); return; }
+  const C = CON.cur = conOffer(); CON.offer = null; C.start = elapsed; C.left = C.t; C.base = C.stat ? actData().stats[C.stat] || 0 : 0; C.stayed = 0;
+  if (C.kind === 'heat') { CRIME_TEXT.tipoff = 'Tash tipped off the cops'; raiseWanted(C.stars, 'tipoff'); }
+  if (C.kind === 'thief') { C.ped.thief = true; C.ped.scare(player.x, player.z, 99); toast('There they go — after them!'); }
+  conTarget(); closePhone(); toast(`${C.icon} ${C.title} — ${C.how}`);
+}
+function conTarget() { // the GPS and the beacon follow the current step
+  const C = CON.cur, S = C && C.steps[0];
+  if (S) { WAYPOINT = { name: S.name, x: S.x, z: S.z }; GPS.t = 0; conBeacon(S.x, S.z, S.r); }
+  else if (C && C.kind === 'jump') { WAYPOINT = { name: C.tower.name, x: C.tower.x, z: C.tower.z }; GPS.t = 0; conBeacon(C.target.x, C.target.z, C.target.r); } // the tower on the GPS, the landing marker on the ground
+  else conBeacon(null);
+}
+function conBeacon(x, z, r) {
+  if (!CON.beacon) { CON.beacon = new THREE.Mesh(new THREE.CylinderGeometry(1, 1, 1, 24, 1, true), new THREE.MeshBasicMaterial({ color: 0xffd23f, transparent: true, opacity: 0.32, side: THREE.DoubleSide, depthWrite: false })); scene.add(CON.beacon); }
+  const B = CON.beacon; B.visible = x !== null && x !== undefined; if (!B.visible) return;
+  const rad = Math.min(r || 10, 40), h = 70; B.scale.set(rad, h, rad); B.position.set(x, (isLand(x, z) ? groundAt(x, z) : WATER_Y) + h / 2, z);
+}
+function conEnd(won, msg) {
+  const C = CON.cur; if (!C) return; CON.cur = null; CON.last = C.kind; conBeacon(null); $('jobhud').hidden = true;
+  if (WAYPOINT && (C.steps.some((s) => WAYPOINT.name === s.name) || (C.tower && WAYPOINT.name === C.tower.name))) { WAYPOINT = null; clearGPS(); }
+  if (C.ped) C.ped.thief = false;
+  const D = conData();
+  if (won) { player.money += C.pay; D.done++; D.earned += C.pay; D.best = Math.max(D.best, C.pay); stat('contracts'); stat('earned', C.pay); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); toast(`${msg} +$${C.pay.toLocaleString()} · next contract is on your phone`); if (D.done % 4 === 0) actNote(`📋 Contractor level ${conLevel()}! Tash pays you more now.`); }
+  else { D.failed++; toast(`${msg} Contract failed — Tash has another one on your phone`); }
+  CON.offer = conGenerate(); actNote(`📋 Tash: ${won ? 'Nice work. ' : ''}New contract — ${CON.offer.title} ($${CON.offer.pay})`, true);
+  saveGame();
+}
+function conJumpLanded(L) { // any jump counts: off the tower, another roof, or out of a helicopter
+  const C = CON.cur; if (!C || C.kind !== 'jump' || !L.ok) return; // wasted: the contract ends with the life
+  const d = Math.round(Math.hypot(L.x - C.target.x, L.z - C.target.z));
+  if (d <= C.target.r) conEnd(true, `Bang on the marker (${d} m)!`);
+  else { C.missed = d; toast(`Missed the marker by ${d} m — go back up and jump again`); }
+}
+function updateContracts(dt) {
+  const C = CON.cur; if (!C) return;
+  if (player.deadT > 0) return conEnd(false, player.endKind === 'busted' ? 'Busted!' : 'Wasted!');
+  if (C.t) { C.left -= dt; if (C.left <= 0) return conEnd(false, 'Out of time.'); }
+  let status = '';
+  if (C.kind === 'heat') { status = player.stars ? `${'★'.repeat(player.stars)} — get out of sight` : ''; if (!player.stars && elapsed - C.start > 2) return conEnd(true, 'You lost them!'); }
+  else if (C.kind === 'thief') {
+    const p = C.ped, d = conDist(p, here());
+    if (peds.indexOf(p) < 0 || d > 230) return conEnd(false, 'The snatcher got away.');
+    if (p.state === 'down') return conEnd(true, 'Got the bag back!');
+    if (p.state === 'walk' || (p.state === 'flee' && p.flee < 2)) p.scare(player.x, player.z, 99);
+    if (d < 4) crimeCool.punch = crimeCool.ped = elapsed + 3; // stopping a thief isn't a crime
+    conBeacon(p.x, p.z, 0.7); CON.beacon.scale.y = 3; CON.beacon.position.y = groundAt(p.x, p.z) + 3.4;
+    status = `${Math.round(d)} m away`;
+  } else if (C.kind === 'stunt') {
+    const c = player.state === 'car' && player.car;
+    if (C.air) { const a = c && c.air ? c.air : 0; status = c ? `air ${a.toFixed(1)} s` : 'get in a car or on a bike'; if (a >= C.air) return conEnd(true, 'Huge air!'); }
+    else { const v = c ? Math.round(c.speed * 3.6) : 0; status = c ? `${v} / ${C.kmh} km/h` : 'get in a car'; if (v >= C.kmh) return conEnd(true, 'Flat out!'); }
+  } else if (C.stat) { const got = (actData().stats[C.stat] || 0) - C.base; status = `${got} / ${C.n}`; if (got >= C.n) return conEnd(true, 'Done!'); }
+  else if (C.kind === 'jump') status = player.state === 'sky' ? `marker ${Math.round(Math.hypot(C.target.x - player.x, C.target.z - player.z))} m` : C.missed ? `missed by ${C.missed} m — try again` : TOWER && TOWER.level > TOWER.floors ? 'jump off the edge (Space)' : 'lift to the Roof, then jump';
+  else if (C.steps.length) {
+    const S = C.steps[0];
+    {
+      const d = Math.hypot(S.x - player.x, S.z - player.z); status = `${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'}`;
+      if (d < S.r) {
+        if (S.need && !S.need()) { CON.hudT -= dt; if (CON.hudT <= 0) { toast(`Almost — ${S.needText}`); CON.hudT = 4; } }
+        else if (S.stay) { if (player.stars) status = 'lose the cops first'; else { C.stayed += dt; status = `scouting… ${Math.ceil(S.stay - C.stayed)}s`; if (C.stayed >= S.stay) return conEnd(true, 'Scouted!'); } }
+        else { C.steps.shift(); if (!C.steps.length) return conEnd(true, C.kind === 'parcel' ? 'Parcel delivered!' : C.kind === 'rush' ? 'Rush run done!' : 'Done!'); sfxTone([660, 880], 0.15, 0.05); toast(`${S.done || 'Done'} — next: ${C.steps[0].name}`); conTarget(); }
+      }
+    }
+  }
+  $('jobhud').hidden = false; $('jobhud').textContent = `${C.icon} ${C.title}${status ? ' · ' + status : ''}${C.t ? ' · ' + Math.max(0, Math.ceil(C.left)) + 's' : ''}`;
+}
+// phone → Contracts
+function contractsApp(btn, head) {
+  const D = conData(), C = CON.cur;
+  head(`Contractor level ${conLevel()} · ${D.done} done · $${D.earned.toLocaleString()} earned`);
+  if (C) {
+    btn(`${C.icon} ${C.title} · $${C.pay.toLocaleString()}`, C.how, () => {}, false);
+    if (WAYPOINT) btn('Directions', `${WAYPOINT.name} · ${km(WAYPOINT.x, WAYPOINT.z)}`, () => directions(WAYPOINT.name, WAYPOINT.x, WAYPOINT.z)).classList.add('go');
+    btn('Give up', 'no pay, and Tash gives you the next one', () => { conEnd(false, 'You gave up.'); phoneApp('contracts'); });
+    return;
+  }
+  const O = conOffer();
+  head('Assigned to you by Tash');
+  btn(`${O.icon} ${O.title} · $${O.pay.toLocaleString()}`, O.how + (O.t ? ` (${Math.round(O.t / 60) || 1} min)` : ''), () => {}, false);
+  btn('✅ Accept', conBusy() ? 'finish what you’re doing first' : 'starts now', conAccept, !conBusy()).classList.add('go');
+  btn('🔄 Ask for a different one', 'free, as often as you like', () => { CON.last = O.kind; CON.offer = conGenerate(); phoneApp('contracts'); });
+  head('How it works');
+  btn('One job at a time, forever', 'When you finish (or fail) a contract, Tash assigns the next one. Every 4 done is a level up, and higher levels pay more.', () => {}, false);
+}
+
+// Gold Coast Streets — help for new players. The phone's "What to do?" app lists everything there is to do, each in one
+// line with a button that takes you there (and "Surprise me" picks one for you). The first time you play, a short
+// tutorial walks you through moving, looking, jumping, cars, the map and the phone; skip a step (Enter) or the whole
+// thing (K) whenever you like, and replay it from "What to do?".
+
+// ---------------------------------------------------------------- phone → What to do?
+function nearestOfKind(kinds) { let best = null, bd = 1e9; for (const e of (REGION && REGION.search) || []) if (kinds.includes(e[1])) { const d = Math.hypot(e[2] - player.x, e[3] - player.z); if (d < bd) { bd = d; best = { name: e[0], x: e[2], z: e[3] }; } } return best; }
+function placeNamed(re) { const e = REGION && REGION.search && REGION.search.find((q) => re.test(q[0])); return e ? { name: e[0], x: e[2], z: e[3] } : null; }
+const goTo = (P, none) => () => { if (P) directions(P.name, P.x, P.z); else toast(none || 'Nothing like that nearby'); };
+function nearestTower() { const T = bigBuildingsNear(player.x, player.z, 1500).filter((B) => ['hotel', 'apartments', 'offices'].includes(B.kind) && B.b[0] >= 40).sort((a, b) => Math.hypot((a.x0 + a.x1) / 2 - player.x, (a.z0 + a.z1) / 2 - player.z) - Math.hypot((b.x0 + b.x1) / 2 - player.x, (b.z0 + b.z1) / 2 - player.z))[0]; return T ? { name: T.name || 'Tall tower', x: (T.x0 + T.x1) / 2, z: (T.z0 + T.z1) / 2 } : null; }
+function guideList() { // [icon, name, how, action]
+  const heli = nearest(CHOPPERS.filter((c) => !c.dead)), A = (n) => () => phoneApp(n);
+  return [
+    ['📋', 'Contracts', 'Paid jobs from Tash, one after another, forever. The best way to make money.', A('contracts')],
+    ['🪂', 'Base jumping', 'Go into any tall tower (E at its doors), take the lift to Roof, Space at the edge, Space again for your parachute.', goTo(nearestTower(), 'No tall towers near here — try Surfers Paradise')],
+    ['🚁', 'Skydive from a helicopter', 'Fly a helicopter up high (Space), then press E to jump out and parachute down.', heli ? goTo({ name: heli.name || 'Helicopter', x: heli.x, z: heli.z }) : goTo(placeNamed(/^Sea World$/i))],
+    ['✈️', 'Fly a plane', 'Planes are parked at Gold Coast Airport. Hold Space for power, then S to lift off. F jumps out in the air.', goTo(AIRPORT && AIRPORT.rw ? { name: 'Gold Coast Airport', x: AIRPORT.rw.x1, z: AIRPORT.rw.z1 } : null)],
+    ['🎯', 'Activities', `${ACTS.length} things to do around the coast: sports, courses, rides, photography and more.`, A('acts')],
+    ['💼', 'Jobs', 'Work real shifts: barista, taxi driver, lifeguard, mechanic and more. Paid per task.', A('jobs')],
+    ['🏅', 'Daily missions', 'New challenges every day and week, with bonus cash.', A('missions')],
+    ['😎', 'Rocco’s story', 'A pawn-shop boss in Nerang texts you six jobs, ending with a casino job.', A('rocco')],
+    ['🧢', 'Mick’s story (Brisbane)', 'Six jobs in Brisbane. Catch the train up from any Gold Coast station.', A('mick')],
+    ['🏦', 'Bank heist', 'Pick a bank, hire a crew, rob the vault and get to the safehouse.', A('heist')],
+    ['🏁', 'Street race', 'Get in a car, then phone → Street race. Beat the clock to the finish.', () => { closePhone(); startRace(); }],
+    ['⏱', 'Time trials', 'Set routes against the clock, with records to beat.', A('trials')],
+    ['🏄', 'Surfing', 'On any beach press E to hire a board, paddle out with W and catch a wave.', goTo(nearestOfKind([3]))],
+    ['🎣', 'Fishing', 'Buy a rod at a servo, face the water and press E to cast.', goTo(nearestOfKind([9]))],
+    ['🚤', 'Boats and jet skis', 'They’re tied up along the canals and beaches. Walk up and press E.', goTo(nearestOfKind([3]))],
+    ['🎰', 'Casino', 'Blackjack, poker and slots at The Star (game money only).', goTo(placeNamed(/^The Star/i))],
+    ['🛹', 'Stunts', 'Ramps at The Spit stunt park and on the beaches. Hit them fast!', goTo(placeNamed(/^The Spit/i))],
+    ['🏡', 'Buy a house', 'Houses and apartments for sale near you. Rent comes in while you play.', () => { PROP.listings = findListings(); phoneApp('realty'); }],
+    ['☕', 'Run a business', 'Buy a café or car yard, hire staff and collect the takings.', A('business')],
+    ['🐶', 'Get a dog', 'Adopt one at any pet shop. It follows you and plays fetch.', A('pet')],
+    ['🚆', 'Go to Brisbane', 'Catch the train to Roma Street, then ride a CityCat up the river.', A('transit')],
+    ['🌐', 'Play with friends', 'Join a public world or make a private one with a code.', A('online')],
+    ['🗺️', 'Explore', 'Open the map (M), click anywhere and follow the yellow line. Every street is real.', () => { closePhone(); toggleMap(); }],
+  ];
+}
+function guideApp(btn, head) {
+  btn('🎲 Surprise me', 'pick something for me to do right now', () => { const L = guideList().slice(1), g = pick(L); toast(`${g[0]} ${g[1]}: ${g[2]}`); g[3](); }).classList.add('go');
+  head('Everything you can do');
+  for (const [icon, name, how, fn] of guideList()) btn(`${icon} ${name}`, how, fn);
+  head('Help');
+  btn('🎓 Replay the tutorial', 'the quick walk-through from your first game', () => { closePhone(); tutStart(); });
+}
+
+// ---------------------------------------------------------------- the first-game tutorial
+const TUT = { on: false, i: 0, t: 0, seen: {}, base: null, el: null };
+const TUT_FRESH = (() => { try { return !localStorage.getItem('gcs-tutorial') && !localStorage.getItem('gcs-save'); } catch (e) { return false; } })(); // read before anything saves
+const TUT_STEPS = [
+  { key: 'Welcome to Gold Coast Streets! Walk around with W A S D.', touch: 'Welcome to Gold Coast Streets! Push the left thumbstick to walk.', done: (B) => Math.hypot(player.x - B.x, player.z - B.z) > 8 },
+  { key: 'Move the mouse to look around. Hold Shift while walking to sprint.', touch: 'Drag on the right of the screen to look around. Push the stick all the way to sprint.', done: (B) => Math.abs(angDiff(camYaw, B.yaw)) > 1.2 },
+  { key: 'Press Space to jump. Space at a fence climbs over it.', touch: 'Tap the jump button.', done: () => player.vy > 1 || player.vault },
+  { key: 'Walk up to a car and press E to get in. (Taking someone else’s car can get the cops after you!)', touch: 'Walk up to a car and tap the use button to get in.', done: () => player.state === 'car' },
+  { key: 'W drives, S brakes, A and D steer, Space is the handbrake. Stop and press E to get out.', touch: 'Use the stick to drive. Stop, then tap use to get out.', done: (B, S) => (S.drove = S.drove || player.state === 'car') && player.state === 'foot' },
+  { key: 'Press M for the map. Click anywhere to set a destination, then follow the yellow line.', touch: 'Tap the map button. Tap anywhere to set a destination.', done: () => TUT.seen.map },
+  { key: 'Press P for your phone. Tap “What to do?” to see everything you can do.', touch: 'Tap the phone button. Tap “What to do?” to see everything you can do.', done: () => TUT.seen.guide },
+  { key: 'Last one: open Contracts on the phone. Tash always has a paid job for you. Have fun!', touch: 'Last one: open Contracts on the phone. Tash always has a paid job for you. Have fun!', done: () => TUT.seen.contracts },
+];
+function tutSeen(what) { if (!TUT.on) return; TUT.seen[what] = true; if (TUT_STEPS[TUT.i].done(TUT.base, TUT.state)) tutNext(); } // straight away, even with the phone or map open
+function tutMaybeStart() { if (TUT_FRESH) tutStart(); }
+function tutStart() { TUT.on = true; TUT.i = 0; TUT.seen = {}; tutStep(); }
+function tutStep() {
+  TUT.base = { x: player.x, z: player.z, yaw: camYaw }; TUT.state = {}; TUT.t = 0;
+  let el = TUT.el;
+  if (!el) {
+    el = TUT.el = document.createElement('div'); el.id = 'tut';
+    el.style.cssText = 'position:fixed;left:50%;top:96px;transform:translateX(-50%);width:min(560px,calc(100vw - 32px));z-index:35;background:rgba(8,14,18,.92);border:2px solid var(--gold);border-radius:14px;padding:10px 14px 12px;color:#fff;font:500 17px var(--hud);box-shadow:0 6px 24px rgba(0,0,0,.5)';
+    el.innerHTML = '<div style="font:700 13px var(--hud);color:var(--gold);letter-spacing:.08em;text-transform:uppercase"></div><div style="margin:4px 0 9px;line-height:1.25"></div><div style="display:flex;gap:8px;flex-wrap:wrap"></div>';
+    const mk = (label, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; b.style.cssText = `font:700 15px var(--hud);padding:6px 12px;border-radius:9px;border:2px solid rgba(246,196,69,.6);cursor:pointer;${primary ? 'background:var(--gold);color:#111' : 'background:#0d1418;color:#fff'}`; b.addEventListener('click', (e) => { e.stopPropagation(); fn(); }); el.children[2].appendChild(b); return b; };
+    TUT.next = mk('Next step', tutNext, true); mk('Skip tutorial', () => tutEnd(true));
+    document.body.appendChild(el);
+  }
+  const S = TUT_STEPS[TUT.i], touch = TOUCH.on;
+  el.hidden = false;
+  el.children[0].textContent = `Tutorial · ${TUT.i + 1} of ${TUT_STEPS.length}`;
+  el.children[1].textContent = touch ? S.touch : S.key;
+  TUT.next.textContent = touch ? 'Skip step' : 'Skip step (Enter)';
+  el.children[2].lastChild.textContent = touch ? 'Skip tutorial' : 'Skip tutorial (K)';
+}
+function tutNext() { if (!TUT.on) return; TUT.i++; if (TUT.i >= TUT_STEPS.length) return tutEnd(false); sfxTone([660, 880], 0.12, 0.04); tutStep(); }
+function tutEnd(skipped) {
+  TUT.on = false; if (TUT.el) TUT.el.hidden = true;
+  try { localStorage.setItem('gcs-tutorial', 'done'); } catch (e) { /* storage blocked */ }
+  toast(skipped ? 'Tutorial skipped — phone (P) → What to do? any time' : 'Tutorial done! Phone (P) → What to do? for ideas');
+}
+function tutKey(code) { if (!TUT.on) return false; if (code === 'Enter') { tutNext(); return true; } if (code === 'KeyK') { tutEnd(true); return true; } return false; }
+function updateTutorial(dt) {
+  if (!TUT.on) return; TUT.t += dt;
+  if (TUT.t > 0.6 && TUT_STEPS[TUT.i].done(TUT.base, TUT.state)) tutNext();
+}
 
 // ============================================================================
 // Gold Coast Streets — developer inspection mode (press ` to toggle).
@@ -12974,10 +13417,10 @@ function nearShop() {
 }
 function useKey() {
   if (player.deadT > 0) return;
-  if (player.state === 'plane') { if (player.plane.ground && player.plane.v < 2) leavePlane(false); return; } // in the air E is the rudder
+  if (player.state === 'plane') { if (player.plane.ground && player.plane.v < 2) leavePlane(false); else if (keys.KeyF || TOUCH.on) skyBail(); return; } // in the air E is the rudder; F jumps out
   if (player.state === 'car') { if (player.car.speed > 9) toast('Slow down to get out'); else startExit(null); return; }
   if (player.state === 'surf') { surfUse(); return; }
-  if (player.state === 'heli') { leaveChopper(false); return; }
+  if (player.state === 'heli') { if (!skyBail()) leaveChopper(false); return; } // high enough in the air: jump out
   if (player.state === 'boat') { if (player.items.rod > 0 && deepSea()) { startFishing({ ocean: true, deep: true }); return; } leaveBoat(); return; } // stopped well out to sea with a rod: fish off the side
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
@@ -13014,6 +13457,7 @@ function updatePlayer(dt) {
     case 'surf': squeal = 0; return updateSurf(dt);
     case 'boat': squeal = 0; return updateBoatControls();
     case 'heli': squeal = 0; return updateHeliControls();
+    case 'sky': squeal = 0; return updateSkyControls(dt); // falling or under a parachute (skydive.js)
     case 'ride': squeal = 0; return updateRide(dt);
     case 'enter': squeal = 0; return updateEnter(dt);
     case 'exit': return updateExit(dt);
@@ -13054,7 +13498,7 @@ function updatePlayer(dt) {
   player.x += mx * sp * dt + player.kx * dt; player.z += mz * sp * dt + player.kz * dt;
   player.kx *= Math.exp(-6 * dt); player.kz *= Math.exp(-6 * dt);
   player.speed = ml > 0 ? sp : 0; player.vx = mx * sp; player.vz = mz * sp;
-  if (keys.Space && player.y <= 0 && !swim) { if (!tryVault()) player.vy = 5.2; keys.Space = false; }
+  if (keys.Space && player.y <= 0 && !swim) { if (!tryLedgeJump() && !tryVault()) player.vy = 5.2; keys.Space = false; } // at a roof's ledge: jump off (skydive.js)
   player.vy -= 16 * dt; player.y += player.vy * dt;
   const floor = swim ? -1.05 : 0;
   if (player.y < floor) { player.y = swim ? lerp(player.y, floor, Math.min(1, dt * 6)) : floor; player.vy = 0; }
@@ -13123,6 +13567,9 @@ function updateCamera(dt) {
       camPitch = lerp(camPitch, 0.2, Math.min(1, dt * 1.5));
     }
     camera.fov = lerp(camera.fov, 60 + Math.min(18, c.speed * 0.38), Math.min(1, dt * 3));
+  } else if (player.state === 'sky') { // falling: above and behind, pulled back as you speed up
+    tx = player.x; ty = SKY.alt + (SKY.open ? 1.3 : 0.6); tz = player.z; dist = SKY.open ? 8 : 6.5;
+    camPitch = lerp(camPitch, SKY.open ? 0.22 : 0.5, Math.min(1, dt * 1.5)); camera.fov = lerp(camera.fov, 62 + Math.min(16, -SKY.vy * 0.25), Math.min(1, dt * 3));
   } else {
     const low = player.state === 'tackled' || player.state === 'cuffed' || player.state === 'down';
     tx = player.x; ty = footFloor() + player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
@@ -13136,7 +13583,7 @@ function updateCamera(dt) {
   const cp = Math.cos(camPitch), fx = Math.sin(camYaw) * cp, fy = -Math.sin(camPitch), fz = Math.cos(camYaw) * cp;
   const cx = tx - fx * dist, cz = tz - fz * dist;
   const inside = player.state !== 'car' && indoorAt(player.x, player.z);
-  const t = player.state === 'plane' ? 1 : rayWalls(tx, tz, cx, cz, inside ? 1 : 3); // in the air, buildings below don't block the camera
+  const t = player.state === 'plane' || player.state === 'sky' ? 1 : rayWalls(tx, tz, cx, cz, inside ? 1 : 3); // in the air, buildings below don't block the camera
   const allowed = t < 1 ? Math.max(1.2, dist * t - 0.5) : dist;
   camDist = allowed < camDist ? allowed : lerp(camDist, allowed, Math.min(1, dt * 2.5));
   let px = tx - fx * camDist, py = ty - fy * camDist, pz = tz - fz * camDist;
@@ -13628,6 +14075,7 @@ window.addEventListener('keydown', (e) => {
   }
   if (code === 'Escape' && !mouse.locked) { if (bigMapOpen) toggleMap(); else setPaused(!paused); return; }
   if (paused) return;
+  if (tutKey(code)) return; // Enter skips a tutorial step, K skips the tutorial
   if (code === 'KeyF' || code === 'KeyE') useKey();
   if (code === 'KeyQ') punch();
   if (code === 'Backquote' && MODE !== 'multi') devToggle(); // no dev tools or time skipping in multiplayer
@@ -13647,7 +14095,7 @@ window.addEventListener('keyup', (e) => { keys[keyCode(e)] = false; });
 window.addEventListener('blur', () => { for (const k in keys) keys[k] = false; });
 function toggleMap() {
   bigMapOpen = !bigMapOpen; $('bigmap').hidden = !bigMapOpen;
-  if (bigMapOpen) { MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
+  if (bigMapOpen) { tutSeen('map'); MAPV.cx = player.x; MAPV.cz = player.z; drawBigMap(); if (document.pointerLockElement) document.exitPointerLock(); }
   else { $('mapq').blur(); MAPV.pin = null; $('mappin').hidden = true; lockPointer(); }
 }
 initBigMap();
@@ -13661,6 +14109,7 @@ $('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
   const first = !started; if (first) await goToSpawn($('pick-spawn').value);
   started = true; setPaused(false);
+  if (first) tutMaybeStart(); // a short tutorial the very first time (guide.js)
   if (first && MODE === 'multi') netQuick(); // straight into a public world (phone → Online for friends and codes)
 });
 
@@ -13805,7 +14254,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateSkydive(dt); updateContracts(dt); updateTutorial(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

@@ -13,7 +13,7 @@ const km = (x, z) => { const d = Math.hypot(x - player.x, z - player.z); return 
 function directions(name, x, z) { WAYPOINT = { name, x, z }; GPS.t = 0; closePhone(); toast(`Heading to ${name} — ${km(x, z)} · follow the yellow line`); }
 function phoneApp(app) {
   setTimeout(refreshKeyHints, 0); // the key strip follows the app (the HUD doesn't update while the phone is up)
-  PHONE.app = app; const body = $('phone-body'); body.innerHTML = '';
+  PHONE.app = app; tutSeen(app); const body = $('phone-body'); body.innerHTML = '';
   const btn = (label, sub, fn, ok = true) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.disabled = !ok; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = label; b.lastChild.textContent = sub || ''; b.addEventListener('click', fn); body.appendChild(b); return b; };
   const head = (t) => { const h = document.createElement('div'); h.className = 'psec'; h.textContent = t; body.appendChild(h); };
   let grid = null;
@@ -24,10 +24,12 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', contracts: 'Contracts', guide: 'What to do?', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
+    tile('📋', 'Contracts', () => phoneApp('contracts'), CON.cur ? '!' : '1');
+    tile('❓', 'What to do?', () => phoneApp('guide'));
     tile('🎯', 'Activities', () => phoneApp('acts'), ACT_CUR ? '!' : '');
     tile('💼', 'Jobs', () => phoneApp('jobs'), ECON.shift ? '!' : '');
     tile('🏅', 'Missions', () => phoneApp('missions'), String(['daily', 'weekly'].reduce((n, k) => n + challengeRows(k).filter((r) => !r.done).length, 0) || ''));
@@ -96,6 +98,8 @@ function phoneApp(app) {
   else if (app === 'pet') { back(); petApp(btn, head); }
   else if (app === 'swell') { back(); swellApp(btn, head); }
   else if (app === 'acts') { back(); actsApp(btn, head); }
+  else if (app === 'contracts') { back(); contractsApp(btn, head); }
+  else if (app === 'guide') { back(); guideApp(btn, head); }
   else if (app === 'act') { actApp(btn, head); }
   else if (app === 'missions') { back(); missionsApp(btn, head); }
   else if (app === 'stats') { back(); statsApp(btn, head); }
@@ -119,6 +123,8 @@ function activeCard(body) {
     sub = HEIST.stage === 3 ? `take $${HEIST.take.toLocaleString()}${player.stars ? ' · lose the cops first' : ''}` : HEIST.bank.name;
     where = HEIST.stage === 3 ? { name: 'Safehouse', x: HEIST.safe.x, z: HEIST.safe.z } : { name: HEIST.bank.name, x: HEIST.bank.x, z: HEIST.bank.z };
     if (HEIST.stage === 1) quit = () => { HEIST.stage = 0; HEIST.crew = {}; phoneApp('home'); };
+  } else if (CON.cur) {
+    const C = CON.cur; title = `${C.icon} ${C.title}`; sub = `$${C.pay.toLocaleString()} · ${$('jobhud').textContent.split(' · ').slice(1).join(' · ') || 'in progress'}`; where = WAYPOINT; quit = () => { conEnd(false, 'You gave up.'); phoneApp('home'); };
   } else if (STORY.M) {
     const C = CHAPTERS[STORY.M.i]; title = C.title; sub = STORY.M.hud; where = WAYPOINT; quit = () => { endChapter(false, 'Job abandoned.'); phoneApp('home'); };
   } else if (MISSION) {
@@ -133,7 +139,7 @@ function activeCard(body) {
   const add = (label, fn, primary) => { const b = document.createElement('button'); b.type = 'button'; b.textContent = label; if (primary) b.className = 'go'; b.addEventListener('click', fn); card.children[2].appendChild(b); };
   if (where) add('Directions', () => directions(where.name, where.x, where.z), true);
   if (HEIST.stage === 1) add('Crew & start', () => phoneApp('heist'), true);
-  if (quit) add(WAYPOINT && !MISSION && !HEIST.stage && !STORY.M ? 'Cancel' : 'Give up', quit);
+  if (quit) add(WAYPOINT && !MISSION && !HEIST.stage && !STORY.M && !CON.cur ? 'Cancel' : 'Give up', quit);
   body.appendChild(card);
 }
 

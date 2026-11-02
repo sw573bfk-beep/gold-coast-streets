@@ -170,6 +170,7 @@ function punchPeers(hx, hz) {
 function myState() {
   const st = player.deadT > 0 ? 'd' : { car: 'c', plane: 'p', boat: 'b', surf: 's', ride: 'r' }[player.state] || 'f';
   const r2 = (v) => Math.round(v * 100) / 100, s = { m: st, x: r2(player.x), z: r2(player.z), y: r2(player.y || 0), h: r2(player.h || 0) };
+  if (player.state === 'sky') s.y = r2(SKY.alt - standAt(player.x, player.z)); // others see you up in the air on your way down
   if (st === 'c' && player.car) { s.ty = player.car.type; s.co = player.car.color; s.y = r2(player.car.y || 0); }
   else if (st === 'p' && player.plane) { const p = player.plane; s.ty = p.type; s.x = r2(p.x); s.z = r2(p.z); s.y = r2(p.y); s.h = r2(p.h); s.pi = r2(p.pitch); s.ro = r2(p.roll); }
   else if (st === 'b' && player.boat) { s.ty = player.boat.type; }

@@ -892,6 +892,66 @@ window.runRegression = async () => {
     const r = `${blds} buildings around the CBD, tallest ${tall.toFixed(0)} m · ${marks}/5 landmarks found · Story Bridge truss ${truss} (${span.toFixed(0)} m)`;
     expect(blds > 1500 && tall > 250 && marks === 5 && truss && span > 600, r); return r;
   });
+  const q1Roof = () => { // up Q1's lift to the roof, standing by the ledge of its longest side
+    home(); const bn = MAP.details.bnames, qi = Object.keys(bn).find((k) => /^Q1/.test(bn[k])), f = MAP.buildings[qi].slice(3);
+    let e = null; for (let q = 0; q < f.length / 2; q++) { const L = Math.hypot(f[(2 * q + 2) % f.length] - f[2 * q], f[(2 * q + 3) % f.length] - f[2 * q + 1]); if (!e || L > e.L) e = { q, L }; }
+    const ax = f[2 * e.q], az = f[2 * e.q + 1], bx = f[(2 * e.q + 2) % f.length], bz = f[(2 * e.q + 3) % f.length];
+    let nx = (bz - az) / e.L, nz = -(bx - ax) / e.L; if (inRing((ax + bx) / 2 + nx * 0.5, (az + bz) / 2 + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+    player.x = (ax + bx) / 2 + nx; player.z = (az + bz) / 2 + nz; step(0.1); towerUse(); rideLift(TOWER.floors + 1);
+    player.x = (ax + bx) / 2 - nx * 0.6; player.z = (az + bz) / 2 - nz * 0.6; step(0.05);
+  };
+  const fallTillDown = () => { let n = 0; while (player.state === 'sky' && n < 400) { step(0.5); n++; } return n * 0.5; };
+  await test('base jump: Q1 roof, Space at the ledge, free fall, Space opens the parachute, a safe landing', () => {
+    q1Roof(); const roof = TOWER.y, edge = !!roofEdge(); step(0.03, { Space: true });
+    const jumped = player.state === 'sky' && !TOWER && SKY.alt > 240; step(3); const fell = roof - SKY.alt;
+    step(0.03, { Space: true }); step(4); const slow = SKY.open && SKY.vy > -6;
+    const t = fallTillDown(), L = SKY.last, ok = player.state !== 'sky' && L && L.ok && player.deadT === 0 && player.health > 50;
+    const r = `roof ${roof.toFixed(0)} m, by the ledge ${edge}, jumped ${jumped}, fell ${fell.toFixed(0)} m in 3 s, chute slows it ${slow}, down after ${t} s (${L && L.where}) safe ${ok}`;
+    home(); expect(edge && jumped && fell > 25 && slow && ok, r); return r;
+  });
+  await test('base jump without opening the parachute: wasted', () => {
+    q1Roof(); step(0.03, { Space: true }); const t = fallTillDown(), L = SKY.last;
+    const r = `hit the ${L && L.where} after ${t} s at ${L && L.fell} m · ${player.deadT > 0 ? 'wasted' : 'survived'}`;
+    const ok = player.deadT > 0 || (L && L.where === 'water'); home(); expect(ok, r); return r; // the sea off Q1 can catch you; the ground never should
+  });
+  await test('jump out of a flying helicopter (E) and parachute down', () => {
+    home(); const c = new Chopper(player.x + 8, player.z, 0, 'Test helicopter'); boardChopper(c); c.ground = false; c.y = standAt(c.x, c.z) + 150; c.spin = 1;
+    useKey(); const out = player.state === 'sky' && !player.chopper && SKY.from === 'heli';
+    step(1); step(0.03, { Space: true }); const t = fallTillDown(), ok = SKY.last && SKY.last.ok && player.deadT === 0;
+    const r = `jumped out ${out}, landed after ${t} s safe ${ok}`; c.remove(); home(); expect(out && ok, r); return r;
+  });
+  await test('contracts: one is always assigned; all 12 kinds can be made; accepting, finishing and getting paid; the next is assigned', () => {
+    home(); WAYPOINT = null; CON.cur = null; CON.offer = null;
+    const made = Object.keys(CON_KINDS).filter((k) => CON_KINDS[k]()).length, none = Object.keys(CON_KINDS).filter((k) => !CON_KINDS[k]()); // a snatcher needs people walking by, a car job needs cars about
+    let P = null; for (let k = 0; k < 20 && !P; k++) P = CON_KINDS.parcel() || (k > 10 && CON_KINDS.scout()); expect(P, 'no parcel or scout job could be made here');
+    CON.offer = Object.assign(P, { kind: P.steps.length > 1 ? 'parcel' : 'scout' }); const O = CON.offer, m0 = player.money, d0 = conData().done;
+    conAccept(); const on = CON.cur === O && WAYPOINT && WAYPOINT.name === O.steps[0].name;
+    for (const S of O.steps.slice()) { player.x = S.x; player.z = S.z; player.stars = 0; for (let k = 0; k < 120 && CON.cur && CON.cur.steps[0] === S; k++) updateContracts(0.1); } // scouting means staying 10 s
+    const paid = !CON.cur && player.money === m0 + O.pay && conData().done === d0 + 1, next = !!CON.offer && CON.offer !== O;
+    const r = `${made}/12 kinds made here${none.length ? ' (not here: ' + none.join(', ') + ')' : ''} · accepted ${on} · paid $${O.pay} ${paid} · next one assigned ${next} (${CON.offer && CON.offer.title})`;
+    player.money = m0; conData().done = d0; conData().earned -= O.pay; home(); expect(made >= 8 && on && paid && next, r); return r;
+  });
+  await test('contracts: losing the cops pays; getting wasted fails and assigns the next', () => {
+    home(); CON.cur = null; CON.offer = Object.assign(CON_KINDS.heat(), { kind: 'heat' }); const O = CON.offer, m0 = player.money;
+    conAccept(); const wanted = player.stars >= 2; step(0.1); player.stars = 0; step(2.5);
+    const paid = !CON.cur && player.money === m0 + O.pay;
+    CON.offer = Object.assign(CON_KINDS.fish(), { kind: 'fish' }); conAccept(); player.deadT = 0.5; player.endKind = 'wasted'; updateContracts(0.1);
+    const failed = !CON.cur && player.money === m0 + O.pay && !!CON.offer;
+    const r = `wanted ${wanted}, paid when lost ${paid}, wasted fails ${failed}`; player.money = m0; home(); expect(wanted && paid && failed, r); return r;
+  });
+  await test('phone: Contracts and What to do? are on the home screen; What to do? lists everything with a button', () => {
+    uiOpen = false; openPhone(); const tiles = [...document.querySelectorAll('#phone-body .ptile b')].map((b) => b.textContent);
+    phoneApp('guide'); const n = document.querySelectorAll('#phone-body button.papp:not(:disabled)').length; closePhone();
+    const r = `home has Contracts ${tiles.includes('Contracts')}, What to do? ${tiles.includes('What to do?')} · ${n} buttons in What to do?`;
+    expect(tiles.includes('Contracts') && tiles.includes('What to do?') && n >= 20, r); return r;
+  });
+  await test('tutorial: steps follow what you do, Enter skips a step, the button skips the lot', () => {
+    home(); const flag = localStorage.getItem('gcs-tutorial'); tutStart(); const shown = !TUT.el.hidden && TUT.i === 0;
+    player.x += 12; step(0.8); const walked = TUT.i === 1; tutKey('Enter'); const skipped = TUT.i === 2;
+    TUT.el.querySelectorAll('button')[1].click(); const ended = !TUT.on && TUT.el.hidden && localStorage.getItem('gcs-tutorial') === 'done';
+    if (flag === null) localStorage.removeItem('gcs-tutorial'); else localStorage.setItem('gcs-tutorial', flag);
+    const r = `shown ${shown} · walking finishes step 1 ${walked} · Enter skips ${skipped} · Skip tutorial ends it ${ended}`; home(); expect(shown && walked && skipped && ended, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');
