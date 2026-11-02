@@ -6,7 +6,7 @@ Inputs: data/region/osm_*.json (OpenStreetMap via Overpass), data/region/ms_buil
 Outputs: dist/tiles/t_<i>_<j>.json (one per non-empty tile), dist/tiles/region.json (overview for maps and the index).
 Run: python3 tools/build_tiles.py
 """
-import array, base64, glob, json, math, os, random, re, sys, time
+import array, base64, collections, glob, json, math, os, random, re, sys, time
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TILE = 1000.0
@@ -229,6 +229,7 @@ graph_ways = []
 road_segs = []  # for tree placement: (ax, az, bx, bz, w)
 drive_segs = []  # drivable roads only: front doors face these
 BRIDGES = []  # (pts, width): decks keep a level line between their ends instead of dipping to the ground below
+UNDER = []  # roads that aren't bridges or tunnels: where a bridge crosses one, the ground under the deck stays the road's
 for e in els:
     t = e.get('tags', {}); hw = t.get('highway')
     if e['type'] != 'way' or not hw: continue
@@ -249,6 +250,8 @@ for e in els:
         road_segs.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], width))
         if hw in DRIVABLE or is_link: drive_segs.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], width))
     if bridge and hw in DRIVABLE | {'service', 'motorway'}: BRIDGES.append((pts, width))
+    if not bridge and t.get('tunnel') != 'yes' and (hw in DRIVABLE or is_link or hw == 'motorway'):
+        for i in range(len(pts) - 1): UNDER.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], width))
     # cut into tiles, leaving the Surfers core alone
     xs = [p[0] for p in pts]; zs = [p[1] for p in pts]
     for ti in range(tkey(min(xs), 0)[0], tkey(max(xs), 0)[0] + 1):
@@ -545,9 +548,22 @@ HSTEP, HN = 10.0, 101  # height grid: one sample every 10 m, 101 x 101 per tile 
 def core_fade(x, z):
     dx = max(CORE[0] - x, 0, x - CORE[2]); dz = max(CORE[1] - z, 0, z - CORE[3]); d = math.hypot(dx, dz)
     t = min(1.0, d / 250.0); return t * t * (3 - 2 * t)
-# bridge decks: a straight line between the ground at each end, so roads stay level over water and other roads
+# bridge decks: a straight line between the ground at each end, so roads stay level over water and other roads.
+# Where a deck crosses another road (an overpass), the ground there is the road below's: the game draws the deck at its
+# own height (tile 'decks') and cars on it ride the deck, cars underneath the road.
 BG = 50.0
 bgrid = {}
+UG = 120.0; UNDER_GRID = {}
+for u in UNDER:
+    for gx in range(int(min(u[0], u[2]) // UG) - 1, int(max(u[0], u[2]) // UG) + 2):
+        for gz in range(int(min(u[1], u[3]) // UG) - 1, int(max(u[1], u[3]) // UG) + 2):
+            UNDER_GRID.setdefault((gx, gz), []).append(u)
+def seg_cross(ax, az, bx, bz, cx, cz, dx, dz):
+    d = (bx - ax) * (dz - cz) - (bz - az) * (dx - cx)
+    if abs(d) < 1e-9: return False
+    t = ((cx - ax) * (dz - cz) - (cz - az) * (dx - cx)) / d; u = ((cx - ax) * (bz - az) - (cz - az) * (bx - ax)) / d
+    return 0 <= t <= 1 and 0 <= u <= 1
+n_over = 0
 for pts, w in BRIDGES:
     if not DEM: break
     ha = DEM.value(*unproj(*pts[0])) or 0; hb = DEM.value(*unproj(*pts[-1])) or 0
@@ -555,17 +571,34 @@ for pts, w in BRIDGES:
     for i in range(len(pts) - 1): L.append(L[-1] + math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]))
     tot = L[-1] or 1
     for i in range(len(pts) - 1):
-        seg = (pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], w / 2 + 3, ha + (hb - ha) * L[i] / tot, ha + (hb - ha) * L[i + 1] / tot)
+        ax, az, bx, bz = pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1]
+        under = [u for u in UNDER_GRID.get((int((ax + bx) / 2 // UG), int((az + bz) / 2 // UG)), ()) if seg_cross(ax, az, bx, bz, u[0], u[1], u[2], u[3])]
+        seg = (ax, az, bx, bz, w / 2 + 3, ha + (hb - ha) * L[i] / tot, ha + (hb - ha) * L[i + 1] / tot, under)
         for gx in range(int(min(seg[0], seg[2]) // BG) - 1, int(max(seg[0], seg[2]) // BG) + 2):
             for gz in range(int(min(seg[1], seg[3]) // BG) - 1, int(max(seg[1], seg[3]) // BG) + 2):
                 bgrid.setdefault((gx, gz), []).append(seg)
+for pts, w in BRIDGES:  # the decks for the game: whole bridges with their end heights (game metres)
+    if not DEM: break
+    over = any(seg_cross(pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], u[0], u[1], u[2], u[3]) for i in range(len(pts) - 1) for u in UNDER_GRID.get((int((pts[i][0] + pts[i + 1][0]) / 2 // UG), int((pts[i][1] + pts[i + 1][1]) / 2 // UG)), ()))
+    if not over: continue
+    n_over += 1
+    ga = lambda p: max(0.0, (DEM.value(*unproj(*p)) or 0) - GROUND_BASE) * core_fade(p[0], p[1])
+    for k in {tkey(*q) for q in pts}:
+        if all(in_core(q[0], q[1]) for q in pts): continue
+        T(k).setdefault('decks', []).append([round(w, 1), round(ga(pts[0]), 2), round(ga(pts[-1]), 2)] + flat(pts))
+print('overpass decks', n_over)
+def seg_dist(x, z, u):
+    ax, az, bx, bz = u[0], u[1], u[2], u[3]; ex, ez = bx - ax, bz - az; L2 = ex * ex + ez * ez or 1
+    t = max(0, min(1, ((x - ax) * ex + (z - az) * ez) / L2)); return math.hypot(x - ax - ex * t, z - az - ez * t)
 def ground_raw(x, z):
     """Game height (metres) at a point: LiDAR bare earth, bridges levelled, faded to 0 at the Surfers core."""
     h = None
-    for ax, az, bx, bz, r, h0, h1 in bgrid.get((int(x // BG), int(z // BG)), ()):
+    for ax, az, bx, bz, r, h0, h1, under in bgrid.get((int(x // BG), int(z // BG)), ()):
         ex, ez = bx - ax, bz - az; L2 = ex * ex + ez * ez or 1
         t = max(0, min(1, ((x - ax) * ex + (z - az) * ez) / L2))
-        if math.hypot(x - ax - ex * t, z - az - ez * t) < r: h = h0 + (h1 - h0) * t; break
+        if math.hypot(x - ax - ex * t, z - az - ez * t) < r:
+            if any(seg_dist(x, z, u) < u[4] / 2 + 4 for u in under): continue  # the road under an overpass keeps its own level
+            h = h0 + (h1 - h0) * t; break
     if h is None: h = DEM.value(*unproj(x, z))
     if h is None: return 0.0
     return max(0.0, h - GROUND_BASE) * core_fade(x, z)
@@ -823,6 +856,139 @@ for (ti, tj), tt in tiles.items():
                 tt['lamps'].append([round(x, 1), round(z, 1), round(math.atan2(-(bz - az) / L * side, (bx - ax) / L * side), 2)])
                 nxt += 40
             acc += L
+
+# ---------------------------------------------------------------- street details (tools/fetch_details.py, plus the main map)
+# crossings and stop lines, bus stops, real street lights, power poles and wires, channel markers, lifeguard towers,
+# benches and bins, mangroves; then roundabout islands and the medians between divided roads
+det_els = {}
+for path in sorted(glob.glob(os.path.join(ROOT, 'data', 'region', 'det_*.json'))):
+    for e in json.load(open(path))['elements']: det_els[(e['type'], e['id'])] = e
+for e in els:  # benches and bins in the main map too
+    if e['type'] == 'node' and e.get('tags', {}).get('amenity') in ('bench', 'waste_basket', 'drinking_water', 'bbq'): det_els[(e['type'], e['id'])] = e
+SEA_COL = {'port': 'r', 'starboard': 'g'}
+n_det = collections.Counter()
+for e in det_els.values():
+    t = e.get('tags', {})
+    if e['type'] == 'node':
+        p = proj(e['lat'], e['lon'])
+        tt = T(tkey(*p)); xz = [round(p[0], 1), round(p[1], 1)]
+        hw, st = t.get('highway'), t.get('seamark:type', '')
+        if hw == 'crossing' or t.get('crossing'): tt.setdefault('cross', []).append(xz); n_det['crossings'] += 1
+        elif hw in ('stop', 'give_way'): tt.setdefault('stopl', []).append(xz + [1 if hw == 'stop' else 0]); n_det['stop lines'] += 1
+        elif hw == 'bus_stop' or (t.get('public_transport') == 'platform' and t.get('bus') == 'yes'): tt.setdefault('bus', []).append(xz + [1 if t.get('shelter') == 'yes' else 0, (t.get('name') or '')[:40]]); n_det['bus stops'] += 1
+        elif hw == 'street_lamp': tt.setdefault('osmlamps', []).append(xz); n_det['street lights'] += 1
+        elif t.get('power') in ('pole', 'tower'): tt.setdefault('poles', []).append(xz + [1 if t['power'] == 'tower' else 0]); n_det['power poles'] += 1
+        elif st or t.get('man_made') in ('beacon', 'lighthouse'):
+            cat = t.get('seamark:' + st + ':category', '') if st else ''
+            colr = SEA_COL.get(cat) or ('y' if 'cardinal' in st or 'special' in st else 'w' if t.get('man_made') == 'lighthouse' or 'light' in st else 'r' if 'red' in t.get('seamark:' + st + ':colour', '') else 'g' if 'green' in t.get('seamark:' + st + ':colour', '') else 'y')
+            tt.setdefault('marks', []).append(xz + [colr, 1 if t.get('man_made') == 'lighthouse' or st.startswith('light_major') else 0]); n_det['channel markers'] += 1
+        elif t.get('emergency', '').startswith('lifeguard') or t.get('lifeguard'): tt.setdefault('guards', []).append(xz); n_det['lifeguard towers'] += 1
+        elif t.get('amenity') in ('bench', 'waste_basket', 'drinking_water', 'bbq', 'shower') or t.get('leisure') == 'picnic_table':
+            k = {'bench': 0, 'waste_basket': 1, 'drinking_water': 2, 'bbq': 3, 'shower': 2}.get(t.get('amenity'), 4)
+            tt.setdefault('furn', []).append(xz + [k]); n_det['benches and bins'] += 1
+    elif e['type'] == 'way':
+        pts = geom(e)
+        if len(pts) < 2: continue
+        if t.get('power') in ('line', 'minor_line'):
+            for ti_, tj_ in {tkey(*q) for q in pts}:  # each tile gets the whole line (short); the game draws the spans it holds
+                T((ti_, tj_)).setdefault('wires', []).append([1 if t['power'] == 'line' else 0] + flat(pts)); n_det['power lines'] += 1
+        elif t.get('wetland') == 'mangrove' and len(pts) >= 4:
+            cx_ = sum(q[0] for q in pts) / len(pts); cz_ = sum(q[1] for q in pts) / len(pts)
+            T(tkey(cx_, cz_))['areas'].setdefault('mangrove', []).append(flat(simplify(pts, 1.0))); n_det['mangrove areas'] += 1
+    elif e['type'] == 'relation' and t.get('wetland') == 'mangrove':
+        for m in e.get('members', []):
+            if m.get('role') != 'outer' or not m.get('geometry'): continue
+            pts = [proj(g['lat'], g['lon']) for g in m['geometry'] if g]
+            if len(pts) < 4: continue
+            cx_ = sum(q[0] for q in pts) / len(pts); cz_ = sum(q[1] for q in pts) / len(pts)
+            T(tkey(cx_, cz_))['areas'].setdefault('mangrove', []).append(flat(simplify(pts, 1.0))); n_det['mangrove areas'] += 1
+# bike lanes painted on the road (cycleway=lane, on one side or both)
+for e in els:
+    t = e.get('tags', {})
+    if e['type'] != 'way' or not t.get('highway') or t.get('highway') not in DEFAULT_W: continue
+    both = t.get('cycleway') in ('lane', 'opposite_lane') or t.get('cycleway:both') == 'lane'
+    left, right = t.get('cycleway:left') == 'lane', t.get('cycleway:right') == 'lane'
+    if not (both or left or right): continue
+    pts = geom(e)
+    if len(pts) < 2: continue
+    ln = t.get('lanes', '').split(';')[0]; w = int(ln) * 3.4 + 0.8 if ln.isdigit() else DEFAULT_W[t['highway']]
+    side = 1 if both or (left and right) else 2 if left else 3
+    cx_ = sum(q[0] for q in pts) / len(pts); cz_ = sum(q[1] for q in pts) / len(pts)
+    if in_core(cx_, cz_): continue
+    T(tkey(cx_, cz_)).setdefault('bike', []).append([side, round(w, 1)] + flat(simplify(pts, 0.5))); n_det['bike lanes'] += 1
+# roundabouts: a grassy island (with a palm) in the middle of every closed roundabout ring
+for e in els:
+    t = e.get('tags', {})
+    if e['type'] != 'way' or t.get('junction') not in ('roundabout', 'circular') or not t.get('highway'): continue
+    pts = geom(e)
+    if len(pts) < 5 or math.hypot(pts[0][0] - pts[-1][0], pts[0][1] - pts[-1][1]) > 1: continue
+    cx_ = sum(q[0] for q in pts[:-1]) / (len(pts) - 1); cz_ = sum(q[1] for q in pts[:-1]) / (len(pts) - 1)
+    rad = min(math.hypot(q[0] - cx_, q[1] - cz_) for q in pts) - DEFAULT_W.get(t['highway'], 7) * 0.6 / 2 - 0.5
+    if rad < 1.5 or in_core(cx_, cz_): continue
+    T(tkey(cx_, cz_)).setdefault('rbt', []).append([round(cx_, 1), round(cz_, 1), round(rad, 1)]); n_det['roundabouts'] += 1
+# medians: the strip between the two halves of a divided road (two one-way ways running opposite, 6-30 m apart)
+DIV = ('motorway', 'trunk', 'primary', 'secondary', 'tertiary')
+segs1 = []
+for e in els:
+    t = e.get('tags', {})
+    if e['type'] != 'way' or t.get('highway') not in DIV or t.get('oneway') not in ('yes', '1') or t.get('bridge') or t.get('tunnel') or t.get('junction'): continue
+    pts = geom(e); ln = t.get('lanes', '').split(';')[0]; w = int(ln) * 3.4 if ln.isdigit() else DEFAULT_W.get(t['highway'], 8) * 0.6  # one carriageway
+    for i in range(len(pts) - 1): segs1.append((pts[i][0], pts[i][1], pts[i + 1][0], pts[i + 1][1], e['id'], min(16, max(6, w))))
+MG = 40.0; mgrid = {}
+for k, sg in enumerate(segs1):
+    mgrid.setdefault((int((sg[0] + sg[2]) / 2 // MG), int((sg[1] + sg[3]) / 2 // MG)), []).append(k)
+for ax, az, bx, bz, wid, w in segs1:
+    L = math.hypot(bx - ax, bz - az)
+    if L < 8: continue
+    ux, uz = (bx - ax) / L, (bz - az) / L; nx_, nz_ = -uz, ux
+    for t0 in [x / L for x in range(4, int(L) - 3, 12)] or [0.5]:
+        px, pz = ax + (bx - ax) * t0, az + (bz - az) * t0; best = None
+        gx, gz = int(px // MG), int(pz // MG)
+        for dx in (-1, 0, 1):
+            for dz in (-1, 0, 1):
+                for k in mgrid.get((gx + dx, gz + dz), ()):
+                    cx1, cz1, cx2, cz2, wid2, w2 = segs1[k]
+                    if wid2 == wid: continue
+                    L2 = math.hypot(cx2 - cx1, cz2 - cz1) or 1; vx, vz = (cx2 - cx1) / L2, (cz2 - cz1) / L2
+                    if ux * vx + uz * vz > -0.94: continue  # has to run the other way, nearly parallel
+                    tt2 = max(0, min(1, ((px - cx1) * vx + (pz - cz1) * vz) / L2)); qx, qz = cx1 + vx * L2 * tt2, cz1 + vz * L2 * tt2
+                    d = math.hypot(qx - px, qz - pz)
+                    if 6 < d < 34 and (best is None or d < best[0]): best = (d, qx, qz, w2)
+        if not best: continue
+        d, qx, qz, w2 = best; gap = d - w / 2 - w2 / 2  # the strip left between the carriageways
+        if gap < 1.6: continue
+        mx, mz = (px + qx) / 2 + (w / 2 - w2 / 2) / 2 * ((qx - px) / d), (pz + qz) / 2 + (w / 2 - w2 / 2) / 2 * ((qz - pz) / d)
+        if in_core(mx, mz): continue
+        T(tkey(mx, mz)).setdefault('med', []).append([round(mx - ux * 6, 1), round(mz - uz * 6, 1), round(mx + ux * 6, 1), round(mz + uz * 6, 1), round(min(gap, 14), 1)]); n_det['median pieces'] += 1
+# real street lights replace the made-up ones near them; quieter streets get a light every 60 m or so
+for (ti, tj), tt in tiles.items():
+    real = tt.pop('osmlamps', [])
+    if real:
+        tt['lamps'] = [l for l in tt['lamps'] if not any(abs(l[0] - q[0]) < 22 and abs(l[1] - q[1]) < 22 for q in real)]
+        for x, z in real:
+            best = None
+            for r in tt['roads']:
+                if r[0] > 4 and r[0] != 14: continue
+                p = r[4:]
+                for i in range(0, len(p) - 2, 2):
+                    ax, az, bx, bz = p[i], p[i + 1], p[i + 2], p[i + 3]; L2 = (bx - ax) ** 2 + (bz - az) ** 2 or 1
+                    u = max(0, min(1, ((x - ax) * (bx - ax) + (z - az) * (bz - az)) / L2)); qx, qz = ax + (bx - ax) * u, az + (bz - az) * u
+                    d = math.hypot(x - qx, z - qz)
+                    if best is None or d < best[0]: best = (d, qx, qz)
+            a = math.atan2(best[1] - x, best[2] - z) if best and best[0] > 0.5 else 0
+            tt['lamps'].append([x, z, round(a, 2)])
+    for r in tt['roads']:  # residential streets: a light on a pole every ~60 m, one side
+        if r[0] not in (4, 5) or r[3]: continue
+        p = r[4:]; acc = 0; nxt = 25
+        for i in range(0, len(p) - 2, 2):
+            ax, az, bx, bz = p[i], p[i + 1], p[i + 2], p[i + 3]; L = math.hypot(bx - ax, bz - az) or 1
+            while nxt < acc + L:
+                t0 = (nxt - acc) / L; off = r[1] / 2 + 1.2
+                x = ax + (bx - ax) * t0 + (bz - az) / L * off; z = az + (bz - az) * t0 - (bx - ax) / L * off
+                if not any(abs(x - q[0]) < 30 and abs(z - q[1]) < 30 for q in real): tt['lamps'].append([round(x, 1), round(z, 1), round(math.atan2(-(bz - az) / L, (bx - ax) / L), 2)])
+                nxt += 60
+            acc += L
+print('street details', dict(n_det))
 
 # ---------------------------------------------------------------- write
 out_dir = os.path.join(ROOT, 'dist', 'tiles')

@@ -143,3 +143,44 @@ function crewApp(btn, head) {
     }).catch(() => { list.textContent = 'Couldn’t reach the server.'; });
   }).catch((e) => { box.textContent = e.message; });
 }
+// ---------------------------------------------------------------- riding along: hop in a friend's car (E beside it while they drive)
+const SEATS = [null, [-0.22, 0.1], [0.22, -0.95], [-0.22, -0.95]]; // [across (share of the car's width, + is right), along] for seats 1-3; the driver sits front right
+function friendCarNear(maxD) {
+  if (NET.status !== 'on' || player.state !== 'foot') return null;
+  let best = null, bd = maxD;
+  for (const P of NET.peers.values()) { if (!P.s || P.s.m !== 'c' || !P.veh || P.veh.kind !== 'car') continue; const d = Math.hypot(P.x - player.x, P.z - player.z); if (d < bd) { bd = d; best = P; } }
+  return best;
+}
+function rideFriend() {
+  const P = friendCarNear(5.5); if (!P) return false;
+  const bike = /bike/.test(P.s.ty || ''), taken = new Set([...NET.peers.values()].filter((q) => q.s && q.s.m === 'q' && q.s.in === P.id).map((q) => q.s.seat));
+  let seat = 1; while (taken.has(seat)) seat++;
+  if (seat > (bike ? 1 : 3)) { toast(`${P.name}’s ${bike ? 'bike' : 'car'} is full`); return true; }
+  RIDE.v = { x: P.x, z: P.z, h: P.h, y: 0, speed: 0, spec: P.veh.sp, peer: P.id, name: P.name }; RIDE.kind = 'friend'; RIDE.seat = seat;
+  player.state = 'ride'; player.mode = 'car'; player.model.root.visible = false;
+  toast(`Riding with ${P.name} — E to hop out`); sfxTone([660, 880], 0.15, 0.05); return true;
+}
+function updateFriendRide() { // called by updateRide while you're a passenger
+  const V = RIDE.v, P = NET.status === 'on' && NET.peers.get(V.peer);
+  if (!P || !P.s || P.s.m !== 'c') { toast(P ? `${V.name} got out — so do you` : `${V.name} left`); hopOut(true); return; }
+  V.speed = Math.hypot(P.vx, P.vz); V.x = P.x; V.z = P.z; V.h = P.h; V.y = P.y || 0;
+  const [sx, sz] = SEATS[RIDE.seat], w = (V.spec && V.spec.W) || 1.9, rx = Math.cos(V.h), rz = -Math.sin(V.h), fx = Math.sin(V.h), fz = Math.cos(V.h);
+  player.x = V.x + rx * sx * w + fx * sz; player.z = V.z + rz * sx * w + fz * sz; player.h = V.h;
+  $('jobhud').hidden = false; $('jobhud').textContent = `Riding with ${V.name} · E to hop out`;
+}
+function hopOut(force) {
+  const V = RIDE.v; if (!V) return;
+  if (!force && V.speed > 4) { toast(`Wait till ${V.name} slows down`); return; }
+  const w = (V.spec && V.spec.W) || 1.9, side = (SEATS[RIDE.seat][0] < 0 ? -1 : 1) * (w / 2 + 1.2), rx = Math.cos(V.h), rz = -Math.sin(V.h);
+  let px = V.x + rx * side, pz = V.z + rz * side; const out = freeSpotNear(px, pz, 20); if (out) { px = out[0]; pz = out[1]; }
+  player.x = px; player.z = pz; player.y = 0; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true; RIDE.v = null; RIDE.kind = null; $('jobhud').hidden = true;
+}
+// where a passenger sits, in whichever car they're in (yours, or another player's)
+function passengerSpot(P) {
+  const s = P.s; let host = null;
+  if (s.in === NET.id) { if (player.state === 'car' && player.car) host = { x: player.car.x, z: player.car.z, h: player.car.h, y: surfaceAt(player.car.x, player.car.z, player.car.alt) + (player.car.y || 0), W: player.car.spec.W }; }
+  else { const D = NET.peers.get(s.in); if (D && D.s && D.s.m === 'c') host = { x: D.x, z: D.z, h: D.h, y: standAt(D.x, D.z) + Math.max(0, D.y), W: (D.veh && D.veh.sp && D.veh.sp.W) || 1.9 }; }
+  if (!host) return null;
+  const seat = SEATS[s.seat] || SEATS[1], rx = Math.cos(host.h), rz = -Math.sin(host.h), fx = Math.sin(host.h), fz = Math.cos(host.h);
+  return { x: host.x + rx * seat[0] * host.W + fx * seat[1], z: host.z + rz * seat[0] * host.W + fz * seat[1], y: host.y + 0.25, h: host.h };
+}

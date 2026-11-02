@@ -48,6 +48,41 @@ function buildRegionSurf() {
 function tileAt(x, z) { return TILES.get(Math.floor(x / REGION.tile) + ',' + Math.floor(z / REGION.tile)); }
 // ground height in metres from the tile's LiDAR grid (10 m samples, bilinear). The Surfers core and ground not yet streamed are flat at 0.
 const HGT_N = 101, HGT_STEP = 10;
+// overpass decks (tile 'decks': whole bridges that cross another road, with their end heights). The ground under them
+// is the road below's; things that can be up on a deck (cars, you) ask surfaceAt with how high they are now.
+const DECKS = [];
+function addDecks(T, data) {
+  for (const d of data.decks || []) {
+    const w = d[0], h0 = d[1], h1 = d[2], p = d.slice(3), key = p[0] + ',' + p[1] + ',' + p[p.length - 1];
+    if (DECKS.some((D) => D.key === key)) { DECKS.find((D) => D.key === key).tiles.add(T.k); continue; }
+    const cum = [0]; let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9;
+    for (let q = 0; q < p.length; q += 2) { if (q) cum.push(cum[cum.length - 1] + Math.hypot(p[q] - p[q - 2], p[q + 1] - p[q - 1])); x0 = Math.min(x0, p[q]); x1 = Math.max(x1, p[q]); z0 = Math.min(z0, p[q + 1]); z1 = Math.max(z1, p[q + 1]); }
+    DECKS.push({ key, w, h0, h1, p, cum, L: cum[cum.length - 1] || 1, x0: x0 - w, z0: z0 - w, x1: x1 + w, z1: z1 + w, tiles: new Set([T.k]) });
+  }
+}
+function dropDecks(k) { for (let q = DECKS.length - 1; q >= 0; q--) { DECKS[q].tiles.delete(k); if (!DECKS[q].tiles.size) DECKS.splice(q, 1); } }
+function deckAt(x, z) { // the deck's height here, or null
+  for (const D of DECKS) {
+    if (x < D.x0 || x > D.x1 || z < D.z0 || z > D.z1) continue;
+    const p = D.p;
+    for (let q = 0; q < p.length - 2; q += 2) {
+      const ax = p[q], az = p[q + 1], ex = p[q + 2] - ax, ez = p[q + 3] - az, L2 = ex * ex + ez * ez || 1, t = clamp(((x - ax) * ex + (z - az) * ez) / L2, 0, 1);
+      if (Math.hypot(x - ax - ex * t, z - az - ez * t) < D.w / 2 + 0.6) { const s = D.cum[q / 2] + Math.sqrt(L2) * t; return D.h0 + (D.h1 - D.h0) * s / D.L; }
+    }
+  }
+  return null;
+}
+function footFloor() { // where your feet are: the ground (or a floor), or the deck you're standing on
+  const s = standAt(player.x, player.z); if (!DECKS.length) { player.floorY = s; return s; }
+  const d = deckAt(player.x, player.z);
+  if (d !== null && d > s + 0.3 && player.floorY != null && player.floorY > d - 2.5) { player.floorY = d; return d; }
+  player.floorY = s; return s;
+}
+function surfaceAt(x, z, y) { // the ground, or a deck when you're up on it
+  const g = groundAt(x, z); if (!DECKS.length) return g;
+  const d = deckAt(x, z); if (d === null || d < g + 0.3) return g;
+  return y === undefined || y === null || y > d - 2.5 ? d : g;
+}
 const RAMPS = []; // stunt ramps (stunts.js) sit on top of the ground
 function groundAt(x, z) { return groundBase(x, z) + (RAMPS.length ? rampAt(x, z) : 0); }
 function groundBase(x, z) {
@@ -124,15 +159,19 @@ async function loadTile(i, j) {
   try {
     const data = await fetchTile(i, j);
     if (!TILES.has(k)) return; // unloaded while fetching
+    addDecks(T, data);
     T.roads = data.roads; T.names = data.names; T.blds = data.buildings; T.bnames = data.bnames; T.pois = data.pois; if (data.hgt) { T.hgt = decodeHeights(data.hgt); T.hs = data.hs || HGT_STEP; T.hn = Math.round(REGION.tile / T.hs) + 1; }
     tileGround(T, data); await tileYield(); if (!TILES.has(k)) return;
     tileRoads(T, data); await tileYield(); if (!TILES.has(k)) return;
-    markBrokenBuildings(data);
+    markBrokenBuildings(data); landmarkSkip(T, data); // stadium boxes give way to the bowls (landmarks.js)
     const plan = planFronts(data);
     const segs = tileBuildings(T, data, plan.fronts); await tileYield(); if (!TILES.has(k)) return;
+    if (T.pillarSegs) segs.push(...T.pillarSegs); // overpass pillars stop cars
     tileTrees(T, data, segs); tileLamps(T, data, segs);
     tileShops(T, data, segs, plan); tileFuel(T, data, segs);
     tileTowerNames(T, data); tileSignals(T, data, segs);
+    tileStreets(T, data, segs); // crossings, bays, medians, poles, bus stops... (streets.js)
+    landmarkTile(T, data, segs);
     tileHouses(T, data, segs);
     T.grid = makeGrid(segs, T.x0 - 60, T.z0 - 60, T.x0 + S + 60, T.z0 + S + 60); GRIDS.push(T.grid);
     tileGraph(T, data);
@@ -145,7 +184,7 @@ async function loadTile(i, j) {
 }
 function unloadTile(k) {
   const T = TILES.get(k); if (!T) return;
-  TILES.delete(k);
+  TILES.delete(k); dropDecks(k);
   for (let q = BREAKABLES.length - 1; q >= 0; q--) if (BREAKABLES[q].tile === k) BREAKABLES.splice(q, 1);
   for (const H of HOUSE_ACTIVE.slice()) if (H.tile === k) disposeHouseInterior(H);
   for (const m of T.meshes) scene.remove(m);
@@ -174,11 +213,12 @@ function unloadTile(k) {
 }
 
 // ---------------------------------------------------------------- ground
-function drawTileLayers(ctx, T, data, P, mini) {
+function drawTileLayers(ctx, T, data, P, mini, photo) {
   const S = REGION.tile;
   ctx.fillStyle = P.base; ctx.fillRect(T.x0, T.z0, S, S);
   for (const k of ['residential', 'commercial', 'construction', 'grass', 'scrub', 'wood', 'park', 'pitch', 'parking', 'beach']) fillFeatures(ctx, data.areas[k], P[k]);
-  if (!mini) {
+  if (photo) { drawGroundPhoto(ctx, photo, T.x0, T.z0, S, data.buildings); }
+  else if (!mini) {
     const r = mulberry32(T.i * 7919 + T.j);
     for (let n = 0; n < 26000; n++) { ctx.fillStyle = r() < 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)'; const s = 0.6 + r() * 2.2; ctx.fillRect(T.x0 + r() * S, T.z0 + r() * S, s, s); }
   }
@@ -223,6 +263,7 @@ function tileGround(T, data) {
   drawTileLayers(x, T, data, pal, false);
   tileGrassMask(T, data, c);
   const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; tex.anisotropy = MAX_ANISO;
+  groundPhotoFor(T.i, T.j).then((ph) => { if (!ph || TILES.get(T.k) !== T) return; drawTileLayers(x, T, data, pal, false, ph); tex.needsUpdate = true; tileSeabed(T, ph); }); // the aerial photo, once it's in
   const mat = addGroundDetail(new THREE.MeshStandardMaterial({ map: tex, alphaTest: 0.5, roughness: 0.96, metalness: 0, envMapIntensity: 0.3 }));
   const seg = T.hgt ? T.hn - 1 : 1, g = new THREE.PlaneGeometry(S, S, seg, seg); g.rotateX(-Math.PI / 2);
   if (T.hgt) { const P = g.attributes.position; for (let k = 0; k < P.count; k++) P.setY(k, T.hgt[k]); g.computeVertexNormals(); } // rows run north to south, like the grid
@@ -239,6 +280,43 @@ function tileGround(T, data) {
   const d = mx.getImageData(0, 0, 500, 500).data, mask = new Uint8Array(250000);
   for (let n = 0; n < 250000; n++) mask[n] = d[n * 4] > 127 ? 1 : 0;
   T.mask = mask;
+}
+
+// ---------------------------------------------------------------- the aerial photo on the ground (tools/ground_photos.py: one JPEG for each 3 x 3 block of tiles)
+const GPHOTO = { index: null, imgs: new Map(), on: true, filter: 'brightness(0.82) saturate(1.05)', alpha: 0.78 };
+function groundPhotoBlock(pk) {
+  if (!GPHOTO.index) GPHOTO.index = fetch(`ground/index.json?b=${REGION.built || 0}`).then((r) => (r.ok ? r.json() : [])).then((a) => new Set(a)).catch(() => new Set());
+  return GPHOTO.index.then((idx) => {
+    if (!GPHOTO.on || !idx.has(pk)) return null;
+    let p = GPHOTO.imgs.get(pk);
+    if (!p) {
+      p = new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `ground/g_${pk}.jpg?b=${REGION.built || 0}`; });
+      GPHOTO.imgs.set(pk, p); if (GPHOTO.imgs.size > 10) GPHOTO.imgs.delete(GPHOTO.imgs.keys().next().value);
+    }
+    return p;
+  });
+}
+function tileSeabed(T, ph) { // the photo under this tile's water, darkened as if seen through it
+  if (!T.mask) return; let wet = 0; for (let n = 0; n < T.mask.length; n += 7) wet += 1 - T.mask[n]; if (wet < T.mask.length / 7 * 0.02) return;
+  const c = document.createElement('canvas'); c.width = c.height = 512; const x = c.getContext('2d');
+  x.filter = 'brightness(0.62) saturate(0.85) sepia(0.12) hue-rotate(150deg)'; x.drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sw, 0, 0, 512, 512);
+  const tex = new THREE.CanvasTexture(c); tex.encoding = THREE.sRGBEncoding; const mat = new THREE.MeshBasicMaterial({ map: tex });
+  const g = new THREE.PlaneGeometry(REGION.tile, REGION.tile); g.rotateX(-Math.PI / 2); const m = new THREE.Mesh(g, mat); m.position.set(T.x0 + REGION.tile / 2, WATER_Y - 0.8, T.z0 + REGION.tile / 2);
+  scene.add(m); T.meshes.push(m); T.disposables.push(g, mat, tex);
+}
+function groundPhotoFor(i, j) { // { img, sx, sy, sw }: this tile's square of its block's photo
+  const pi = Math.floor(i / 3), pj = Math.floor(j / 3);
+  return groundPhotoBlock(pi + '_' + pj).then((img) => img && { img, sx: (i - pi * 3) * img.width / 3, sy: (j - pj * 3) * img.height / 3, sw: img.width / 3 });
+}
+// the photo over the land-use colours; where a building stands, its photographed roof would peek out beside the walls, so
+// footprints (and a little around them) get the colour of the ground nearby
+function drawGroundPhoto(ctx, ph, x0, z0, size, buildings) {
+  // the photo already has the sun in it and the game lights it again: darker and a touch richer, so it ends up looking like the photo
+  ctx.save(); ctx.filter = GPHOTO.filter; ctx.globalAlpha = GPHOTO.alpha; ctx.imageSmoothingQuality = 'high'; ctx.drawImage(ph.img, ph.sx, ph.sy, ph.sw, ph.sw, x0, z0, size, size); ctx.restore();
+  if (!buildings) return;
+  ctx.save(); ctx.lineJoin = 'round'; ctx.globalAlpha = 0.9;
+  for (const b of buildings) { if (b.skip) continue; ctx.fillStyle = ctx.strokeStyle = b[2] === 0 ? '#7f8a62' : '#9a978d'; ctx.lineWidth = b[2] === 0 ? 2.2 : 1.6; ctx.beginPath(); trace(ctx, b.slice(3), true); ctx.fill(); ctx.stroke(); }
+  ctx.restore();
 }
 
 // ---------------------------------------------------------------- roads
@@ -264,18 +342,34 @@ function densify(p, step) {
 }
 function tileRoads(T, data) {
   const sets = [[(t) => t === RT.service, 0.03, TILE_ROAD_MATS.service], [(t) => DRIVE.has(t) && !MAJOR.has(t), 0.045, TILE_ROAD_MATS.minor], [(t) => MAJOR.has(t), 0.06, TILE_ROAD_MATS.major]];
-  const hilly = !!T.hgt, D = (p) => (hilly ? densify(p, 8) : p);
-  const addMesh = (B, mat) => { if (!B.pos.length) return; if (hilly) drape(B); const g = toGeometry(B); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); };
+  const hilly = !!T.hgt, D = (p) => (hilly ? densify(p, 8) : p), deckY = (x, z) => { const d = deckAt(x, z); return d === null ? groundAt(x, z) : d; };
+  const addMesh = (B, mat, deck) => { if (!B.pos.length) return; if (deck) { for (let v = 0; v < B.pos.length; v += 3) B.pos[v + 1] += deckY(B.pos[v], B.pos[v + 2]); } else if (hilly) drape(B); const g = toGeometry(B); const m = new THREE.Mesh(g, mat); m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); };
+  const onDeck = (r) => r[3] && DECKS.length && deckAt(r[4], r[5]) !== null && deckAt(r[r.length - 2], r[r.length - 1]) !== null;
+  const under = newBuf();
   for (const [f, y, mat] of sets) {
-    const B = newBuf();
+    const B = newBuf(), BD = newBuf();
     for (const r of data.roads) {
       if (!f(r[0])) continue;
-      const p = D(r.slice(4)), hw = r[1] / 2, us = r[1] / 6, n = p.length;
-      ribbonInto(B, p, 0, hw, y, 6, us);
-      discInto(B, p[0], p[1], hw, y, us); discInto(B, p[n - 2], p[n - 1], hw, y, us);
+      const deck = onDeck(r), p = deck ? densify(r.slice(4), 4) : D(r.slice(4)), hw = r[1] / 2, us = r[1] / 6, n = p.length, Bx = deck ? BD : B;
+      ribbonInto(Bx, p, 0, hw, y, 6, us);
+      if (deck) { ribbonInto(under, p, 0, hw + 0.3, -0.9, 6, 1); continue; } // the underside, seen from the road below
+      discInto(Bx, p[0], p[1], hw, y, us); discInto(Bx, p[n - 2], p[n - 1], hw, y, us);
     }
-    addMesh(B, mat);
+    addMesh(B, mat); addMesh(BD, mat, true);
   }
+  if (under.pos.length) { for (let v = 0; v < under.pos.length; v += 9) { for (let k = 0; k < 3; k++) { const t = under.pos[v + 3 + k]; under.pos[v + 3 + k] = under.pos[v + 6 + k]; under.pos[v + 6 + k] = t; } } under.nor.length = 0; under.uv.length = 0; for (let v = 0; v < under.pos.length; v += 3) under.nor.push(0, -1, 0); addMesh(under, TILE_ROAD_MATS.concrete, true); }
+  // pillars under the overpasses, clear of the road below
+  const pil = newBuf(), pcol = col('#b7b2a6');
+  for (const r of data.roads) {
+    if (!onDeck(r)) continue;
+    const p = r.slice(4); let acc = 9;
+    for (let q = 0; q < p.length - 2; q += 2) {
+      const ax = p[q], az = p[q + 1], bx = p[q + 2], bz = p[q + 3], L = Math.hypot(bx - ax, bz - az) || 1;
+      for (; acc < L; acc += 18) { const x = ax + (bx - ax) * acc / L, z = az + (bz - az) * acc / L, d = deckAt(x, z), g = groundAt(x, z); if (d === null || d - g < 3 || onCarriageway(data.roads.filter((o) => !o[3]), x, z, 1.5)) continue; boxInto(pil, x, g, z, 1.4, d - g - 0.9, 1.4, pcol); (T.pillarSegs = T.pillarSegs || []).push(x - 0.7, z - 0.7, x + 0.7, z + 0.7, d - g); }
+      acc -= L;
+    }
+  }
+  if (pil.pos.length) { const g = toGeometry(pil), m = new THREE.Mesh(g, STREET_MATS.solid); m.castShadow = m.receiveShadow = true; T.meshes.push(m); T.disposables.push(g); }
   const solid = newBuf(), dashed = newBuf();
   for (const e of data.edges) {
     const type = e[5], w = e[6], oneway = e[2], lanes = Math.max(1, e[3] || 1), p = D(e.slice(7)), lw = 0.07;
@@ -287,19 +381,51 @@ function tileRoads(T, data) {
     if (type === RT.trunk || type === RT.primary || type === RT.secondary || type === RT.motorway) { ribbonInto(solid, p, w / 2 - 0.35, lw, 0.075, 12, 1); ribbonInto(solid, p, -w / 2 + 0.35, lw, 0.075, 12, 1); }
   }
   addMesh(solid, TILE_ROAD_MATS.solid); addMesh(dashed, TILE_ROAD_MATS.dashed);
-  const BB = newBuf();
+  const BB = newBuf(), BBD = newBuf();
   for (const r of data.roads) {
     if (!r[3]) continue;
-    const p = r.slice(4), hw = r[1] / 2 + (DRIVE.has(r[0]) ? 1.8 : 0.2);
+    const deck = onDeck(r), p = deck ? densify(r.slice(4), 4) : r.slice(4), hw = r[1] / 2 + (DRIVE.has(r[0]) ? 1.8 : 0.2), WB = deck ? BBD : BB;
     for (let q = 0; q < p.length / 2 - 1; q++) {
       const ax = p[2 * q], az = p[2 * q + 1], bx = p[2 * q + 2], bz = p[2 * q + 3], L = Math.hypot(bx - ax, bz - az) || 1, nx = (bz - az) / L, nz = -(bx - ax) / L;
-      for (const s of [1, -1]) { const ox = nx * hw * s, oz = nz * hw * s; wallInto(BB, ax + ox, az + oz, bx + ox, bz + oz, -1.6, 0.06, nx * s, nz * s); wallInto(BB, ax + ox, az + oz, bx + ox, bz + oz, 0.06, 1.0, -nx * s, -nz * s); }
+      for (const s of [1, -1]) { const ox = nx * hw * s, oz = nz * hw * s; wallInto(WB, ax + ox, az + oz, bx + ox, bz + oz, -1.6, 0.06, nx * s, nz * s); wallInto(WB, ax + ox, az + oz, bx + ox, bz + oz, 0.06, 1.0, -nx * s, -nz * s); }
     }
   }
-  addMesh(BB, TILE_ROAD_MATS.concrete);
+  addMesh(BB, TILE_ROAD_MATS.concrete); addMesh(BBD, TILE_ROAD_MATS.concrete, true);
 }
 
-// ---------------------------------------------------------------- buildings (houses get hip roofs)
+// ---------------------------------------------------------------- buildings (houses get hip or gable roofs)
+const AC_GREY = col('#c9ccc8');
+const inRingT = (x, z, f) => { let c = false; for (let i = 0, j = f.length - 2; i < f.length; j = i, i += 2) if ((f[i + 1] > z) !== (f[j + 1] > z) && x < ((f[j] - f[i]) * (z - f[i + 1])) / (f[j + 1] - f[i + 1]) + f[i]) c = !c; return c; };
+// a near-rectangular house gets a real roof: the smallest box around it, a ridge along its long side, hips (or gables) at
+// the ends, eaves a little past the walls. Returns false for L-shapes and odd outlines (they keep the pyramid roof).
+function ridgeRoof(R, f, area, eave, roof, wall, rnd) {
+  const n = f.length / 2; let best = null;
+  for (let q = 0; q < n; q++) {
+    const ex = f[(2 * q + 2) % (2 * n)] - f[2 * q], ez = f[(2 * q + 3) % (2 * n)] - f[2 * q + 1], L = Math.hypot(ex, ez); if (L < 1) continue;
+    const ux = ex / L, uz = ez / L; let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
+    for (let k = 0; k < n; k++) { const u = f[2 * k] * ux + f[2 * k + 1] * uz, v = -f[2 * k] * uz + f[2 * k + 1] * ux; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
+    const A = (u1 - u0) * (v1 - v0); if (!best || A < best.A) best = { A, ux, uz, u0, u1, v0, v1 };
+  }
+  if (!best || area / best.A < 0.8) return false;
+  let { ux, uz, u0, u1, v0, v1 } = best;
+  if (u1 - u0 < v1 - v0) { [ux, uz] = [-uz, ux]; [u0, u1, v0, v1] = [v0, v1, -u1, -u0]; } // u along the long side
+  const o = 0.4; u0 -= o; u1 += o; v0 -= o; v1 += o;
+  const Lv = v1 - v0, rise = Math.min(3.2, Lv * 0.21), um = (u0 + u1) / 2, vm = (v0 + v1) / 2, hip = rnd < 0.68 && u1 - u0 > Lv * 0.9;
+  const P = (u, v, y) => [ux * u - uz * v, y, uz * u + ux * v];
+  const top = eave + rise, inset = hip ? Lv / 2 : 0, ra = P(u0 + inset, vm, top), rb = P(u1 - inset, vm, top);
+  const c00 = P(u0, v0, eave), c10 = P(u1, v0, eave), c11 = P(u1, v1, eave), c01 = P(u0, v1, eave);
+  const face = (A, B, C, colr) => { const st = R.pos.length; triInto(R, A, B, C, 1);
+    const ax = B[0] - A[0], ay = B[1] - A[1], az = B[2] - A[2], bx = C[0] - A[0], by = C[1] - A[1], bz = C[2] - A[2];
+    let nx = ay * bz - az * by, ny = az * bx - ax * bz, nz = ax * by - ay * bx; const l = Math.hypot(nx, ny, nz) || 1; if (ny < 0) { nx = -nx; ny = -ny; nz = -nz; }
+    for (let v = st; v < R.pos.length; v += 3) { R.nor.push(nx / l, ny / l, nz / l); R.col.push(colr.r, colr.g, colr.b); } };
+  face(c00, c10, rb, roof); face(c00, rb, ra, roof); // the two long slopes
+  face(c11, c01, ra, roof); face(c11, ra, rb, roof);
+  if (hip) { face(c10, c11, rb, roof); face(c01, c00, ra, roof); } // the hips at each end
+  else { // gable ends: upright triangles of wall
+    for (const [A, B, C, sgn] of [[c10, c11, rb, 1], [c01, c00, ra, -1]]) { R.pos.push(...A, ...B, ...C); for (let k = 0; k < 3; k++) { R.nor.push(ux * sgn, 0, uz * sgn); R.col.push(wall.r, wall.g, wall.b); } R.pos.push(...A, ...C, ...B); for (let k = 0; k < 3; k++) { R.nor.push(-ux * sgn, 0, -uz * sgn); R.col.push(wall.r, wall.g, wall.b); } }
+  }
+  return true;
+}
 const TILE_ROOFS = ['#a4553b', '#8a4b38', '#5c5f63', '#7d8288', '#b36a46', '#9a9d9f', '#3f4a52', '#c9c4b8', '#6b3d2e'];
 const BRICK = ['#b7704f', '#a35d43', '#c98a63', '#d8c3a5', '#efe7da', '#f4f1ea', '#d9d3c7', '#e8dcc6', '#b9b0a2'];
 // Queensland schools: face brick or painted blocks under pitched Colorbond roofs, with covered verandahs
@@ -439,6 +565,7 @@ function tileBuildings(T, data, fronts) {
       }
     }
     if (school && schoolRoof(R, segs, f, base, top, roof, wall, bi)) { /* pitched roof and verandahs done */ }
+    else if (kind === 0 && a < 650 && ridgeRoof(R, f, a, base + top, roof, wall, r1)) { /* a hip or gable roof along the house's long side */ }
     else if (kind === 0 && n <= 10 && a < 650) { // hip roof: every eave rises to a ridge point over the middle
       const eave = base + top, ry = eave + Math.min(2.6, Math.sqrt(a) * 0.17), apex = [cx, ry, cz];
       for (let q = 0; q < n; q++) {
@@ -457,6 +584,9 @@ function tileBuildings(T, data, fronts) {
         for (let v = 0; v < 3; v++) { R.nor.push(0, 1, 0); R.col.push(roof.r, roof.g, roof.b); }
       }
       if (h > 30 && n >= 4 && cls !== 'glass') boxInto(R, cx, base + top, cz, Math.min(6, Math.sqrt(a) * 0.18), 3.2, Math.min(6, Math.sqrt(a) * 0.18), roof);
+      else if (kind !== 0 && h < 30 && a > 250) for (let k = 0, m = Math.min(4, Math.floor(a / 400) + 1); k < m; k++) { // air-conditioning units on flat roofs
+        const ax2 = cx + (br() - 0.5) * Math.sqrt(a) * 0.5, az2 = cz + (br() - 0.5) * Math.sqrt(a) * 0.5; if (inRingT(ax2, az2, f)) boxInto(R, ax2, base + top, az2, 1.6, 1.0, 1.1, AC_GREY);
+      }
     }
   }
   for (const B of Object.values(bufs)) {
@@ -492,6 +622,7 @@ function addWind(mat, amt) {
   return mat;
 }
 addWind(TREE_MATS.leaf, 0.035); addWind(TREE_MATS.crown, 0.05);
+const GUM_GREENS = ['#6f7d58', '#7b8763', '#64714f', '#8a9270', '#5d6a4a'].map(col); // eucalypt grey-greens
 const GREENS = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a', '#6f7f4a', '#7d8b5a', '#46663a', '#5d7444'].map(col); // greens plus grey-green gums
 // a lighter palm crown for the suburbs (7 fronds x 4 segments instead of 11 x 7)
 const LIGHT_CROWN = (() => {
@@ -549,6 +680,21 @@ function extraTrees(T, data, have) {
       if (ok(x, z)) out.push([x, z, r() < 0.3 ? 1 : 0]);
     }
   }
+  // palms down the verges of the main roads near the coast (the Gold Coast Highway, the Esplanade, Bermuda Street...)
+  const sh = typeof nearestShore === 'function' && nearestShore(T.x0 + S / 2, T.z0 + S / 2), coastal = sh && sh.d < 2600;
+  if (coastal) for (const rd of data.roads) {
+    if (rd[0] > 3 || rd[3]) continue;
+    const off = rd[1] / 2 + 2.6; let acc = r() * 8;
+    for (let i = 4; i < rd.length - 2; i += 2) {
+      const ax = rd[i], az = rd[i + 1], bx = rd[i + 2], bz = rd[i + 3], L = Math.hypot(bx - ax, bz - az) || 1;
+      for (; acc < L; acc += 13 + r() * 6) for (const side of [1, -1]) {
+        if (r() < 0.35 || out.length >= 5600) continue;
+        const t = acc / L, x = ax + (bx - ax) * t + (bz - az) / L * off * side, z = az + (bz - az) * t - (bx - ax) / L * off * side;
+        if (ok(x, z)) out.push([x, z, 1]);
+      }
+      acc -= L;
+    }
+  }
   // street trees on the verges of residential streets, with gaps
   for (const rd of data.roads) {
     if (rd[0] !== 4 || rd[3]) continue;
@@ -569,8 +715,10 @@ function tileTrees(T, data, segs) {
   // dark water in the aerial photo can pass for tree canopy: nothing grows where the tile is water
   const mapped = data.trees.filter(([x, z]) => !T.mask || T.mask[clamp(Math.floor((z - T.z0) * 0.5), 0, 499) * 500 + clamp(Math.floor((x - T.x0) * 0.5), 0, 499)] === 1);
   const trees = mapped.concat(extraTrees(T, data, mapped));
-  const palms = trees.filter((t) => t[2] === 1), leafy = trees.filter((t) => t[2] !== 1);
   const trunkG = palmGeometries()[0], crownG = LIGHT_CROWN, r = mulberry32(T.i * 31 + T.j * 17);
+  const bush = T.x0 + REGION.tile / 2 < -7500 || (T.hgt && T.hgt[Math.floor(T.hgt.length / 2)] > 35); // out in the hinterland: tall gums, few palms
+  if (bush) for (const t of trees) if (t[2] === 1 && r() < 0.9) t[2] = 0; // palms are a coastal thing
+  const palms = trees.filter((t) => t[2] === 1), leafy = trees.filter((t) => t[2] !== 1);
   const m4 = new THREE.Matrix4(), q = new THREE.Quaternion(), e = new THREE.Euler(), v = new THREE.Vector3(), sc = new THREE.Vector3();
   if (palms.length) {
     const tm = new THREE.InstancedMesh(trunkG, TREE_MATS.trunk, palms.length), cm = new THREE.InstancedMesh(crownG, TREE_MATS.crown, palms.length);
@@ -593,12 +741,13 @@ function tileTrees(T, data, segs) {
         else if (k2 < 0.6) { R = 1.4 + r() * 1.0; H = 1.5 + r() * 1.5; }
         else if (k2 < big) { R = 2.5 + r() * 1.3; H = 3 + r() * 2.2; }
         else { R = 4 + r() * 2.5; H = 6 + r() * 5; tw = 1.7; }
+        if (bush && !street && r() < 0.6) { R = 3.5 + r() * 3; H = 8 + r() * 9; tw = 1.5; } // a gum
       }
       const gy = groundAt(x, z);
       m4.compose(v.set(x, gy, z), q.identity(), sc.set(tw, H, tw)); lt.setMatrixAt(k, m4);
       const tall = R > 3.8 && r() < 0.6 ? 1.25 : 0.7 + r() * 0.25; // gums: taller, open crowns
       e.set(r(), r() * TAU, 0); q.setFromEuler(e); m4.compose(v.set(x, gy + H + R * 0.55 * tall, z), q, sc.set(R, R * tall, R)); lc.setMatrixAt(k, m4);
-      lc.setColorAt(k, GREENS[Math.floor(r() * GREENS.length)]);
+      lc.setColorAt(k, bush && r() < 0.7 ? GUM_GREENS[Math.floor(r() * GUM_GREENS.length)] : GREENS[Math.floor(r() * GREENS.length)]);
       if (R > 3 && segs) segs.push(x - 0.3 * tw, z - 0.3 * tw, x + 0.3 * tw, z + 0.3 * tw, H); // big trunks stop cars
     });
     lt.castShadow = lc.castShadow = true; T.meshes.push(lt, lc); T.disposables.push(lt, lc);
@@ -877,6 +1026,7 @@ function tileStreetName(x, z) {
 function updateTileNightLights() {
   // tile signs share the clock with the rest of the city
   for (const T of TILES.values()) if (T.nightMats) for (const m of T.nightMats) m.emissiveIntensity = smooth(0.3, 0.85, nightLevel) * 0.9;
+  updateStreetLights(); updateFamousLights();
 }
 
 // ---------------------------------------------------------------- names on top of named towers (Broadbeach, Southport…)

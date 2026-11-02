@@ -506,10 +506,10 @@ window.runRegression = async () => {
     const n = (sh.shoppers || []).length; home(); expect(solid > 0, 'walked through the shelves'); return `${styles.size} kinds; ${sh.name}: ${n} shoppers, shelves solid`;
   });
   // ---------------------------------------------------------------- V9.8: brakes, smart search, bikes, planes, surfing
-  await test('brakes: S stops from 100 km/h in about 40 m, Space (hard brake) shorter, Space + A/D slides', () => {
+  await test('brakes: S stops from 100 km/h in about 30 m, Space (hard brake) shorter, Space + A/D slides', () => {
     const stop = (inp) => { const c = new Car('sedan', null, 0, 0, 0); c.setDriver('player'); c.vz = 27.8; let d = 0; for (let k = 0; k < 900 && c.speed > 0.3; k++) { c.input = Object.assign({ t: 0, b: 0, s: 0, hb: 0 }, inp); c.stepTyres(1 / 60); d += c.speed / 60; } const h = c.h; c.remove(); return [d, h]; };
     const [dS] = stop({ b: 1 }), [dH] = stop({ hb: 1 }), [, hSlide] = stop({ hb: 1, s: 1 });
-    expect(dS < 48, `S took ${dS.toFixed(0)} m`); expect(dH < dS - 5, `Space ${dH.toFixed(0)} m vs S ${dS.toFixed(0)} m`); expect(Math.abs(hSlide) > 0.8, 'no slide');
+    expect(dS < 36, `S took ${dS.toFixed(0)} m`); expect(dH < dS - 5, `Space ${dH.toFixed(0)} m vs S ${dS.toFixed(0)} m`); expect(Math.abs(hSlide) > 0.8, 'no slide');
     return `S ${dS.toFixed(0)} m, Space ${dH.toFixed(0)} m`;
   });
   await test('search: "movies" finds cinemas, "casino" finds The Star, "petrol" finds servos', () => {
@@ -800,6 +800,56 @@ window.runRegression = async () => {
     const acts = ['dreamworld', 'movieworld', 'wetnwild'].every((id) => ACTS.find((a) => a.id === id)); home();
     const r = `Dreamworld ${!!dw} · Movie World ${!!mw} · Wet’n’Wild ${!!ww} · Harbour Town ${!!ht} · ${blds} buildings around Coomera · hills to ${hs.toFixed(0)} m · ride activities ${acts}`;
     expect(dw && mw && ww && ht && blds > 300 && acts, r); return r;
+  });
+  await test('realistic map: aerial photo ground, street details (crossings, bus stops, poles, bays), ridge roofs, canal pontoons', async () => {
+    quiet(); await goToTile(-27.9680, 153.4100); // Southport
+    for (let k = 0; k < 40; k++) { await new Promise((r) => setTimeout(r, 50)); if (GPHOTO.imgs.size) break; }
+    const ph = await groundPhotoFor(Math.floor(player.x / REGION.tile), Math.floor(player.z / REGION.tile));
+    const near = [...TILES.values()].filter((T) => T.mask && Math.hypot(T.x0 + 500 - player.x, T.z0 + 500 - player.z) < 1500);
+    const paint = near.some((T) => T.meshes.some((m) => m.material === STREET_MATS.paint)), solid = near.some((T) => T.meshes.some((m) => m.material === STREET_MATS.solid));
+    const R = newBuf(), ridge = ridgeRoof(R, [0, 0, 16, 0, 16, 10, 0, 10], 160, 5, col('#888888'), col('#eeeeee'), 0.2), odd = ridgeRoof(newBuf(), [0, 0, 16, 0, 16, 4, 6, 4, 6, 12, 0, 12], 112, 5, col('#888888'), col('#eeeeee'), 0.2);
+    home(); await goToTile(-28.0352, 153.4170); // Broadbeach Waters canals
+    const canal = [...TILES.values()].some((T) => T.meshes.some((m) => m.material === STREET_MATS.solid && m.geometry.attributes.position.count > 2000));
+    home();
+    const r = `photo ${!!ph} · street paint ${paint} · furniture ${solid} · ridge roof ${ridge} (L-shape keeps pyramid: ${!odd}) · canal pontoons ${canal}`;
+    expect(ph && paint && solid && ridge && !odd && canal, r); return r;
+  });
+  await test('overpasses: a deck over another road has its own height; cars up top stay on it, cars below drive under', async () => {
+    quiet(); let D = null;
+    for (const [la, lo] of [[-28.0745, 153.3775], [-27.9850, 153.3820], [-28.0270, 153.3810], [-28.1050, 153.4000]]) { await goToTile(la, lo); D = DECKS.find((d) => { const x = d.p[Math.floor(d.p.length / 4) * 2], z = d.p[Math.floor(d.p.length / 4) * 2 + 1]; const dh = deckAt(x, z); return dh !== null && dh - groundAt(x, z) > 3; }); if (D) break; }
+    expect(D, 'no overpass deck found near the M1');
+    const mi = Math.floor(D.p.length / 4) * 2, x = D.p[mi], z = D.p[mi + 1], dh = deckAt(x, z), g = groundAt(x, z);
+    const top = surfaceAt(x, z, dh), below = surfaceAt(x, z, g); home();
+    const r = `${DECKS.length} decks · deck ${dh.toFixed(1)} m over ground ${g.toFixed(1)} m · car on top rides ${top.toFixed(1)} · car below rides ${below.toFixed(1)}`;
+    expect(Math.abs(top - dh) < 0.01 && Math.abs(below - g) < 0.01, r); return r;
+  });
+  await test('landmarks: Q1 has its crown, SkyPoint band and spire; the stadium at Robina is a bowl', async () => {
+    quiet(); const q1 = LANDMARK.q1.built; await goToTile(-28.0669, 153.3786); // Cbus Super Stadium, Robina
+    const bowl = [...TILES.values()].some((T) => T.meshes.some((m) => m.material === LM_MATS.roof)); home();
+    const r = `Q1 crown ${!!q1} (roof ${LANDMARK.q1.roof} m, spire to ${LANDMARK.q1.top} m) · stadium bowl ${bowl}`; expect(q1 && bowl, r); return r;
+  });
+  await test('cars: strong brakes, engine braking when you lift off, quick sharp steering (street machines too)', () => {
+    const run = (type) => { const c = new Car(type, '#888888', 0, 0, 0); c.driver = 'player'; const dt = 1 / 60, vf = () => c.vx * Math.sin(c.h) + c.vz * Math.cos(c.h);
+      c.vz = 100 / 3.6; c.input = { t: 0, b: 1, s: 0, hb: 0 }; let d = 0, t = 0; while (vf() > 0.3 && t < 20) { c.stepTyres(dt); d += vf() * dt; t += dt; }
+      c.vx = 0; c.vz = 100 / 3.6; c.h = 0; c.yaw = 0; c.input = { t: 0, b: 0, s: 0, hb: 0 }; for (let k = 0; k < 180; k++) c.stepTyres(dt); const coast = vf() * 3.6;
+      c.vx = 0; c.vz = 60 / 3.6; c.h = 0; c.yaw = 0; c.steer = 0; c.input = { t: 0.3, b: 0, s: 1, hb: 0 }; for (let k = 0; k < 120; k++) c.stepTyres(dt);
+      const turn = Math.abs(c.yaw) * 57.3; c.remove && c.remove(); return { d, coast, turn }; };
+    const s = run('sedan'), t = run('tuner');
+    const r = `sedan stops from 100 in ${s.d.toFixed(0)} m, lifts off to ${s.coast.toFixed(0)} km/h in 3 s, turns ${s.turn.toFixed(0)}°/s at 60 · tuner turns ${t.turn.toFixed(0)}°/s`;
+    expect(s.d < 34 && s.coast < 72 && s.turn > 55 && t.turn > 25, r); return r;
+  });
+  await test('riding along: hop in a friend’s car online, you sit in it (they see you), hop out; the route on the road is green', () => {
+    quiet(); const was = { status: NET.status, id: NET.id }; NET.status = 'on'; NET.id = 'me';
+    const D = addPeer('drv', 'Driver', null); peerState(D, { m: 'c', x: player.x + 3, z: player.z, y: 0, h: 0, ty: 'sedan', co: '#3355aa' }); D.x = player.x + 3; D.z = player.z;
+    const hopped = rideFriend() && player.state === 'ride' && RIDE.kind === 'friend'; updateRide(0.1); const s = myState();
+    const seated = s.m === 'q' && s.in === 'drv' && s.seat === 1;
+    D.vx = D.vz = 0; RIDE.v.speed = 0; leaveRide(); const out = player.state === 'foot';
+    const Q = addPeer('pas', 'Mate', null); const c = new Car('sedan', '#888888', player.x, player.z, 0); cars.push(c); player.car = c; player.state = 'car';
+    peerState(Q, { m: 'q', x: c.x, z: c.z, y: 0, h: 0, in: 'me', seat: 2 }); const spot = passengerSpot(Q);
+    player.state = 'foot'; player.car = null; c.remove(); dropPeer(D); dropPeer(Q); NET.peers.delete('drv'); NET.peers.delete('pas'); Object.assign(NET, was); home();
+    const green = GPS_MAT.color.getHexString();
+    const r = `hopped in ${hopped} · seat sent ${seated} · hopped out ${out} · a mate shows in your back seat ${!!spot} · route colour #${green}`;
+    expect(hopped && seated && out && spot && green === '2ee66b', r); return r;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

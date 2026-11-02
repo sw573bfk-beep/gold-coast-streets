@@ -159,19 +159,19 @@ function fillWater(ctx, color) {
 function coastLine(ring) { return ring.slice(0, ring.length - 4); } // last two points close the ocean to the east
 const isPath = (r) => r.type === RT.footway || r.type === RT.path || r.type === RT.cycleway || r.type === RT.steps || r.type === RT.track;
 
-function drawLayers(ctx, P, mini) {
+function drawLayers(ctx, P, mini, photos) {
   ctx.fillStyle = P.base; ctx.fillRect(GX0, GZ0, GW, GH);
   for (const k of ['residential', 'commercial', 'construction', 'grass', 'scrub', 'wood', 'park', 'pitch', 'parking', 'beach'])
     fillFeatures(ctx, MAP.areas[k], P[k]);
-  if (!mini) {
+  if (photos) { for (const ph of photos) drawGroundPhoto(ctx, ph, ph.x0, ph.z0, REGION.tile, null); for (const b of MAP.buildings) { ctx.fillStyle = ctx.strokeStyle = '#9a978d'; ctx.lineWidth = 1.6; ctx.beginPath(); trace(ctx, b.slice(3), true); ctx.fill(); ctx.stroke(); } }
+  if (!mini && !photos) {
     for (let i = 0; i < 110000; i++) {
       ctx.fillStyle = rand() < 0.5 ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.05)';
       const s = 0.5 + rand() * 2.4;
       ctx.fillRect(GX0 + rand() * GW, GZ0 + rand() * GH, s, s);
     }
-    ctx.strokeStyle = P.wet; ctx.lineWidth = 20; ctx.lineJoin = 'round';
-    for (const ring of MAP.ocean) { ctx.beginPath(); trace(ctx, coastLine(ring), false); ctx.stroke(); }
   }
+  if (!mini) { ctx.strokeStyle = P.wet; ctx.lineWidth = 20; ctx.lineJoin = 'round'; for (const ring of MAP.ocean) { ctx.beginPath(); trace(ctx, coastLine(ring), false); ctx.stroke(); } }
   strokeRoads(ctx, isPath, (r) => r.w + (mini ? 0 : 0.4), P.path);
   strokeRoads(ctx, (r) => r.type === RT.pedestrian, (r) => r.w, P.plaza);
   strokeRoads(ctx, (r) => DRIVE.has(r.type), (r) => r.w + 4.2, P.kerb);
@@ -217,6 +217,14 @@ function buildGround() {
   groundMesh.position.set(GX0 + GW / 2, 0, GZ0 + GH / 2);
   groundMesh.receiveShadow = true;
   scene.add(groundMesh);
+  coreGroundPhotos(ctx, tex);
+}
+// the Surfers core's ground gets the aerial photo too, tile square by tile square (tiles.js has the photos)
+function coreGroundPhotos(ctx, tex) {
+  if (typeof REGION === 'undefined' || !REGION) { setTimeout(() => coreGroundPhotos(ctx, tex), 1000); return; }
+  const S = REGION.tile, jobs = [];
+  for (let i = Math.floor(GX0 / S); i * S < GX0 + GW; i++) for (let j = Math.floor(GZ0 / S); j * S < GZ0 + GH; j++) jobs.push(groundPhotoFor(i, j).then((ph) => ph && Object.assign(ph, { x0: i * S, z0: j * S })));
+  Promise.all(jobs).then((list) => { const photos = list.filter(Boolean); if (!photos.length) return; drawLayers(ctx, GROUND_PAL, false, photos); tex.needsUpdate = true; });
 }
 
 // ---------------------------------------------------------------- water + surf
@@ -246,6 +254,10 @@ function buildWater() {
   w.rotation.x = -Math.PI / 2; w.position.set((MINX + MAXX) / 2, -0.55, (MINZ + MAXZ) / 2);
   w.receiveShadow = true;
   scene.add(w);
+  // the water is a little see-through: deep water over a dark floor, and the aerial photo under the rivers and canals
+  // (tiles.js lays it per tile), so the sandbanks and shallows of the Broadwater show like they do from the air
+  waterMat.transparent = true; waterMat.opacity = 0.8;
+  const floor = new THREE.Mesh(new THREE.PlaneGeometry(40000, 40000), new THREE.MeshBasicMaterial({ color: col('#0b4a5e') })); floor.rotation.x = -Math.PI / 2; floor.position.set(w.position.x, -2.6, w.position.z); scene.add(floor);
 
   // surf: a white foam band just offshore of the coastline
   const fc = document.createElement('canvas'); fc.width = 64; fc.height = 256;

@@ -192,15 +192,14 @@ class Car {
   }
   // hills: gravity pulls along the slope; the car follows the ground unless a crest is sharp enough to throw it into the air
   stepGround(dt) {
-    const gy = groundAt(this.x, this.z);
+    const gy = surfaceAt(this.x, this.z, this.alt); // a deck when it's up on an overpass (tiles.js)
     if (this.alt === undefined) { this.alt = gy; this.vy = 0; this.prevG = gy; this.air = 0; }
     const rise = (gy - this.prevG) / Math.max(dt, 1e-3); this.prevG = gy;
     if (!this.air) {
       if (rise < this.vy - 9.81 * dt - 2.5 && this.speed > 10) this.air = 1e-3; // over the crest faster than gravity can follow
       else {
         this.alt = gy; this.vy = clamp(rise, -25, 25);
-        const [sx, sz] = groundSlope(this.x, this.z);
-        this.vx -= 9.81 * sx * dt; this.vz -= 9.81 * sz * dt;
+        if (Math.abs(gy - groundAt(this.x, this.z)) < 0.5) { const [sx, sz] = groundSlope(this.x, this.z); this.vx -= 9.81 * sx * dt; this.vz -= 9.81 * sz * dt; } // (decks: no hillside pull)
       }
     }
     if (this.air) {
@@ -267,7 +266,7 @@ class Car {
     const thr = live ? inp.t : 0, brk = live ? inp.b : 0, hb = live ? inp.hb : 0;
     const speed = Math.hypot(vf, vl);
     const beta = speed > 1.5 ? Math.atan2(vl, Math.abs(vf)) : 0;
-    let target = (live ? inp.s : 0) * 0.62 / (1 + Math.max(0, vf) / 26);
+    let target = (live ? inp.s : 0) * 0.62 / (1 + Math.max(0, vf) / 34);
     const drift = !!sp.drift; // street machines keep the loose, tail-happy handling; everything else grips
     // drift assist: in a slide the front wheels follow the direction of travel (what a drifter's hands do),
     // so A/D hold or widen the angle instead of spinning you out
@@ -275,7 +274,7 @@ class Car {
       const fa = Math.atan2(vl + r * (L * (1 - sp.frontBias)), Math.max(Math.abs(vf), 1));
       target = clamp(fa * 0.9 + (live ? inp.s : 0) * 0.32, -0.75, 0.75);
     }
-    this.steer += clamp(target - this.steer, -3.6 * dt, 3.6 * dt);
+    this.steer += clamp(target - this.steer, -6 * dt, 6 * dt); // quick hands: the wheels go where you point them
     const d = this.steer;
     const Nf0 = m * g * b / L, Nr0 = m * g * a / L, dN = clamp(m * this.ax * 0.55 / L, -Nf0 * 0.45, Nf0 * 0.45);
     const Nf = Nf0 - dN, Nr = Nr0 + dN;
@@ -307,16 +306,17 @@ class Car {
     const latF = Math.sqrt(Math.max(0, maxF * maxF - Fxf * Fxf));
     // stiffer rear tyres = mild understeer at the limit; the rear only lets go under power or handbrake
     const Fyf = clamp(-maxF * 8 * af, -latF, latF), Fyr = clamp(-maxR * (drift ? 11 : 14) * ar, -latR, latR);
-    const coast = thr === 0 && brk === 0 ? m * 0.9 * Math.min(1, Math.abs(vf)) * bs : 0;
+    const coast = thr === 0 && brk === 0 && !hb ? m * 3.2 * Math.min(1, Math.abs(vf) / 8) * bs : 0; // engine braking: lift off and it slows, like a real car
     const drag = 0.42 * (sp.cdA || 1) * vf * Math.abs(vf) + m * 0.15 * bs + coast; // cdA: frontal area relative to a car
     const cd = Math.cos(d), sd = Math.sin(d);
     const Flong = Fxf * cd - Fyf * sd + Fxr - drag, Flat = Fyf * cd + Fxf * sd + Fyr;
     const I = m * (a * a + b * b) * 0.55, torque = a * (Fyf * cd + Fxf * sd) - b * Fyr;
-    const axl = Flong / m - (hb && !slideHb && Math.abs(vf) > 0.5 ? 3.5 * bs : 0); // brake assist on a hard stop (downforce and big brakes)
+    const axl = Flong / m - (hb && !slideHb && Math.abs(vf) > 0.5 ? 8 * bs : 0) - (brk > 0 && vf > 0.5 && !hb ? 4.5 * brk : 0); // brake assist: game brakes, stopping in a few car lengths
     vf += (axl + r * vl) * dt;
     vl += (Flat / m - r * vf) * dt;
     r += (torque / I) * dt;
-    if (!drift && !slideHb && speed >= 4) { const rMax = mu * 9.81 / speed, rk = clamp((vf * Math.tan(d)) / L, -rMax, rMax); r = lerp(r, rk, Math.min(1, dt * 2.5)); vl *= Math.exp(-2.2 * dt); } // stability control: the car follows the wheels, as tightly as the tyres allow
+    if (!drift && !(hb && Math.abs(inp.s) > 0.5) && speed >= 4) { const rMax = mu * 9.81 * 1.9 / speed, rk = clamp((vf * Math.tan(d)) / L, -rMax, rMax); r = lerp(r, rk, Math.min(1, dt * 7)); vl *= Math.exp(-6 * dt); } // stability control: the car turns where the wheels point, hard and right away, and the tail stays behind it
+    else if (drift && !(hb && Math.abs(inp.s) > 0.5) && speed >= 4) { const rMax = mu * 9.81 * 1.4 / speed, rk = clamp((vf * Math.tan(d)) / L, -rMax, rMax); if (Math.abs(beta) < 0.35) r = lerp(r, rk, Math.min(1, dt * 3)); vl *= Math.exp(-(Math.abs(inp.s) < 0.1 ? 2 : 0.8) * dt); } // street machines: they turn in, a little loose at the back, and straighten up when you let the wheel go
     if (speed < 4) { const k = 1 - speed / 4; r = lerp(r, (vf * Math.tan(d)) / L, k); vl *= Math.exp(-7 * k * dt); }
     if (Math.abs(vf) < 0.25 && thr === 0 && brk === 0) vf *= Math.exp(-4 * dt);
     this.ax = lerp(this.ax, axl, Math.min(1, dt * 8));
@@ -1173,7 +1173,7 @@ function startTackle(cop) {
 function updateTackled(dt) {
   const q = player.seq, P = player.model, cop = q.cop;
   player.t += dt; q.time -= dt; q.p = Math.max(0, q.p - 0.2 * dt);
-  P.root.rotation.set(Math.min(Math.PI / 2, player.t * 7), player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + 0.13, player.z);
+  P.root.rotation.set(Math.min(Math.PI / 2, player.t * 7), player.h, 0); P.root.position.set(player.x, footFloor() + 0.13, player.z);
   animatePerson(P, 0, 0); P.armL.rotation.x = P.armR.rotation.x = -0.6 + Math.sin(elapsed * 18) * 0.25;
   if (cop && cop.m) { // cop kneels on your back
     const rx = Math.cos(player.h), rz = -Math.sin(player.h);
@@ -1195,7 +1195,7 @@ function updateTackled(dt) {
 function struggleTap() { if (player.state === 'tackled') { player.seq.p += 0.12; shake = Math.min(1, shake + 0.05); } }
 function updateCuffed(dt) {
   const P = player.model, q = player.seq; player.t += dt;
-  P.root.rotation.set(Math.PI / 2, player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + 0.13, player.z);
+  P.root.rotation.set(Math.PI / 2, player.h, 0); P.root.position.set(player.x, footFloor() + 0.13, player.z);
   animatePerson(P, 0, 0); P.armL.rotation.set(0.9, 0, -0.5); P.armR.rotation.set(0.9, 0, 0.5);
   if (q.cop && q.cop.m) { q.cop.m.armL.rotation.x = q.cop.m.armR.rotation.x = -0.4 - Math.sin(player.t * 6) * 0.3; }
   if (player.t > 2.6) endLife('busted');
@@ -1312,14 +1312,14 @@ function updateEnter(dt) {
     player.x = c.x; player.z = c.z;
     if (q.t > 0.3) { player.state = 'car'; player.seq = null; sfxNoise(0.12, 900, 0.25); }
   }
-  if (P.root.visible) { P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z); P.root.rotation.set(0, player.h, 0); }
+  if (P.root.visible) { P.root.position.set(player.x, footFloor() + player.y, player.z); P.root.rotation.set(0, player.h, 0); }
 }
 function startExit(dragger) {
   const c = player.car; if (!c) return;
   if (c.speed > 9 && !dragger) return bailOut();
   player.state = 'exit'; player.seq = { car: c, ph: 0, t: 0, dragger };
   c.doorTarget[0] = 1; c.setDriver(null); c.kind = 'abandoned'; c.input.t = c.input.b = c.input.s = 0;
-  const s = carSeat(c); player.x = s.x; player.z = s.z; player.y = 0.2; player.h = c.h; player.mode = 'foot';
+  const s = carSeat(c); player.x = s.x; player.z = s.z; player.y = 0.2; player.h = c.h; player.mode = 'foot'; player.floorY = c.alt; // getting out up on an overpass: you stay on it
   player.model.root.visible = true;
   sfxNoise(0.12, 1400, 0.15);
 }
@@ -1338,7 +1338,7 @@ function updateExit(dt) {
     player.state = 'foot'; player.car = null; player.seq = null; player.y = 0;
     if (q.dragger && q.dragger.m && player.deadT === 0) startTackle(q.dragger);
   }
-  P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z); P.root.rotation.set(0, player.h, 0);
+  P.root.position.set(player.x, footFloor() + player.y, player.z); P.root.rotation.set(0, player.h, 0);
 }
 function bailOut() {
   const c = player.car; if (!c) return;
@@ -1371,6 +1371,7 @@ function useKey() {
   const ch = nearestChopper(7); if (ch) return boardChopper(ch);
   if (boardRide()) return; // a tram or bus stopped beside you
   const pl = nearestPlane(9); if (pl) return boardPlane(pl);
+  if (rideFriend()) return; // a friend driving past: ride along (party.js)
   const c = nearestEnterableCar(); if (c) return startEnter(c);
   if (fishUse()) return; // facing the water with a rod
   surfUse(); // on a beach: hire a board
@@ -1406,7 +1407,7 @@ function updatePlayer(dt) {
       player.x += player.kx * dt; player.z += player.kz * dt; player.kx *= Math.exp(-3 * dt); player.kz *= Math.exp(-3 * dt);
       player.vy -= 18 * dt; player.y = Math.max(0, player.y + player.vy * dt);
       if (resolveCircle(player.x, player.z, 0.34)) { player.x = hitRes.x; player.z = hitRes.z; }
-      P.root.rotation.set(-Math.min(Math.PI / 2, player.t * 6), player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + player.y + 0.13, player.z);
+      P.root.rotation.set(-Math.min(Math.PI / 2, player.t * 6), player.h, 0); P.root.position.set(player.x, footFloor() + player.y + 0.13, player.z);
       animatePerson(P, 0, 0);
       if (player.t > 1.3 && player.y <= 0) { player.state = 'getup'; player.t = 0; }
       return;
@@ -1414,7 +1415,7 @@ function updatePlayer(dt) {
     case 'getup': {
       player.t += dt; const k = Math.min(1, player.t / 0.6);
       const from = player.seq && player.seq.cop ? Math.PI / 2 : -Math.PI / 2;
-      P.root.rotation.set(lerp(from, 0, k * k), player.h, 0); P.root.position.set(player.x, standAt(player.x, player.z) + 0.13 * (1 - k), player.z);
+      P.root.rotation.set(lerp(from, 0, k * k), player.h, 0); P.root.position.set(player.x, footFloor() + 0.13 * (1 - k), player.z);
       animatePerson(P, 0, 0); P.legL.rotation.x = P.legR.rotation.x = -1.2 * (1 - k);
       if (k >= 1) { player.state = 'foot'; player.seq = null; P.root.rotation.set(0, player.h, 0); }
       return;
@@ -1473,7 +1474,7 @@ function updatePlayer(dt) {
   }
   if (player.punchT > 0) { const k = Math.sin((1 - player.punchT / 0.32) * Math.PI); (player.punchArm ? P.armL : P.armR).rotation.x = -1.55 * k; P.body.rotation.y = (player.punchArm ? 0.3 : -0.3) * k; } else P.body.rotation.y = 0;
   if (player.y > 0.05 && !swim) { P.legL.rotation.x = 0.5; P.legR.rotation.x = -0.3; }
-  P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z);
+  P.root.position.set(player.x, footFloor() + player.y, player.z);
   P.root.rotation.set(swim ? -1.2 : sprint && ml > 0 ? 0.16 : 0, player.h, 0);
 }
 
@@ -1507,7 +1508,7 @@ function updateCamera(dt) {
     camera.fov = lerp(camera.fov, 60 + Math.min(18, c.speed * 0.38), Math.min(1, dt * 3));
   } else {
     const low = player.state === 'tackled' || player.state === 'cuffed' || player.state === 'down';
-    tx = player.x; ty = standAt(player.x, player.z) + player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
+    tx = player.x; ty = footFloor() + player.y + (low ? 0.6 : 1.6); tz = player.z; dist = low ? 3.6 : 4.4;
     const inShop = shopAt(player.x, player.z), inHouse = indoorAt(player.x, player.z);
     if (inShop) dist = 3.0;
     if (inHouse) { dist = 2.6; camPitch = Math.min(camPitch, 0.35); tx += -Math.cos(camYaw) * 0.55; tz += Math.sin(camYaw) * 0.55; ty -= 0.25; } // over the shoulder
@@ -1864,6 +1865,7 @@ function initBigMap() {
 }
 const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
+  updateKeyHints(dt); // the keys you can press right now, along the top (keyhints.js)
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
   $('clock').textContent = lifeClock() + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
   $('money').textContent = '$' + String(player.money).padStart(8, '0');
@@ -1873,7 +1875,6 @@ function updateHUD(dt) {
   if (player.state === 'car') { // the speedo goes red while you brake
     const c = player.car, brakingNow = (c.input.b > 0 && c.vf > 0.5) || c.input.hb;
     sp.hidden = false; sp.firstChild.nodeValue = Math.round(c.speed * 3.6); sp.classList.toggle('braking', !!brakingNow);
-    if (!HUD_TIPS.car) { HUD_TIPS.car = true; toast('W gas · S brake (then reverse) · Space hard brake · A/D steer · Space + A/D to slide'); }
   } else if (player.state === 'boat' && player.boat) { sp.hidden = false; sp.firstChild.nodeValue = Math.round(Math.abs(player.boat.v) * 3.6); sp.classList.remove('braking'); }
   else sp.hidden = true;
   streetT -= dt;
@@ -2230,7 +2231,7 @@ async function boot() {
     say('Paving the streets…'); await nextFrame();
     buildRoads();
     say('Raising 2,300 buildings (and Q1)…'); await nextFrame();
-    buildBuildings();
+    buildBuildings(); buildFamousTowers(); buildHota(); // Q1's crown and spire, HOTA (landmarks.js)
     say('Planting palm trees…'); await nextFrame();
     buildTrees(); buildStreetLights(); buildLandmarks();
     say('Putting up 500 shop and street signs…'); await nextFrame();

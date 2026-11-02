@@ -48,7 +48,7 @@ function drawGPS(path) {
   if (!B.pos.length) return;
   GPS.mesh = new THREE.Mesh(toGeometry(B), GPS_MAT); GPS.mesh.renderOrder = 3; GPS.mesh.frustumCulled = false; scene.add(GPS.mesh);
 }
-const GPS_MAT = new THREE.MeshBasicMaterial({ color: col('#ffd21f'), transparent: true, opacity: 0.8, depthWrite: false, side: THREE.DoubleSide, toneMapped: false });
+const GPS_MAT = new THREE.MeshBasicMaterial({ color: col('#2ee66b'), transparent: true, opacity: 0.85, depthWrite: false, side: THREE.DoubleSide, toneMapped: false }); // green on the road (yellow looked like road paint); the map keeps yellow
 function updateGPS(dt) {
   if (!WAYPOINT) { if (GPS.mesh || GPS.path) clearGPS(); return; }
   GPS.t -= dt; if (GPS.t > 0) return; GPS.t = 1.2;

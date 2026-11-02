@@ -12,7 +12,7 @@ src = lambda *p: open(os.path.join(ROOT, *p), encoding='utf-8').read()
 PACK = 3  # tiles per pack side for the Claude-hosted page (it allows 511 files)
 page = src('src', 'index.html')
 map_js = '<script>window.MAP=' + src('data', 'map.json') + ';window.TRAM_DATA=' + src('data', 'tram.json') + ';</script>'
-game_js = '<script>\n' + '\n'.join(src('src', f) for f in ('world.js', 'post.js', 'weather.js', 'models.js', 'details.js', 'shops.js', 'interiors.js', 'economy.js', 'gps.js', 'phone.js', 'casino.js', 'planes.js', 'surf.js', 'police.js', 'radio.js', 'boats.js', 'transit.js', 'property.js', 'services.js', 'story.js', 'touch.js', 'online.js', 'accounts.js', 'party.js', 'admin.js', 'fishing.js', 'activities.js', 'actgames.js', 'actworld.js', 'mods.js', 'pets.js', 'heli.js', 'stunts.js', 'racing.js', 'life.js', 'business.js', 'lobbies.js', 'weapons.js', 'arcade.js', 'devtools.js', 'tiles.js', 'grass.js', 'houses.js', 'towers.js', 'game.js')) + '\n</script>'
+game_js = '<script>\n' + '\n'.join(src('src', f) for f in ('world.js', 'post.js', 'weather.js', 'models.js', 'details.js', 'shops.js', 'interiors.js', 'economy.js', 'gps.js', 'phone.js', 'casino.js', 'planes.js', 'surf.js', 'police.js', 'radio.js', 'boats.js', 'transit.js', 'property.js', 'services.js', 'story.js', 'touch.js', 'online.js', 'accounts.js', 'party.js', 'admin.js', 'keyhints.js', 'fishing.js', 'activities.js', 'actgames.js', 'actworld.js', 'mods.js', 'pets.js', 'heli.js', 'stunts.js', 'racing.js', 'life.js', 'business.js', 'lobbies.js', 'weapons.js', 'arcade.js', 'devtools.js', 'tiles.js', 'streets.js', 'landmarks.js', 'grass.js', 'houses.js', 'towers.js', 'game.js')) + '\n</script>'
 body = page.replace('<!--MAP-->', map_js).replace('<!--GAME-->', game_js)
 
 os.makedirs(os.path.join(ROOT, 'dist'), exist_ok=True)
@@ -39,6 +39,10 @@ if os.path.isdir(tiles):
         if not os.path.exists(os.path.join(tiles, name)): os.remove(os.path.join(site, 'tiles', name))
     for name in os.listdir(tiles):
         shutil.copy(os.path.join(tiles, name), os.path.join(site, 'tiles', name))
+# the aerial photos on the ground (tools/ground_photos.py), for the site too
+ground = os.path.join(ROOT, 'dist', 'ground')
+if os.path.isdir(ground):
+    shutil.rmtree(os.path.join(site, 'ground'), ignore_errors=True); shutil.copytree(ground, os.path.join(site, 'ground'))
 # tile packs for the Claude-hosted page: dist/packs/p_<i//3>_<j//3>.json = {"i_j": tile, ...}
 import collections
 packs = os.path.join(ROOT, 'dist', 'packs')

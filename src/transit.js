@@ -16,6 +16,7 @@ const tramNear = (t, r) => t.mods.some((md) => Math.hypot(md.x - player.x, md.z 
 function busStop(car, dt) {
   const a = car.ai; a.busDist = (a.busDist || 0) + car.speed * dt;
   if (a.dwell > 0) { a.dwell -= dt; return true; }
+  if (a.busDist > 120 && realBusStopNear(car)) { a.busDist = 0; a.dwell = 9; return true; } // the real stops (streets.js)
   if (a.busDist > 380 + rand() * 200) { a.busDist = 0; a.dwell = 9; }
   return false;
 }
@@ -37,6 +38,7 @@ function boardRide() {
 }
 function leaveRide() {
   const V = RIDE.v; if (!V) return;
+  if (RIDE.kind === 'friend') return hopOut(false); // a friend's car (party.js)
   const stopped = RIDE.kind === 'tram' ? V.dwell > 0.5 : V.speed < 1.5;
   if (!stopped) { toast(RIDE.kind === 'tram' ? 'Wait for the next stop' : 'Wait for the bus to pull in'); return; }
   const P = RIDE.kind === 'tram' ? V.mods[2] : V, h = RIDE.kind === 'tram' ? Math.atan2(P.tx, P.tz) : V.h; // trams: out of the middle doors
@@ -48,6 +50,7 @@ function leaveRide() {
 }
 function updateRide(dt) {
   const V = RIDE.v;
+  if (V && RIDE.kind === 'friend') return updateFriendRide();
   if (!V || (RIDE.kind === 'bus' && !cars.includes(V))) { RIDE.v = null; player.state = 'foot'; player.mode = 'foot'; player.model.root.visible = true; return; }
   player.x = V.x; player.z = V.z; player.h = V.h;
   $('jobhud').hidden = false;

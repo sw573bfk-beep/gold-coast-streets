@@ -105,9 +105,11 @@ function dropVehicle(V) {
   else if (V.kind === 'plane') { scene.remove(V.M); for (const g of V.M.userData.geos || []) g.dispose(); }
   else if (V.kind === 'boat') { scene.remove(V.M.g); V.M.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
 }
-const MODES = { f: 'foot', c: 'car', p: 'plane', b: 'boat', s: 'surf', r: 'ride', d: 'dead' };
+const MODES = { f: 'foot', c: 'car', p: 'plane', b: 'boat', s: 'surf', r: 'ride', d: 'dead', q: 'passenger' };
 function peerState(P, s) {
   if (!s || !Number.isFinite(s.x) || !Number.isFinite(s.z)) return;
+  const wasMine = P.s && P.s.m === 'q' && P.s.in === NET.id, isMine = s.m === 'q' && s.in === NET.id;
+  if (isMine && !wasMine) { toast(`${P.name} hopped in`); sfxTone([660, 880], 0.12, 0.05); } else if (wasMine && !isMine) toast(`${P.name} hopped out`);
   const now = performance.now() / 1000;
   if (P.s && now - P.t > 0.02) { const dt = Math.min(1, now - P.t); P.vx = (s.x - P.s.x) / dt; P.vz = (s.z - P.s.z) / dt; }
   if (!P.s) { P.x = s.x; P.z = s.z; P.y = s.y || 0; P.h = s.h || 0; }
@@ -130,6 +132,12 @@ function updatePeers(dt) {
     P.x += (tx - P.x) * k; P.z += (tz - P.z) * k; P.y += ((s.y || 0) - P.y) * k; P.h += angDiff(P.h, s.h || 0) * k;
     const mode = MODES[s.m] || 'foot', V = P.veh, far = Math.hypot(P.x - player.x, P.z - player.z) > 600;
     P.person.root.visible = !far && (mode === 'foot' || mode === 'surf' || mode === 'dead');
+    if (mode === 'passenger') { // sitting in a car: yours or another player's
+      const at = passengerSpot(P); P.person.root.visible = !!at && !far;
+      if (at) { P.x = at.x; P.z = at.z; P.person.root.position.set(at.x, at.y, at.z); P.person.root.rotation.set(0, at.h, 0); animatePerson(P.person, 0, 0); P.person.legL.rotation.x = P.person.legR.rotation.x = -1.45; P.tag.position.set(at.x, at.y + 2.3, at.z); P.tag.visible = !far; }
+      if (P.sayT > 0) { P.sayT -= dt; if (P.sayT <= 0) { P.say = ''; drawTag(P); } }
+      continue;
+    }
     if (P.person.root.visible) {
       const gy = mode === 'surf' ? 0.35 : standAt(P.x, P.z) + Math.max(0, P.y);
       P.person.root.position.set(P.x, gy, P.z); P.person.root.rotation.set(mode === 'dead' ? -Math.PI / 2 : 0, P.h, 0);
@@ -166,6 +174,7 @@ function myState() {
   else if (st === 'p' && player.plane) { const p = player.plane; s.ty = p.type; s.x = r2(p.x); s.z = r2(p.z); s.y = r2(p.y); s.h = r2(p.h); s.pi = r2(p.pitch); s.ro = r2(p.roll); }
   else if (st === 'b' && player.boat) { s.ty = player.boat.type; }
   else if (st === 's') { s.x = r2(SURF.x); s.z = r2(SURF.z); s.h = r2(SURF.h); }
+  else if (st === 'r' && RIDE.kind === 'friend' && RIDE.v) { s.m = 'q'; s.in = RIDE.v.peer; s.seat = RIDE.seat; } // riding in a friend's car
   return s;
 }
 function updateNet(dt) {
