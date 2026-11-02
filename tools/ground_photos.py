@@ -3,7 +3,7 @@
 
 Run after tools/build_tiles.py: python3 tools/ground_photos.py   (writes dist/ground/g_<pi>_<pj>.jpg)
 Pure Python (no image libraries): rows of the photo mosaics are gathered with itemgetter, written as BMP and turned
-into JPEG by macOS's sips. The 2 m photos (air) win over the 3 m ones (airx, airn) where they overlap.
+into JPEG by macOS's sips. The 2 m photos (air) win over the 3 m ones (airx, airn, and Brisbane's airb, airc) where they overlap.
 """
 import json, math, os, subprocess, sys
 from operator import itemgetter
@@ -17,7 +17,7 @@ KZ = 110574.0
 TILE, PACK, PX = 1000.0, 3, 384  # metres a tile, tiles a block side, photo pixels a tile (2.6 m a pixel)
 QUALITY = int(os.environ.get('GROUND_Q', '55'))
 OUT = os.path.join(ROOT, 'dist', 'ground'); os.makedirs(OUT, exist_ok=True)
-RASTERS = [Raster(k) for k in ('air', 'airx', 'airn') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]
+RASTERS = [Raster(k) for k in ('air', 'airx', 'airn', 'airb', 'airc') if os.path.exists(os.path.join(ROOT, 'data', 'region', k + '.json'))]
 
 class Rows:  # whole rows of a mosaic, one band at a time, stitched across its chunks (with a zero on the end for "no photo")
     def __init__(self, R):
@@ -84,7 +84,8 @@ def block(pi, pj):
     return os.path.getsize(out)
 
 if __name__ == '__main__':
-    packs = sorted({tuple(int(v) for v in f[2:-5].split('_')) for f in os.listdir(os.path.join(ROOT, 'dist', 'packs')) if f.startswith('p_')})
+    tiles = [tuple(int(v) for v in f[2:-5].split('_')) for f in os.listdir(os.path.join(ROOT, 'dist', 'tiles')) if f.startswith('t_')]
+    packs = sorted({(i // PACK, j // PACK) for i, j in tiles})  # every block of the map that has a tile, Brisbane too
     only = sys.argv[1:] and [tuple(int(v) for v in a.split(',')) for a in sys.argv[1:]]
     total = n = 0
     for pi, pj in (only or packs):

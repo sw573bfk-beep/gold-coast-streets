@@ -6,7 +6,7 @@ chunk's centre and squeezes that into the same number of rows. Every row away fr
 out of place, by up to ~60 m at a 2048-row chunk's edges: hills come out flat or in the wrong spot and
 photo colours land on the wrong ground.
 
-Run once after downloading: python3 tools/fix_raster_stretch.py  (rewrites dem, demx, air, airx chunks
+Run once after downloading: python3 tools/fix_raster_stretch.py  (rewrites the dem* and air* chunks
 in data/region/ to the intended grid; marks each .json "unstretched" so it never runs twice)
 """
 import array, json, os
@@ -16,7 +16,7 @@ DIR = os.path.join(ROOT, 'data', 'region')
 MX, MZ = 98330.0, 110574.0
 K = MX / MZ  # intended row height / the row height the server used
 
-for kind in ('dem', 'demx', 'air', 'airx'):
+for kind in ('dem', 'demx', 'air', 'airx', 'demn', 'airn', 'demb', 'airb', 'demc', 'airc'):  # the northern strip and Brisbane too
     mp = os.path.join(DIR, kind + '.json')
     if not os.path.exists(mp): continue
     meta = json.load(open(mp))

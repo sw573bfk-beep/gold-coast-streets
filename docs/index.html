@@ -3721,7 +3721,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), mick: MICK.done, act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -3731,6 +3731,7 @@ function economyLoad(s) {
   if (typeof s.aim === 'number') ECON.aim = clamp(s.aim, 0, 5);
   if (typeof s.rangeBest === 'number') ECON.rangeBest = s.rangeBest;
   storyLoad(s.story);
+  if (typeof s.mick === 'number') MICK.done = clamp(s.mick, 0, MICK_JOBS.length);
   if (s.act && typeof s.act === 'object') ECON.act = s.act;
   if (s.pet && BREEDS[s.pet.breed]) ECON.pet = s.pet;
   if (Array.isArray(s.biz)) ECON.biz = s.biz.filter((b) => b && BIZ_KINDS[b.kind]);
@@ -3829,7 +3830,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -3858,6 +3859,7 @@ function phoneApp(app) {
     tile('🔫', 'Hold-ups', () => phoneApp('holdups'));
     tile('🏁', 'Street race', startRace);
     tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
+    tile('🧢', 'Mick', () => phoneApp('mick'), !MICK.M && MICK.done < MICK_JOBS.length ? '1' : '');
     head('Money & life'); grid = null;
     tile('📸', 'Tour', startTour);
     tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
@@ -3910,6 +3912,7 @@ function phoneApp(app) {
   else if (app === 'trials') { back(); trialsApp(btn, head); }
   else if (app === 'online') { back(); onlineApp(btn, head); }
   else if (app === 'rocco') { back(); roccoApp(btn, head); }
+  else if (app === 'mick') { back(); mickApp(btn, head); }
   else if (app === 'realty') { back(); realtyApp(btn, head); }
   else if (app === 'listing') { btn('← Listings', '', () => phoneApp('realty')); listingApp(btn, head); }
 }
@@ -5537,7 +5540,7 @@ const CHAPTERS = [
 ];
 // ---------------------------------------------------------------- running a job
 function startChapter(i) {
-  if (STORY.M || MISSION || HEIST.stage) { toast('Finish what you’re doing first'); return; }
+  if (STORY.M || MICK.M || MISSION || HEIST.stage) { toast('Finish what you’re doing first'); return; }
   const C = CHAPTERS[i], M = { i, phase: 0, t: 0, hud: '' };
   const err = C.start(M); if (err) { toast(`${ROCCO}: “${err}”`); return; }
   STORY.M = M; closePhone(); toast(`${ROCCO}: “${C.intro[C.intro.length - 1]}”`); sfxTone([392, 523], 0.25, 0.05);
@@ -5578,6 +5581,161 @@ function roccoApp(btn, head) {
 }
 function storySave() { return STORY.done; }
 function storyLoad(n) { if (typeof n === 'number') STORY.done = clamp(n, 0, CHAPTERS.length); }
+
+// ============================================================================
+// Gold Coast Streets — the Brisbane story. Mick (made up) runs a car-wrap shop in Fortitude Valley and moves stolen
+// goods on the side. He texts you six jobs (the Mick app): get up to Brisbane, a bag of hot phones, a car from the
+// airport, a crate up the river, a van of knock-off gear from the port, and the big one: a Queen Street Mall job
+// with the getaway over the Story Bridge. One job at a time, like Rocco's; fail one and you can take it again.
+// ============================================================================
+const MICK = { done: 0, M: null };
+const MICK_PLACES = { // [name, x, z] in game metres (snapped onto real streets when the job starts)
+  valley: ['Fortitude Valley, Brunswick Street', -38185, -59953], mall: ['Queen Street Mall', -39159, -58571], westend: ['West End', -40741, -57329],
+  airport: ['Brisbane Airport', -30077, -68036], port: ['Port of Brisbane', -24917, -67395], logan: ['Logan Central', -30913, -39867],
+  newfarm: ['New Farm', -36809, -58767], kpoint: ['Kangaroo Point', -38087, -57775],
+};
+const inBrisbane = () => Math.hypot(player.x - MICK_PLACES.mall[1], player.z - MICK_PLACES.mall[2]) < 16000;
+const mickSpot = (k, jitter = 0) => { const [name, x, z] = MICK_PLACES[k], a = rand() * TAU, s = sidewalkNear(x + Math.cos(a) * jitter, z + Math.sin(a) * jitter); return s ? { name, x: s.x, z: s.z } : { name, x, z }; };
+const MICK_JOBS = [
+  {
+    title: 'Welcome to the Big Smoke', pay: 1000,
+    intro: ['Rocco says you’re the real deal. I’m Mick — I wrap cars in the Valley. Among other things.', 'Get yourself up to Brisbane. Drive the M1 or jump on the train, your call.', 'Come and see me on Brunswick Street.'],
+    start(M) { M.a = mickSpot('valley'); goal('Mick’s shop, ' + M.a.name, M.a.x, M.a.z); },
+    step(M) { M.hud = `Meet Mick in Fortitude Valley · ${km(M.a.x, M.a.z)}`; if (near(M.a, 35)) return 'win'; },
+  },
+  {
+    title: 'Hot Phones', pay: 3000,
+    intro: ['First job. A bloke at a corner store in the city is holding a bag of phones that “fell off a truck”.', 'Grab it and get it to my buyer in West End. Five minutes, and somebody always talks — watch for the cops.'],
+    start(M) {
+      if (!inBrisbane()) return 'Get yourself up to Brisbane first.';
+      M.a = storyShop(['convenience', 'fuel', 'shop'], 150, 2500) || mickSpot('mall'); M.b = mickSpot('westend', 300);
+      goal('Pick up: ' + M.a.name, M.a.x, M.a.z);
+    },
+    step(M, dt) {
+      if (M.phase === 0) { M.hud = `Pick up the phones at ${M.a.name} · ${km(M.a.x, M.a.z)}`; if (near(M.a, 12)) { M.phase = 1; M.t = 300; goal('Drop: ' + M.b.name, M.b.x, M.b.z); toast('Got the bag. West End — five minutes.'); } }
+      else {
+        M.t -= dt; if (!M.tipped && M.t < 210) { M.tipped = true; player.stars = Math.max(player.stars, 2); toast('Somebody talked — the cops are onto you!'); }
+        M.hud = `Get the phones to West End · ${km(M.b.x, M.b.z)} · ${Math.ceil(M.t)}s${player.stars ? ` · ${player.stars}★` : ''}`;
+        if (M.t <= 0) return 'fail:Too slow. The buyer’s gone quiet.'; if (near(M.b, 15)) { if (player.stars > 2) { if (!M.warned) { toast('Not with that many cops on you — lose a few first'); M.warned = true; } } else return 'win'; }
+      }
+    },
+  },
+  {
+    title: 'Airport Run', pay: 4000,
+    intro: ['A customer wants a black luxury car. People leave them at the airport for a fortnight.', 'There’s one in the car park out there. Bring it to my lock-up in the Valley — no cops, no dents.'],
+    start(M) {
+      if (!inBrisbane()) return 'Get yourself up to Brisbane first.';
+      const s = curbNear(MICK_PLACES.airport[1], MICK_PLACES.airport[2]); M.spot = s || { x: MICK_PLACES.airport[1], z: MICK_PLACES.airport[2], h: 0 }; M.lock = mickSpot('valley', 150);
+      goal('The black car at the airport', M.spot.x, M.spot.z);
+    },
+    step(M) {
+      if (!M.car && near(M.spot, 300)) { const c = new Car('sedan', '#111214', M.spot.x, M.spot.z, M.spot.h || 0); c.kind = 'parked'; c.story = true; cars.push(c); M.car = c; }
+      if (M.car && (M.car.dead || !cars.includes(M.car))) return 'fail:The car’s wrecked. Mick won’t be paying for that.';
+      if (M.phase === 0) { M.hud = `Find the black car at the airport · ${km(M.spot.x, M.spot.z)}`; if (M.car && player.car === M.car) { M.phase = 1; M.hp0 = M.car.health; goal('Mick’s lock-up', M.lock.x, M.lock.z); toast('Nice. Back to the Valley — keep it clean.'); } }
+      else {
+        const dmg = M.hp0 - M.car.health; M.hud = `Bring it to the lock-up · ${km(M.lock.x, M.lock.z)} · damage ${Math.round(dmg)}/25${player.stars ? ' · lose the cops' : ''}`;
+        if (dmg > 25) return 'fail:Too many dents. The customer doesn’t want it now.';
+        if (near(M.lock, 20) && player.car === M.car) { if (player.stars) { if (!M.warned) { toast('Not with the cops on you!'); M.warned = true; } } else { M.car.story = false; return 'win'; } }
+      }
+    },
+  },
+  {
+    title: 'River Drop', pay: 4500,
+    intro: ['There’s a crate on a boat moored up the river. My speedboat’s waiting at the water near you.', 'Get out there, grab the crate and bring the boat back. You’ve got four minutes once you’ve got it — the water police patrol at night.'],
+    start(M) {
+      if (!inBrisbane()) return 'Get yourself up to Brisbane first.';
+      M.dock = dockNear(player.x, player.z, 2000); if (!M.dock) return 'Get near the river and text me again.';
+      M.meet = openWater(M.dock.x, M.dock.z, 500, 1600, 600) || dockNear(MICK_PLACES.newfarm[1], MICK_PLACES.newfarm[2], 600); if (!M.meet) return 'Not enough river there. Try nearer the city.';
+      goal('The speedboat', M.dock.x, M.dock.z);
+    },
+    step(M, dt) {
+      if (!M.boat && near(M.dock, 250)) { M.boat = new Boat('speedboat', M.dock.x, M.dock.z, Math.atan2(-Math.cos(M.dock.shore), -Math.sin(M.dock.shore))); M.boat.story = true; }
+      if (M.phase === 0) { M.hud = `Get to the speedboat · ${km(M.dock.x, M.dock.z)}`; if (M.boat && player.boat === M.boat) { M.phase = 1; goal('The crate', M.meet.x, M.meet.z); toast('Up the river to the crate.'); } }
+      else if (M.phase === 1) { M.hud = `Get the crate · ${km(M.meet.x, M.meet.z)}`; if (near(M.meet, 30)) { M.phase = 2; M.t = 240; goal('Back to the dock', M.dock.x, M.dock.z); toast('Crate’s on board. Back to the dock — four minutes.'); sfxTone([523, 659], 0.2, 0.05); } }
+      else { M.t -= dt; M.hud = `Bring the boat back · ${km(M.dock.x, M.dock.z)} · ${Math.ceil(M.t)}s`; if (M.t <= 0) return 'fail:The water police got there first.'; if (near(M.dock, 30) && player.state === 'foot') return 'win'; if (near(M.dock, 30) && player.state === 'boat') M.hud += ' · E to hop off'; }
+    },
+    end(M) { if (M.boat) { M.boat.story = false; if (!M.boat.driven) M.boat.remove(); } },
+  },
+  {
+    title: 'Knock-off King', pay: 6000,
+    intro: ['A container of “designer” gear just came off a ship. None of it’s real.', 'There’s a van at the Port of Brisbane. Drive it down to my mate in Logan. It’s slow and the cops will be on you the second you’re out the gate.', 'Keep the van in one piece — it’s worth more than you are.'],
+    start(M) {
+      if (!inBrisbane()) return 'Get yourself up to Brisbane first.';
+      const s = curbNear(MICK_PLACES.port[1], MICK_PLACES.port[2]); M.spot = s || { x: MICK_PLACES.port[1], z: MICK_PLACES.port[2], h: 0 }; M.drop = mickSpot('logan', 250);
+      goal('The van at the port', M.spot.x, M.spot.z);
+    },
+    step(M) {
+      if (!M.car && near(M.spot, 300)) { const c = new Car(CAR_TYPES.van ? 'van' : 'ute', '#e9e9e4', M.spot.x, M.spot.z, M.spot.h || 0); c.kind = 'parked'; c.story = true; cars.push(c); M.car = c; }
+      if (M.car && (M.car.dead || !cars.includes(M.car))) return 'fail:The van’s a wreck and the gear’s all over the road.';
+      if (M.phase === 0) { M.hud = `Find the van at the Port of Brisbane · ${km(M.spot.x, M.spot.z)}`; if (M.car && player.car === M.car) { M.phase = 1; M.hp0 = M.car.health; player.stars = Math.max(player.stars, 3); goal('Logan', M.drop.x, M.drop.z); toast('The cops saw you leave the port — get to Logan!'); } }
+      else {
+        const dmg = M.hp0 - M.car.health; M.hud = `Drive the van to Logan · ${km(M.drop.x, M.drop.z)} · damage ${Math.round(dmg)}/40${player.stars ? ` · ${player.stars}★` : ''}`;
+        if (dmg > 40) return 'fail:The van’s too smashed up. The gear’s ruined.';
+        if (player.car !== M.car && player.state === 'car') return 'fail:You ditched the van.';
+        if (near(M.drop, 25) && player.car === M.car) { if (player.stars) { if (!M.warned) { toast('Lose the cops before you pull in!'); M.warned = true; } } else { M.car.story = false; return 'win'; } }
+      }
+    },
+  },
+  {
+    title: 'Story Bridge Getaway', pay: 50000,
+    intro: ['This is the big one. A shop in the Queen Street Mall keeps the week’s takings out the back on Friday.', 'Walk in, put a gun on whoever’s behind the counter and keep it there. Then get across the Story Bridge — every cop in Brisbane will be on it — and lose them.', 'Get to my place in Kangaroo Point and we’re set.'],
+    start(M) {
+      if (!inBrisbane()) return 'Get yourself up to Brisbane first.';
+      const mall = MICK_PLACES.mall, list = SHOPS.filter((sh) => sh.keeper && sh.walkIn && Math.hypot(sh.x - mall[1], sh.z - mall[2]) < 500);
+      M.a = list.length ? list.reduce((a, b) => (Math.hypot(a.x - mall[1], a.z - mall[2]) < Math.hypot(b.x - mall[1], b.z - mall[2]) ? a : b)) : storyShop(['clothes', 'shop', 'convenience'], 0, 3000, true);
+      if (!M.a) return 'Get yourself into the city — near the Queen Street Mall — and text me.';
+      M.safe = mickSpot('kpoint', 200); goal('Hold up: ' + M.a.name, M.a.x, M.a.z);
+    },
+    step(M) {
+      if (M.phase === 0) { M.hud = `Hold up ${M.a.name} · ${km(M.a.x, M.a.z)}${player.weapon === 'fist' ? ' · bring a gun' : ''}`; return; }
+      const B = typeof SBRIDGE !== 'undefined' && SBRIDGE.at ? SBRIDGE.at(SBRIDGE.L / 2) : null;
+      if (M.phase === 1) { M.hud = `Get across the Story Bridge${B ? ' · ' + km(B.x, B.z) : ''} · ${player.stars}★`; if (!B || near(B, 60)) { M.phase = 2; goal('Mick’s place, ' + M.safe.name, M.safe.x, M.safe.z); toast('Over the bridge! Now lose them and get to Kangaroo Point.'); } }
+      else { M.hud = `Get to ${M.safe.name} · ${km(M.safe.x, M.safe.z)} · ${player.stars ? `lose the cops (${player.stars}★)` : 'clear'}`; if (near(M.safe, 30) && !player.stars) return 'win'; }
+    },
+    robbed(M, sh) {
+      if (M.phase !== 0 || sh !== M.a) return false;
+      M.phase = 1; player.stars = 4; const B = typeof SBRIDGE !== 'undefined' && SBRIDGE.at ? SBRIDGE.at(SBRIDGE.L / 2) : null;
+      if (B) goal('The Story Bridge', B.x, B.z); else goal('Mick’s place, ' + M.safe.name, M.safe.x, M.safe.z);
+      toast('Got the takings! Every cop in Brisbane is coming — get over the Story Bridge!'); return true;
+    },
+  },
+];
+function startMickJob(i) {
+  if (STORY.M || MICK.M || MISSION || HEIST.stage) { toast('Finish what you’re doing first'); return; }
+  const C = MICK_JOBS[i], M = { i, phase: 0, t: 0, hud: '' };
+  const err = C.start(M); if (err) { toast(`Mick: “${err}”`); return; }
+  MICK.M = M; closePhone(); toast(`Mick: “${C.intro[C.intro.length - 1]}”`); sfxTone([392, 587], 0.25, 0.05);
+}
+function endMickJob(won, msg) {
+  const M = MICK.M; if (!M) return; const C = MICK_JOBS[M.i]; MICK.M = null;
+  if (C.end) C.end(M);
+  WAYPOINT = null; clearGPS(); $('jobhud').hidden = true;
+  if (won) {
+    const first = M.i >= MICK.done, pay = first ? C.pay : Math.round(C.pay / 2);
+    if (first) MICK.done = M.i + 1;
+    player.money += pay; stat('mickjobs'); saveGame(); sfxTone([523, 659, 784, 1046], 0.6, 0.07, 'triangle');
+    toast(M.i === MICK_JOBS.length - 1 && first ? `Mick: “Brisbane’s yours, mate.” · +$${pay.toLocaleString()} · Brisbane story complete!` : `${C.title} done · +$${pay.toLocaleString()}${first && M.i + 1 < MICK_JOBS.length ? ' · Mick will text you the next one' : ''}`);
+  } else toast(msg || `${C.title} failed`);
+}
+function mickRobDone(sh, cash) { const M = MICK.M; if (!M || !MICK_JOBS[M.i].robbed) return cash; return MICK_JOBS[M.i].robbed(M, sh) ? 0 : cash; }
+function updateMick(dt) {
+  const M = MICK.M; if (!M) return;
+  if (player.deadT > 0) { endMickJob(false, player.endKind === 'busted' ? 'Busted. Mick’s never heard of you.' : 'Wasted. The job’s off.'); return; }
+  const r = MICK_JOBS[M.i].step(M, dt);
+  $('jobhud').hidden = false; $('jobhud').textContent = `${MICK_JOBS[M.i].title} · ${M.hud}`;
+  if (r === 'win') endMickJob(true); else if (r && r.startsWith('fail:')) endMickJob(false, r.slice(5));
+}
+function mickApp(btn, head) {
+  const n = MICK.done, thread = document.createElement('div'); thread.className = 'pthread';
+  const say = (t, me) => { const b = document.createElement('div'); b.className = 'pmsg' + (me ? ' me' : ''); b.textContent = t; thread.appendChild(b); };
+  if (MICK.M) { say(`${MICK_JOBS[MICK.M.i].title}: ${MICK.M.hud}`); $('phone-body').appendChild(thread); btn('Give up this job', 'you can take it again later', () => { endMickJob(false, 'Job abandoned.'); phoneApp('mick'); }); return; }
+  if (n < MICK_JOBS.length) {
+    for (const line of MICK_JOBS[n].intro) say(line);
+    $('phone-body').appendChild(thread);
+    btn(`▶ ${MICK_JOBS[n].title}`, `job ${n + 1} of ${MICK_JOBS.length} · pays $${MICK_JOBS[n].pay.toLocaleString()}${n && !inBrisbane() ? ' · you need to be in Brisbane' : ''}`, () => startMickJob(n)).classList.add('go');
+  } else { say('Good work, mate. Same jobs, half the pay, whenever you want.'); $('phone-body').appendChild(thread); }
+  if (n) { head('Done (half pay to do again)'); for (let i = 0; i < Math.min(n, MICK_JOBS.length); i++) btn(`↻ ${MICK_JOBS[i].title}`, `$${Math.round(MICK_JOBS[i].pay / 2).toLocaleString()}`, () => startMickJob(i)); }
+}
 
 // ============================================================================
 // Gold Coast Streets — phone and tablet controls: a thumbstick on the left (push it all the way to sprint),
@@ -6649,7 +6807,7 @@ function actUse() { const a = actNear(8); if (!a) return false; startAct(a.id); 
 function actReady(a) { // null when it can start here, otherwise why not
   if (a.req) { const why = a.req(); if (why) return why; }
   if (ACT_CUR) return `You’re in the middle of ${ACT_BY[ACT_CUR.id].name}`;
-  if (STORY.M || MISSION || HEIST.stage || TRIAL || ECON.shift) return 'Finish what you’re doing first';
+  if (STORY.M || MICK.M || MISSION || HEIST.stage || TRIAL || ECON.shift) return 'Finish what you’re doing first';
   if (a.anywhere) return null;
   const w = actWhere(a); if (w && Math.hypot(w.x - player.x, w.z - player.z) > (a.range || 60)) return `Head to ${w.name} first`;
   return null;
@@ -7923,23 +8081,25 @@ function updateDrag(dt) {
 // real line from the map), Brisbane landmarks for the photography activity, and Brisbane activities: the Story Bridge
 // Climb, the Wheel of Brisbane, Lone Pine, a CityCat cruise and the train up from the Gold Coast.
 // ============================================================================
-const SBRIDGE = { pts: [], mesh: null, w: 12 };
-// the bridge's road, gathered from whichever tiles hold it; once the whole span has turned up, the truss goes on top
-function storyBridgeTile(T, data) {
-  const idx = (data.names || []).indexOf('Story Bridge'); if (idx < 0) return;
-  for (const r of data.roads) if (r[2] === idx && r[3]) { SBRIDGE.w = Math.max(SBRIDGE.w, r[1]); for (let q = 4; q < r.length; q += 2) if (!SBRIDGE.pts.some((p) => Math.abs(p[0] - r[q]) < 1 && Math.abs(p[1] - r[q + 1]) < 1)) SBRIDGE.pts.push([r[q], r[q + 1]]); }
-  buildStoryBridge();
+const SBRIDGE = { pts: [], mesh: null, w: 22 };
+// the truss's line comes with the map (region.json storyBridge: its two ends, centred where the bridge crosses the river);
+// it goes up once every tile along it has loaded, so the deck heights under it are known
+function storyBridgeTile() {
+  const sb = REGION.storyBridge; if (!sb || SBRIDGE.mesh) return;
+  for (let t = 0; t <= 1; t += 0.1) { const T = tileAt(sb[0] + (sb[2] - sb[0]) * t, sb[1] + (sb[3] - sb[1]) * t); if (!T || !T.mask) return; }
+  SBRIDGE.pts = [[sb[0], sb[1]], [sb[2], sb[3]]]; buildStoryBridge();
 }
 function buildStoryBridge() {
   if (SBRIDGE.mesh || SBRIDGE.pts.length < 2) return;
-  // order the points along the bridge (its long axis) and measure it
-  let ax = 0, az = 0; for (const p of SBRIDGE.pts) { ax += p[0]; az += p[1]; } ax /= SBRIDGE.pts.length; az /= SBRIDGE.pts.length;
-  let best = 0, ux = 1, uz = 0; for (const p of SBRIDGE.pts) for (const q of SBRIDGE.pts) { const d = Math.hypot(p[0] - q[0], p[1] - q[1]); if (d > best) { best = d; ux = (q[0] - p[0]) / d; uz = (q[1] - p[1]) / d; } }
-  if (best < 600) return; // not all of it loaded yet
-  const pts = SBRIDGE.pts.slice().sort((p, q) => ((p[0] - ax) * ux + (p[1] - az) * uz) - ((q[0] - ax) * ux + (q[1] - az) * uz));
-  const cum = [0]; for (let i = 1; i < pts.length; i++) cum.push(cum[i - 1] + Math.hypot(pts[i][0] - pts[i - 1][0], pts[i][1] - pts[i - 1][1])); const L = cum[cum.length - 1];
-  const at = (s) => { let i = 0; while (i < cum.length - 2 && cum[i + 1] < s) i++; const t = (s - cum[i]) / ((cum[i + 1] - cum[i]) || 1); const x = pts[i][0] + (pts[i + 1][0] - pts[i][0]) * t, z = pts[i][1] + (pts[i + 1][1] - pts[i][1]) * t; const l = Math.hypot(pts[i + 1][0] - pts[i][0], pts[i + 1][1] - pts[i][1]) || 1; return { x, z, tx: (pts[i + 1][0] - pts[i][0]) / l, tz: (pts[i + 1][1] - pts[i][1]) / l }; };
-  const deck = (x, z) => { const d = typeof deckAt === 'function' ? deckAt(x, z) : null; return d === null ? groundAt(x, z) : d; };
+  const [A, Bp] = SBRIDGE.pts, L = Math.hypot(Bp[0] - A[0], Bp[1] - A[1]); if (L < 600) return;
+  const tx = (Bp[0] - A[0]) / L, tz = (Bp[1] - A[1]) / L, at = (s) => ({ x: A[0] + tx * s, z: A[1] + tz * s, tx, tz });
+  const STEP = 12, n = Math.max(8, Math.round(L / STEP));
+  // the road deck under each step: the highest deck within a lane or two of the line; where none is found (between deck
+  // pieces), the heights either side are joined up, and without any at all the real deck's 30 m over the river is used
+  const ys = []; for (let k = 0; k <= n; k++) { const P = at(L * k / n); let y = null; for (let o = -12; o <= 12; o += 3) { const d = deckAt(P.x - tz * o, P.z + tx * o); if (d !== null && (y === null || d > y)) y = d; } ys.push(y); }
+  const known = ys.map((y, k) => (y === null ? -1 : k)).filter((k) => k >= 0);
+  for (let k = 0; k <= n; k++) if (ys[k] === null) { const a = known.filter((q) => q < k).pop(), b = known.find((q) => q > k); ys[k] = a === undefined && b === undefined ? WATER_Y + 30 : a === undefined ? ys[b] : b === undefined ? ys[a] : ys[a] + (ys[b] - ys[a]) * (k - a) / (b - a); }
+  const deck = (s) => ys[clamp(Math.round(s / L * n), 0, n)];
   // the top chord: low at the ends, up to ~48 m over the two river piers, dipping to ~14 m at mid-span (282 m of 777)
   const t1 = 0.318, t2 = 0.682, hTop = (t) => { const e = Math.min(t, 1 - t); return e < t1 ? 8 + 40 * Math.pow(e / t1, 1.6) : 48 - 34 * Math.sin(Math.min(1, (e - t1) / (0.5 - t1)) * Math.PI / 2); };
   const B = newBuf(), steel = col('#5f6b74'), stone = col('#b8ae9e'), off = SBRIDGE.w / 2 + 1.2;
@@ -7948,30 +8108,29 @@ function buildStoryBridge() {
     const g = new THREE.BoxGeometry(th, th, len); const m = new THREE.Matrix4().lookAt(new THREE.Vector3(...a), new THREE.Vector3(...b), new THREE.Vector3(0, 1, 0)); m.setPosition((a[0] + b[0]) / 2, (a[1] + b[1]) / 2, (a[2] + b[2]) / 2); g.applyMatrix4(m);
     const p = g.toNonIndexed().attributes.position.array, n = g.toNonIndexed().attributes.normal.array; for (let k = 0; k < p.length; k++) { B.pos.push(p[k]); B.nor.push(n[k]); } for (let k = 0; k < p.length / 3; k++) B.col.push(steel.r, steel.g, steel.b); g.dispose();
   };
-  const STEP = 12, n = Math.max(8, Math.round(L / STEP));
   for (const side of [-1, 1]) {
     let prevTop = null, prevBot = null;
     for (let k = 0; k <= n; k++) {
-      const s = L * k / n, P = at(s), y = deck(P.x, P.z), px = P.x - P.tz * off * side, pz = P.z + P.tx * off * side;
+      const s = L * k / n, P = at(s), y = deck(s), px = P.x - P.tz * off * side, pz = P.z + P.tx * off * side;
       const top = [px, y + hTop(s / L), pz], bot = [px, y - 1.2, pz];
       beam(bot, top, 0.7); // the verticals
       if (prevTop) { beam(prevTop, top, 1.1); beam(prevBot, bot, 1.1); beam(k % 2 ? prevBot : prevTop, k % 2 ? top : bot, 0.5); } // chords and the diagonals
       prevTop = top; prevBot = bot;
     }
   }
-  for (let k = 0; k <= n; k += 3) { const s = L * k / n, P = at(s), y = deck(P.x, P.z), h = hTop(s / L); if (h < 10) continue; beam([P.x - P.tz * off, y + h, P.z + P.tx * off], [P.x + P.tz * off, y + h, P.z - P.tx * off], 0.6); } // cross bracing overhead
+  for (let k = 0; k <= n; k += 3) { const s = L * k / n, P = at(s), y = deck(s), h = hTop(s / L); if (h < 10) continue; beam([P.x - P.tz * off, y + h, P.z + P.tx * off], [P.x + P.tz * off, y + h, P.z - P.tx * off], 0.6); } // cross bracing overhead
   for (const t of [t1, t2]) { // the two river piers, stone, from the riverbed up to the deck
-    const P = at(L * t), y = deck(P.x, P.z);
+    const P = at(L * t), y = deck(L * t);
     for (const side of [-1, 1]) boxInto(B, P.x - P.tz * off * side, WATER_Y - 3, P.z + P.tx * off * side, 5, y - WATER_Y + 1.5, 9, stone);
   }
   const mesh = new THREE.Mesh(toGeometry(B), new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.55, metalness: 0.45 }));
   mesh.castShadow = mesh.receiveShadow = true; scene.add(mesh); SBRIDGE.mesh = mesh; SBRIDGE.at = at; SBRIDGE.L = L;
 }
 function updateBrisbane() { // let the bridge go when you're far away (its tiles go too)
-  if (SBRIDGE.mesh && SBRIDGE.pts.length && Math.hypot(SBRIDGE.pts[0][0] - player.x, SBRIDGE.pts[0][1] - player.z) > 5000) { scene.remove(SBRIDGE.mesh); SBRIDGE.mesh.geometry.dispose(); SBRIDGE.mesh = null; SBRIDGE.pts.length = 0; }
+  if (SBRIDGE.mesh && Math.hypot(SBRIDGE.pts[0][0] - player.x, SBRIDGE.pts[0][1] - player.z) > 5000) { scene.remove(SBRIDGE.mesh); SBRIDGE.mesh.geometry.dispose(); SBRIDGE.mesh = null; }
 }
 // ---------------------------------------------------------------- landmarks for the photography activity
-LANDMARKS.push(['Story Bridge', /^Story Bridge$/i, -38137, -59257], ['Brisbane City Hall', /^Brisbane City Hall$/i, -39316, -58670], ['Wheel of Brisbane', /^Wheel of Brisbane/i, -39591, -57974],
+LANDMARKS.push(['Story Bridge', /^Story Bridge$/i, -38137, -59257], ['Brisbane City Hall', /^Brisbane City Hall/i, -39316, -58670], ['Wheel of Brisbane', /Wheel of Brisbane/i, -39591, -57974],
   ['Kangaroo Point Cliffs', /^Kangaroo Point Cliffs/i, -38323, -57476], ['Suncorp Stadium', /^Suncorp Stadium/i, -40692, -59124], ['The Gabba', /^The Gabba|^Brisbane Cricket Ground/i, -37881, -56802]);
 // ---------------------------------------------------------------- activities
 PARKS.storybridge = ['Story Bridge Climb', [['The climb to the top', 9], ['Across the arch at sunset', 7]], 'Clip on and climb. Press the arrow shown at each step to keep your footing — the faster, the better the view.'];
@@ -7980,7 +8139,7 @@ PARKS.lonepine = ['Lone Pine Koala Sanctuary', [['Meet the koalas', 6], ['Feed t
 function brisbaneActivities() {
   const V = (n, re, x, z) => () => venue(n, re, x, z);
   defAct({ id: 'storyclimb', name: 'Story Bridge Climb', icon: '🌉', cat: 'fun', diff: 2, at: V('Story Bridge', /^Story Bridge Adventure Climb|^Story Bridge$/i, -38137, -59257), range: 160, desc: 'Brisbane’s Story Bridge: clip on and climb the steel arch above the river, 80 m up.', reward: 'climb badges', progress: () => `${PARKS.storybridge[1].filter((q) => (actData().coll.rides || []).includes(q[0])).length}/2 climbs`, unit: 'pts', start: () => playRide('storyclimb', 'storybridge') });
-  defAct({ id: 'wheel', name: 'Wheel of Brisbane', icon: '🎡', cat: 'fun', diff: 1, at: V('Wheel of Brisbane', /^Wheel of Brisbane/i, -39591, -57974), range: 120, desc: 'A turn on the big wheel at South Bank, with the CBD and the river below.', reward: 'a ride badge', unit: 'pts', start: () => playRide('wheel', 'wheel') });
+  defAct({ id: 'wheel', name: 'Wheel of Brisbane', icon: '🎡', cat: 'fun', diff: 1, at: V('Wheel of Brisbane', /Wheel of Brisbane/i, -39591, -57974), range: 120, desc: 'A turn on the big wheel at South Bank, with the CBD and the river below.', reward: 'a ride badge', unit: 'pts', start: () => playRide('wheel', 'wheel') });
   defAct({ id: 'lonepine', name: 'Lone Pine Koala Sanctuary', icon: '🐨', cat: 'explore', diff: 1, at: V('Lone Pine Koala Sanctuary', /^Lone Pine Koala Sanctuary/i, -44712, -51494), range: 250, desc: 'The world’s first koala sanctuary, out at Fig Tree Pocket: meet the koalas, feed the kangaroos, see the platypus.', reward: 'animal badges', progress: () => `${PARKS.lonepine[1].filter((q) => (actData().coll.rides || []).includes(q[0])).length}/3`, unit: 'pts', start: () => playRide('lonepine', 'lonepine') });
   defAct({ id: 'citycat', name: 'CityCat cruise', icon: '⛴', cat: 'explore', diff: 1, anywhere: true, where: 'any CityCat terminal on the Brisbane River', desc: 'Ride a CityCat at least three stops along the Brisbane River (E at a terminal when one’s in).', reward: '$40', start: (cur) => { cur.ride = 'ferry'; cur.stops = 0; toast('⛴ Find a CityCat terminal (phone → Transit) and ride three stops'); } });
   defAct({ id: 'trainup', name: 'The train to Brisbane', icon: '🚆', cat: 'explore', diff: 1, anywhere: true, where: 'any Gold Coast station (Varsity Lakes, Robina, Nerang, Helensvale, Coomera)', desc: 'Catch the Gold Coast line from the coast and ride it all the way up to Brisbane (South Brisbane or Roma Street).', reward: '$120', start: (cur) => { cur.ride = 'train'; toast('🚆 Get to a Gold Coast station (phone → Transit) and ride up to Brisbane'); } });
@@ -8436,6 +8595,7 @@ function updateRobbery(dt) {
       const till = TILL[target.kind] || [150, 450]; let cash = Math.round(rr(till[0], till[1]) / 10) * 10;
       if (target.kind === 'bank') cash = heistRobDone(target, cash); // a planned heist pays out at the safehouse
       cash = storyRobDone(target, cash); // so does Rocco's casino job
+      cash = mickRobDone(target, cash); // and Mick's Queen Street Mall job (mick.js)
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
       addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
       toast(`${target.kind === 'bank' ? 'Bank job done' : 'Cash register emptied'} · +$${cash} — get out of there!`); sfxTone([523, 659, 784], 0.4, 0.08, 'triangle');
@@ -13644,7 +13804,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

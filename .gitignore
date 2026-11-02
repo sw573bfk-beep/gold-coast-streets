@@ -21,3 +21,6 @@ server/test/filter.mjs
 docs/tiles/
 docs/ground/
 dist/art/
+dist/ground/
+data/*.log
+data/transit_backup.json

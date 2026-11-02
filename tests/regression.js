@@ -880,6 +880,18 @@ window.runRegression = async () => {
     const r = `${MICK_JOBS.length} jobs · job 1 started ${started}, paid ${paid} · job 2 waits till you’re in Brisbane ${refused}`;
     expect(MICK_JOBS.length === 6 && started && paid && refused, r); return r;
   });
+  await test('Brisbane: the CBD has its towers, the Story Bridge has its steel truss, the landmarks are on the map', async () => {
+    quiet(); await goToTile(-27.4690, 153.0260); // Queen Street Mall
+    for (let k = 0; k < 700 && (tileBusy || TILES.size < 9); k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 5)); } // the blocks round it too
+    const near = [...TILES.values()].filter((T) => Math.hypot(T.x0 + 500 - player.x, T.z0 + 500 - player.z) < 1500);
+    const blds = near.reduce((a, T) => a + (T.blds || []).length, 0), tall = Math.max(0, ...near.flatMap((T) => (T.blds || []).map((b) => b[0])));
+    const find = (re) => REGION.search.find((q) => re.test(q[0])) || (REGION.landmarks || []).find((q) => re.test(q[2]));
+    const marks = [/^Story Bridge$/i, /^Brisbane City Hall/i, /Wheel of Brisbane/i, /^Suncorp Stadium/i, /^The Gabba|^Brisbane Cricket Ground/i].filter((re) => find(re)).length;
+    await goToTile(-27.4636, 153.0353); for (let k = 0; k < 700 && !SBRIDGE.mesh; k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 5)); }
+    const truss = !!SBRIDGE.mesh, span = SBRIDGE.L || 0; home(); updateBrisbane();
+    const r = `${blds} buildings around the CBD, tallest ${tall.toFixed(0)} m · ${marks}/5 landmarks found · Story Bridge truss ${truss} (${span.toFixed(0)} m)`;
+    expect(blds > 1500 && tall > 250 && marks === 5 && truss && span > 600, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

@@ -207,18 +207,22 @@ def join_lines(ways):
         out.append(cur)
     return out
 coast = join_lines(coast_ways)
-ocean_polys, ocean_rings = water_from_coast(coast, RX0, RZ0, RX1, RZ1)
-# sanity check: a point well out to sea must be water, the middle of Surfers must not
+# the sea is worked out in each box on its own: the coastline was only downloaded inside the boxes, so it stops at their
+# edges, and stitching it round the one rectangle about both would flood whatever lies between the loose ends
+ocean_polys, ocean_rings = [], []
+for bx in BOXES:
+    bp, br = water_from_coast(coast, *bx); ocean_polys += bp; ocean_rings += br
+# sanity check: a point well out to sea must be water, the middle of Surfers (and of Brisbane) must not
 def in_water_rings(pt):
     c = False
     for poly in ocean_polys + ocean_rings:
         if pip(pt, poly): c = not c
     return c
-sea, land = proj(-28.0, 153.466), proj(-28.0, 153.425)
-if not in_water_rings(sea) and in_water_rings(land):
-    ocean_polys = [p[::-1] for p in ocean_polys]
-    raise SystemExit('coastline orientation check failed — inspect the stitching')
-print('coastline pieces', len(coast), 'ocean polygons', len(ocean_polys), 'island rings', len(ocean_rings), 'sea test', in_water_rings(sea), 'land test', in_water_rings(land))
+checks = {'sea off Surfers': (proj(-28.0, 153.466), True), 'Surfers': (proj(-28.0, 153.425), False),
+          'Moreton Bay': (proj(-27.42, 153.25), True), 'Brisbane CBD': (proj(-27.4685, 153.0245), False), 'Logan': (proj(-27.64, 153.11), False)}
+bad = [k for k, (pt, wet) in checks.items() if in_water_rings(pt) != wet]
+if bad: raise SystemExit('coastline check failed at %s — inspect the stitching' % ', '.join(bad))
+print('coastline pieces', len(coast), 'ocean polygons', len(ocean_polys), 'island rings', len(ocean_rings), 'checks ok:', ', '.join(checks))
 
 # ---------------------------------------------------------------- roads
 ROAD_TYPES = ['trunk', 'primary', 'secondary', 'tertiary', 'residential', 'service', 'pedestrian', 'footway', 'cycleway', 'path', 'steps',
@@ -1136,8 +1140,24 @@ for e in els:
     if p: add_search(nm, k, p[0], p[1], 150, place_tag(t))
 print('search entries', len(search), {SEARCH_KINDS[k]: sum(1 for s_ in search if s_[1] == k) for k in range(len(SEARCH_KINDS))})
 
+# the Story Bridge: its line from the outlines OpenStreetMap draws for it (the road on it is the Bradfield Highway), and
+# where it crosses the river; the game puts the 777 m steel cantilever over that stretch, its two piers on the banks
+story_bridge = None
+sb = [geom(e) for e in els if e['type'] == 'way' and e.get('tags', {}).get('man_made') == 'bridge' and e.get('tags', {}).get('name') == 'Story Bridge']
+if sb:
+    P = [p for g in sb for p in g]
+    d, a, b = max((math.dist(p, q), p, q) for p in P for q in P)
+    ux, uz = (b[0] - a[0]) / d, (b[1] - a[1]) / d
+    cx, cz = (a[0] + b[0]) / 2, (a[1] + b[1]) / 2  # the water areas whose outline reaches round the bridge
+    river = [rings for k, rings in polys if k == 'water' and any(min(p[0] for p in r) < cx < max(p[0] for p in r) and min(p[1] for p in r) < cz < max(p[1] for p in r) for r in rings)]
+    def wet(x, z): return any(sum(pip((x, z), r) for r in rings) % 2 for rings in river)
+    ws = [s for s in range(0, int(d), 4) if wet(a[0] + ux * s, a[1] + uz * s)]
+    mid = (min(ws) + max(ws)) / 2 if ws else d / 2
+    s0, s1 = max(-200, mid - 388.5), min(d + 200, mid + 388.5)  # centred on the river (the anchor arms may reach past the outline's ends)
+    story_bridge = [round(a[0] + ux * s0, 1), round(a[1] + uz * s0, 1), round(a[0] + ux * s1, 1), round(a[1] + uz * s1, 1)]
+    print('Story Bridge %.0f m, river from %s to %s m, truss' % (d, ws and min(ws), ws and max(ws)), story_bridge)
 region = dict(tile=TILE, bounds=[RX0, RZ0, RX1, RZ1], boxes=[[round(v) for v in b] for b in BOXES], core=CORE, tiles=index, roads=ov_roads, water=ov_water, coast=ov_coast,
-              suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS, airport=AIRPORT)
+              suburbs=suburbs, landmarks=landmarks, roadTypes=ROAD_TYPES, search=search, searchKinds=SEARCH_KINDS, airport=AIRPORT, storyBridge=story_bridge)
 region['built'] = int(time.time())  # tells browsers the tiles changed (they fetch tiles with ?b=built)
 json.dump(region, open(os.path.join(out_dir, 'region.json'), 'w'), separators=(',', ':'))
 print('tiles', len(index), 'total', total // 1024, 'KB; region.json', os.path.getsize(os.path.join(out_dir, 'region.json')) // 1024, 'KB')
