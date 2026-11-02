@@ -77,7 +77,7 @@ class RailVehicle {
 }
 async function initTransitLines() {
   if (TRANSIT.loaded || !REGION) return; TRANSIT.loaded = true;
-  let d; try { d = await (await fetch(`tiles/transit.json?b=${REGION.built || 0}`)).json(); } catch (e) { return; }
+  let d; try { d = await (await fetch(`${MAP_BASE}tiles/transit.json?b=${REGION.built || 0}`)).json(); } catch (e) { return; }
   for (const [kind, list] of [['train', d.trains || []], ['ferry', d.ferries || []]]) for (const T of list) {
     const L = railLine(T.line); Object.assign(L, { kind, title: T.name, stops: T.stops.map((q) => q[0]), names: T.stops.map((q) => q[1]), lane: kind === 'ferry' ? 6 : 2.1 });
     TRANSIT.lines.push(L);

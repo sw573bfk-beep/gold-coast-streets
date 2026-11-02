@@ -6,6 +6,8 @@
 // street shops, petrol stations, collision walls and road network.
 // ============================================================================
 let REGION = null;                 // tiles/region.json: index, overview roads/water, suburbs, landmarks
+// GitHub Pages can't hold the whole map (Brisbane too), so the page there reads its map files from the Cloudflare Pages copy
+const MAP_BASE = location.hostname.endsWith('github.io') ? 'https://gold-coast-streets-3k3.pages.dev/' : '';
 const WORLD = { x0: MINX, z0: MINZ, x1: MAXX, z1: MAXZ };
 const TILES = new Map();           // "i,j" -> loaded tile
 const TILE_INDEX = new Set();      // tiles that exist on disk
@@ -17,7 +19,7 @@ const GPS_ADJ = new Map();         // extra routing links inside the Surfers cor
 
 async function loadRegion() {
   try {
-    const r = await fetch(`tiles/region.json?t=${Math.floor(Date.now() / 600000)}`); // never more than 10 minutes stale
+    const r = await fetch(`${MAP_BASE}tiles/region.json?t=${Math.floor(Date.now() / 600000)}`); // never more than 10 minutes stale
     if (!r.ok) throw new Error('HTTP ' + r.status);
     REGION = await r.json();
   } catch (e) { console.warn('[tiles] no region data, Surfers only', e); return; }
@@ -136,7 +138,7 @@ const PACKS = new Map();
 async function fetchTile(i, j) {
   const P = window.TILE_PACK;
   if (!P) {
-    const res = await fetch(`tiles/t_${i}_${j}.json?b=${REGION.built || 0}`); // the build number: a rebuilt map is fetched fresh, not from the cache
+    const res = await fetch(`${MAP_BASE}tiles/t_${i}_${j}.json?b=${REGION.built || 0}`); // the build number: a rebuilt map is fetched fresh, not from the cache
     if (!res.ok) throw new Error('HTTP ' + res.status);
     return res.json();
   }
@@ -289,12 +291,12 @@ function tileGround(T, data) {
 // ---------------------------------------------------------------- the aerial photo on the ground (tools/ground_photos.py: one JPEG for each 3 x 3 block of tiles)
 const GPHOTO = { index: null, imgs: new Map(), on: true, filter: 'brightness(0.82) saturate(1.05)', alpha: 0.78 };
 function groundPhotoBlock(pk) {
-  if (!GPHOTO.index) GPHOTO.index = fetch(`ground/index.json?b=${REGION.built || 0}`).then((r) => (r.ok ? r.json() : [])).then((a) => new Set(a)).catch(() => new Set());
+  if (!GPHOTO.index) GPHOTO.index = fetch(`${MAP_BASE}ground/index.json?b=${REGION.built || 0}`).then((r) => (r.ok ? r.json() : [])).then((a) => new Set(a)).catch(() => new Set());
   return GPHOTO.index.then((idx) => {
     if (!GPHOTO.on || !idx.has(pk)) return null;
     let p = GPHOTO.imgs.get(pk);
     if (!p) {
-      p = new Promise((res) => { const im = new Image(); im.onload = () => res(im); im.onerror = () => res(null); im.src = `ground/g_${pk}.jpg?b=${REGION.built || 0}`; });
+      p = new Promise((res) => { const im = new Image(); im.crossOrigin = 'anonymous'; im.onload = () => res(im); im.onerror = () => res(null); im.src = `${MAP_BASE}ground/g_${pk}.jpg?b=${REGION.built || 0}`; });
       GPHOTO.imgs.set(pk, p); if (GPHOTO.imgs.size > 10) GPHOTO.imgs.delete(GPHOTO.imgs.keys().next().value);
     }
     return p;

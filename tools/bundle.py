@@ -43,6 +43,8 @@ GOATCOUNTER = '<script data-goatcounter="https://sw573.goatcounter.com/count" as
 html = open(os.path.join(ROOT, 'dist', 'index.html'), encoding='utf-8').read().replace('</body>', GOATCOUNTER + '\n</body>', 1)
 open(os.path.join(site, 'index.html'), 'w', encoding='utf-8').write(html)
 open(os.path.join(site, '.nojekyll'), 'w').close()  # serve files as they are
+# the GitHub Pages copy of the page reads the map from the Cloudflare Pages copy (MAP_BASE in src/tiles.js), so Cloudflare lets other sites read it
+open(os.path.join(site, '_headers'), 'w').write('/tiles/*\n  Access-Control-Allow-Origin: *\n/ground/*\n  Access-Control-Allow-Origin: *\n')
 tiles = os.path.join(ROOT, 'dist', 'tiles')
 if os.path.isdir(tiles):
     for name in os.listdir(os.path.join(site, 'tiles')):
