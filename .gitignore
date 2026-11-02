@@ -17,3 +17,4 @@ data/north_fetch.log
 data/build_tiles_v*.log
 data/details_fetch.log
 data/ground_photos.log
+server/test/filter.mjs

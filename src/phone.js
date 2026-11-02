@@ -8,10 +8,11 @@ function openPhone() {
   PHONE.open = true; uiOpen = true; if (document.pointerLockElement) document.exitPointerLock();
   phoneEl().hidden = false; phoneApp('home');
 }
-function closePhone() { PHONE.open = false; phoneEl().hidden = true; uiOpen = false; lockPointer(); }
+function closePhone() { PHONE.open = false; phoneEl().hidden = true; uiOpen = false; lockPointer(); refreshKeyHints(); }
 const km = (x, z) => { const d = Math.hypot(x - player.x, z - player.z); return d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'; };
 function directions(name, x, z) { WAYPOINT = { name, x, z }; GPS.t = 0; closePhone(); toast(`Heading to ${name} — ${km(x, z)} · follow the yellow line`); }
 function phoneApp(app) {
+  setTimeout(refreshKeyHints, 0); // the key strip follows the app (the HUD doesn't update while the phone is up)
   PHONE.app = app; const body = $('phone-body'); body.innerHTML = '';
   const btn = (label, sub, fn, ok = true) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.disabled = !ok; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = label; b.lastChild.textContent = sub || ''; b.addEventListener('click', fn); body.appendChild(b); return b; };
   const head = (t) => { const h = document.createElement('div'); h.className = 'psec'; h.textContent = t; body.appendChild(h); };
@@ -23,7 +24,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -35,6 +36,7 @@ function phoneApp(app) {
     tile('🌊', 'Swell', () => phoneApp('swell'));
     tile('🌤️', 'Weather', () => phoneApp('weather'));
     tile('🐶', 'Pet', () => phoneApp('pet'));
+    tile('💬', 'Chat', () => phoneApp('chat'), CHAT.unread ? String(Math.min(99, CHAT.unread)) : '');
     tile('🚋', 'Transit', () => phoneApp('transit'));
     if (MODE === 'multi') tile('🛡️', 'Crew', () => phoneApp('crew'), NET.status === 'on' && PARTY.invites.size ? '!' : '');
     tile('💼', 'Business', () => phoneApp('business'), (ECON.biz || []).some((b) => b.till > 0) ? '$' : '');
@@ -84,6 +86,7 @@ function phoneApp(app) {
     for (const q of list) btn(q.name, `${km(q.x, q.z)} · $150–450 in the till · 2 stars`, () => directions(q.name, q.x, q.z));
   } else if (app === 'jobs') { back(); jobsApp(btn, head); }
   else if (app === 'job') { jobApp(btn, head); }
+  else if (app === 'chat') { back(); chatApp(btn, head); }
   else if (app === 'transit') { back(); transitApp(btn, head); }
   else if (app === 'crew') { back(); crewApp(btn, head); }
   else if (app === 'business') { back(); businessApp(btn, head); }

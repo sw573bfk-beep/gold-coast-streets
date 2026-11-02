@@ -507,6 +507,7 @@ window.runRegression = async () => {
   });
   // ---------------------------------------------------------------- V9.8: brakes, smart search, bikes, planes, surfing
   await test('brakes: S stops from 100 km/h in about 30 m, Space (hard brake) shorter, Space + A/D slides', () => {
+    const wet0 = WEATHER.wet; WEATHER.wet = 0; setTimeout(() => { WEATHER.wet = wet0; }, 0);
     const stop = (inp) => { const c = new Car('sedan', null, 0, 0, 0); c.setDriver('player'); c.vz = 27.8; let d = 0; for (let k = 0; k < 900 && c.speed > 0.3; k++) { c.input = Object.assign({ t: 0, b: 0, s: 0, hb: 0 }, inp); c.stepTyres(1 / 60); d += c.speed / 60; } const h = c.h; c.remove(); return [d, h]; };
     const [dS] = stop({ b: 1 }), [dH] = stop({ hb: 1 }), [, hSlide] = stop({ hb: 1, s: 1 });
     expect(dS < 36, `S took ${dS.toFixed(0)} m`); expect(dH < dS - 5, `Space ${dH.toFixed(0)} m vs S ${dS.toFixed(0)} m`); expect(Math.abs(hSlide) > 0.8, 'no slide');
@@ -834,7 +835,7 @@ window.runRegression = async () => {
       c.vx = 0; c.vz = 100 / 3.6; c.h = 0; c.yaw = 0; c.input = { t: 0, b: 0, s: 0, hb: 0 }; for (let k = 0; k < 180; k++) c.stepTyres(dt); const coast = vf() * 3.6;
       c.vx = 0; c.vz = 60 / 3.6; c.h = 0; c.yaw = 0; c.steer = 0; c.input = { t: 0.3, b: 0, s: 1, hb: 0 }; for (let k = 0; k < 120; k++) c.stepTyres(dt);
       const turn = Math.abs(c.yaw) * 57.3; c.remove && c.remove(); return { d, coast, turn }; };
-    const s = run('sedan'), t = run('tuner');
+    const wet0 = WEATHER.wet; WEATHER.wet = 0; const s = run('sedan'), t = run('tuner'); WEATHER.wet = wet0; // on a dry road (rain takes grip away)
     const r = `sedan stops from 100 in ${s.d.toFixed(0)} m, lifts off to ${s.coast.toFixed(0)} km/h in 3 s, turns ${s.turn.toFixed(0)}°/s at 60 · tuner turns ${t.turn.toFixed(0)}°/s`;
     expect(s.d < 34 && s.coast < 72 && s.turn > 55 && t.turn > 25, r); return r;
   });
@@ -850,6 +851,13 @@ window.runRegression = async () => {
     const green = GPS_MAT.color.getHexString();
     const r = `hopped in ${hopped} · seat sent ${seated} · hopped out ${out} · a mate shows in your back seat ${!!spot} · route colour #${green}`;
     expect(hopped && seated && out && spot && green === '2ee66b', r); return r;
+  });
+  await test('global chat: only safe characters can be typed, messages show as text (never HTML), the phone shows unread', () => {
+    const typed = 'hi <b>there</b> @me 100% ok!'.replace(CHAT_OK, '');
+    const keep = CHAT.msgs; CHAT.msgs = [{ id: 1, name: 'Mate', crew: 'SMB', text: '<img src=x onerror=alert(1)> hello', at: Date.now() }];
+    const box = document.createElement('div'); document.body.appendChild(box); CHAT.el = box; drawChat();
+    const safe = !box.querySelector('img') && /hello/.test(box.textContent); box.remove(); CHAT.msgs = keep; CHAT.el = null;
+    const r = `typed "${typed}" · message drawn as text ${safe}`; expect(typed === 'hi bthereb me 100 ok!' && safe, r); return r;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

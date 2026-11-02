@@ -42,12 +42,12 @@ function openAdmin() {
   const top = el('div', 'adm-top', null, P); el('b', '', '🛠 Admin · Gold Coast Streets', top);
   const close = el('button', 'adm-x', '✕', top); close.type = 'button'; close.addEventListener('click', () => { P.hidden = true; });
   const tabs = el('div', 'adm-tabs', null, P);
-  for (const [k, label] of [['overview', 'Overview'], ['users', 'Accounts'], ['records', 'Records'], ['crews', 'Crews'], ['log', 'Log']]) {
+  for (const [k, label] of [['overview', 'Overview'], ['users', 'Accounts'], ['chat', 'Chat'], ['records', 'Records'], ['crews', 'Crews'], ['log', 'Log']]) {
     const b = el('button', ADMIN.tab === k ? 'on' : '', label, tabs); b.type = 'button'; b.addEventListener('click', () => { ADMIN.tab = k; openAdmin(); });
   }
   const body = el('div', 'adm-body', 'Loading…', P);
   const fail = (e) => { body.textContent = e.message === 'not allowed' ? 'This account isn’t an admin.' : `Couldn’t load: ${e.message}`; };
-  ({ overview: adminOverview, users: adminUsers, records: adminRecords, crews: adminCrews, log: adminLog })[ADMIN.tab](body).catch(fail);
+  ({ overview: adminOverview, users: adminUsers, chat: adminChat, records: adminRecords, crews: adminCrews, log: adminLog })[ADMIN.tab](body).catch(fail);
 }
 function admBtn(parent, label, fn, cls) { const b = el('button', 'adm-b' + (cls ? ' ' + cls : ''), label, parent); b.type = 'button'; b.addEventListener('click', fn); return b; }
 async function adminOverview(body) {
@@ -112,7 +112,19 @@ async function adminUser(body, id) {
   if (!u.admin) {
     el('h3', '', 'Account', body); const ab = el('div', 'adm-bar', null, body);
     admBtn(ab, '👢 Kick from their world', async () => { const r = await api('/admin/kick', { id: u.id }).catch((e) => toast(e.message)); if (r) toast(r.n ? `Kicked ${u.name}` : `${u.name} isn’t in a world`); });
+    admBtn(ab, u.muted ? '💬 Unmute in chat' : '🔇 Mute in chat', async () => { await api('/admin/mute', { id: u.id, muted: !u.muted }).catch((e) => toast(e.message)); adminUser(body, u.id); });
     admBtn(ab, u.banned ? '✅ Unban' : '⛔ Ban', async () => { if (!u.banned && !confirm(`Ban ${u.name}? They’re signed out everywhere and can’t log in.`)) return; await api('/admin/ban', { id: u.id, banned: !u.banned }).catch((e) => toast(e.message)); adminUser(body, u.id); }, u.banned ? 'go' : 'warn');
+  }
+}
+async function adminChat(body) { // the global chat: take a message down, or mute whoever sent it
+  const d = await api('/admin/chat'); body.textContent = '';
+  el('p', 'adm-dim', 'The newest 150 messages (already filtered: swearing starred, slurs and contact details blocked). Removed ones are faded.', body);
+  if (!d.chat.length) el('p', 'adm-dim', 'Nobody has said anything yet.', body);
+  for (const m of d.chat) {
+    const row = el('div', 'adm-row', null, body); if (m.deleted) row.style.opacity = 0.45;
+    el('span', '', `${m.crew ? `[${m.crew}] ` : ''}${m.name}${m.muted ? ' (muted)' : ''}`, row); el('em', '', `${m.text} · ${fmtAgo(m.at)}`, row);
+    if (!m.deleted) admBtn(row, 'Remove', async () => { await api('/admin/chat-delete', { id: m.id }).catch((e) => toast(e.message)); adminChat(body); }, 'warn');
+    admBtn(row, m.muted ? 'Unmute' : 'Mute', async () => { await api('/admin/mute', { id: m.user_id, muted: !m.muted }).catch((e) => toast(e.message)); adminChat(body); }, m.muted ? 'go' : 'warn');
   }
 }
 async function adminRecords(body) {

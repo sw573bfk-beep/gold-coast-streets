@@ -14,8 +14,10 @@
 //   GET  /crews                                  the biggest crews (members, and their richest players' worth)
 //   GET  /online                                 how many are playing online right now (all worlds)
 //   POST /ping  ·  GET /gifts                    time played (once a minute)  ·  money the admin sent you
+//   GET  /chat?after=ID  ·  POST /chat {text}    the global chat (filtered on the way in: filter.js)
 //   /admin/...                                   the admin panel (only the accounts named in ADMINS)
 import { DurableObject } from 'cloudflare:workers';
+import { check as chatCheck, cleanName } from './filter.js';
 
 const SHOWN_MAX = 16, MAX_PLAYERS = 20; // public worlds fill to 16; friends with the code can still get in up to 20
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' };
@@ -23,7 +25,7 @@ const BAD = /fuck|shit|cunt|bitch|nigg|fag|slut|whore|rape|nazi|porn|dick|cock|p
 // names and world titles: letters, numbers and spaces only, nothing rude
 function clean(s, max, fallback) {
   const t = String(s || '').replace(/’/g, "'").replace(/[^A-Za-z0-9 _'-]/g, '').replace(/\s+/g, ' ').trim().slice(0, max);
-  return t && !BAD.test(t.replace(/[\s_'-]/g, '')) ? t : fallback;
+  return t && !BAD.test(t.replace(/[\s_'-]/g, '')) && cleanName(t.replace(/[_-]/g, ' ')) ? t : fallback; // the chat filter's word lists too (filter.js)
 }
 const json = (v, status = 200) => new Response(JSON.stringify(v), { status, headers: { 'Content-Type': 'application/json', ...CORS } });
 // the boards: which way is better, and the most (or least) anyone could honestly get
@@ -96,14 +98,14 @@ async function admin(req, env, url, me) {
   }
   if (path === 'users') {
     const sort = { name: 'users.name_lc ASC', new: 'users.created DESC', seen: 'users.last_seen DESC', time: 'users.play_ms DESC' }[url.searchParams.get('sort')] || 'users.last_seen DESC';
-    const r = await env.DB.prepare(`SELECT users.id, users.name, users.created, users.last_seen, users.play_ms, users.banned, saves.data, crews.tag,
+    const r = await env.DB.prepare(`SELECT users.id, users.name, users.created, users.last_seen, users.play_ms, users.banned, users.muted, saves.data, crews.tag,
       (SELECT COUNT(*) FROM records WHERE records.user_id = users.id) AS records, (SELECT COALESCE(SUM(amount), 0) FROM gifts WHERE gifts.user_id = users.id) AS pending
       FROM users LEFT JOIN saves ON saves.user_id = users.id LEFT JOIN crew_members ON crew_members.user_id = users.id LEFT JOIN crews ON crews.id = crew_members.crew_id
       ORDER BY ${sort} LIMIT 500`).all();
     return json({ users: r.results.map(({ data, ...x }) => ({ ...x, ...saveSummary(data), admin: isAdmin(env, x) })) });
   }
   if (path === 'user') {
-    const u = await env.DB.prepare('SELECT users.id, users.name, users.created, users.last_seen, users.play_ms, users.banned, saves.data, saves.updated FROM users LEFT JOIN saves ON saves.user_id = users.id WHERE users.id = ?').bind(Number(url.searchParams.get('id')) || 0).first();
+    const u = await env.DB.prepare('SELECT users.id, users.name, users.created, users.last_seen, users.play_ms, users.banned, users.muted, saves.data, saves.updated FROM users LEFT JOIN saves ON saves.user_id = users.id WHERE users.id = ?').bind(Number(url.searchParams.get('id')) || 0).first();
     if (!u) return json({ error: 'no such account' }, 404);
     const recs = await env.DB.prepare('SELECT board, value, detail, at FROM records WHERE user_id = ? ORDER BY board').bind(u.id).all();
     const gifts = await env.DB.prepare('SELECT amount, note, at FROM gifts WHERE user_id = ? ORDER BY at').bind(u.id).all();
@@ -150,6 +152,15 @@ async function admin(req, env, url, me) {
   if (path === 'announce' && req.method === 'POST') { // a message on everyone's screen in every world
     const text = String(b.text || '').replace(/[<>]/g, '').trim().slice(0, 140); if (!text) return json({ error: 'Type a message first' }, 400);
     const n = await toWorlds(env, '/announce', { text }); await adminLog(env, 'announce', '', `${text} (reached ${n})`); return json({ ok: true, n });
+  }
+  if (path === 'chat') { const r = await env.DB.prepare('SELECT chat.id, chat.user_id, chat.name, chat.crew, chat.text, chat.at, chat.deleted, users.muted FROM chat JOIN users ON users.id = chat.user_id ORDER BY chat.id DESC LIMIT 150').all(); return json({ chat: r.results }); }
+  if (path === 'chat-delete' && req.method === 'POST') {
+    const m = await env.DB.prepare('SELECT id, name, text FROM chat WHERE id = ?').bind(Number(b.id) || 0).first(); if (!m) return json({ error: 'no such message' }, 404);
+    await env.DB.prepare('UPDATE chat SET deleted = 1 WHERE id = ?').bind(m.id).run(); await adminLog(env, 'delete chat message', m.name, m.text); return json({ ok: true });
+  }
+  if (path === 'mute' && req.method === 'POST') {
+    const t = await target(b.id); if (!t) return json({ error: 'no such account' }, 404); if (isAdmin(env, t)) return json({ error: 'You can’t mute an admin' }, 400);
+    await env.DB.prepare('UPDATE users SET muted = ? WHERE id = ?').bind(b.muted ? 1 : 0, t.id).run(); await adminLog(env, b.muted ? 'mute in chat' : 'unmute in chat', t.name, ''); return json({ ok: true });
   }
   if (path === 'log') { const r = await env.DB.prepare('SELECT at, action, target, detail FROM admin_log ORDER BY id DESC LIMIT 100').all(); return json({ log: r.results }); }
   return json({ error: 'not found' }, 404);
@@ -217,6 +228,27 @@ async function api(req, env, url) {
     const b = await readJson(req); return json({ ok: true, gifts: b && b.claim === true ? await claimGifts(env, u.id) : [] }); // only the multiplayer game takes gifts (they're for the online save)
   }
   if (url.pathname === '/gifts') return json({ gifts: await claimGifts(env, u.id) });
+  if (url.pathname === '/chat' && req.method === 'GET') { // the newest messages (after the one you last saw)
+    const after = Math.max(0, Number(url.searchParams.get('after')) || 0);
+    const r = after ? await env.DB.prepare('SELECT id, name, crew, text, at FROM chat WHERE id > ? AND deleted = 0 ORDER BY id LIMIT 60').bind(after).all()
+      : await env.DB.prepare('SELECT id, name, crew, text, at FROM (SELECT * FROM chat WHERE deleted = 0 ORDER BY id DESC LIMIT 60) ORDER BY id').all();
+    const gone = after ? (await env.DB.prepare('SELECT id FROM chat WHERE deleted = 1 AND id > ? - 300').bind(after).all()).results.map((x) => x.id) : [];
+    return json({ messages: r.results, removed: gone });
+  }
+  if (url.pathname === '/chat' && req.method === 'POST') {
+    const b = await readJson(req); if (!b) return json({ error: 'bad request' }, 400);
+    const me = await env.DB.prepare('SELECT muted FROM users WHERE id = ?').bind(u.id).first();
+    if (me && me.muted) return json({ error: 'You’ve been muted in chat' }, 403);
+    const now = Date.now(), recent = await env.DB.prepare('SELECT text, at FROM chat WHERE user_id = ? AND at > ? ORDER BY at DESC').bind(u.id, now - 60000).all();
+    if (recent.results.length && now - recent.results[0].at < 2500) return json({ error: 'Slow down a little' }, 429);
+    if (recent.results.length >= 12) return json({ error: 'That’s a lot of messages — wait a minute' }, 429);
+    const r = chatCheck(b.text); if (!r.ok) return json({ error: r.reason }, 400);
+    if (recent.results.some((m) => m.text === r.text)) return json({ error: 'You just said that' }, 429);
+    const c = await crewOf(env, u.id);
+    const ins = await env.DB.prepare('INSERT INTO chat (user_id, name, crew, text, at) VALUES (?, ?, ?, ?, ?)').bind(u.id, u.name, c ? c.tag : null, r.text, now).run();
+    if (Math.random() < 0.02) await env.DB.prepare('DELETE FROM chat WHERE at < ?').bind(now - 7 * 86400000).run(); // a week of chat is kept
+    return json({ ok: true, id: ins.meta.last_row_id, text: r.text, starred: r.starred });
+  }
   if (url.pathname.startsWith('/admin/')) { if (!isAdmin(env, u)) return json({ error: 'not allowed' }, 403); return admin(req, env, url, u); }
   if (url.pathname === '/crew' && req.method === 'GET') {
     const c = await crewOf(env, u.id); if (!c) return json({ crew: null });
@@ -283,7 +315,7 @@ export default {
       const c = await crewOf(env, u.id); q.searchParams.set('crew', c ? c.tag : ''); // the crew tag comes from the database too
       return env.WORLD.get(env.WORLD.idFromName(code)).fetch(new Request(q, req));
     }
-    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews', '/online', '/ping', '/gifts'].includes(url.pathname) || url.pathname.startsWith('/admin/')) return api(req, env, url);
+    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews', '/online', '/ping', '/gifts', '/chat'].includes(url.pathname) || url.pathname.startsWith('/admin/')) return api(req, env, url);
     return json({ ok: true, game: 'Gold Coast Streets online' });
   },
 };

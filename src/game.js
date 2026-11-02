@@ -1866,6 +1866,7 @@ function initBigMap() {
 const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
   updateKeyHints(dt); // the keys you can press right now, along the top (keyhints.js)
+  updateChat(dt); // the global chat: new messages and the badge (chat.js)
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
   $('clock').textContent = lifeClock() + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
   $('money').textContent = '$' + String(player.money).padStart(8, '0');

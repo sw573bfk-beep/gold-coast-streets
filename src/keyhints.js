@@ -8,7 +8,7 @@ function keyHintList() {
   const L = [], add = (k, label, warn) => L.push([k, label, warn]);
   if (player.deadT > 0) return L;
   if (MG && MG.active) { add('Esc', 'Quit the game'); return L; }
-  if (PHONE.open) { add('P', 'Put the phone away'); add('Esc', 'Close'); return L; }
+  if (PHONE.open) { if (PHONE.app === 'chat') { add('Enter', 'Send'); add('Esc', 'Close'); return L; } add('P', 'Put the phone away'); add('Esc', 'Close'); return L; }
   if (!$('shop').hidden || !$('bag').hidden) { add('Esc', 'Close'); return L; }
   if (!$('casino').hidden) { add('Esc', 'Leave the table'); return L; }
   if (bigMapOpen) { add('M', 'Close the map'); add('Click', 'Set a destination'); add('X', 'Clear the route'); return L; }
@@ -45,3 +45,4 @@ function updateKeyHints(dt) {
   el.innerHTML = '';
   for (const [k, label, warn] of list) { const s = document.createElement('span'); s.className = 'kh' + (warn ? ' warn' : ''); const b = document.createElement('kbd'); b.textContent = k; s.appendChild(b); s.appendChild(document.createTextNode(label)); el.appendChild(s); }
 }
+function refreshKeyHints() { KEYHINT.t = 0; KEYHINT.last = ''; updateKeyHints(0); }
