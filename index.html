@@ -103,6 +103,12 @@ html, body { height: 100%; margin: 0; overflow: hidden; background: var(--ink); 
 .fh-thr { display: flex; align-items: center; gap: 8px; margin: 6px 0 4px; font: 600 12px var(--hud); color: var(--gold); } .fh-thr i { flex: 1; height: 8px; background: #26343d; border-radius: 4px; overflow: hidden; } .fh-thr em { display: block; height: 100%; width: 0; background: var(--gold); }
 #fh-tip { font: 600 16px var(--hud); text-align: center; } #fh-tip.warn { color: #ff6b6b; }
 #radio { position: fixed; right: 18px; bottom: 96px; z-index: 5; font: 600 15px var(--hud); color: #fff; background: rgba(8,14,18,.7); padding: 4px 10px; border-radius: 8px; pointer-events: none; }
+.chat-list { height: 300px; overflow-y: auto; background: rgba(0,0,0,.25); border-radius: 10px; padding: 6px; margin-bottom: 6px; display: flex; flex-direction: column; gap: 4px; }
+.chat-msg { background: rgba(255,255,255,.07); border-radius: 8px; padding: 5px 8px; font: 500 14px var(--hud); color: #eef3f5; word-wrap: break-word; }
+.chat-msg b { color: #5ee0c8; margin-right: 6px; } .chat-msg.me b { color: var(--gold); } .chat-msg em { display: block; font-style: normal; font-size: 11px; color: #8fa1a9; }
+.chat-empty { color: #9fb0b8; font: 500 14px var(--hud); text-align: center; padding: 30px 0; }
+.chat-row { display: flex; gap: 6px; } .chat-in { flex: 1; margin: 0 !important; } .chat-send { padding: 0 14px; border-radius: 8px; border: 0; background: var(--gold); color: #111; font: 700 14px var(--hud); cursor: pointer; }
+.chat-count { font: 500 11px var(--hud); color: #8fa1a9; text-align: right; min-height: 14px; }
 #keys { position: fixed; top: 8px; left: 50%; transform: translateX(-50%); z-index: 6; display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 10px; max-width: min(760px, calc(100vw - 340px)); pointer-events: none; font: 600 13px var(--hud); color: #f2f2f2; text-shadow: 0 1px 2px rgba(0,0,0,.9); }
 #keys .kh { white-space: nowrap; background: rgba(8,14,18,.55); border-radius: 6px; padding: 2px 7px 2px 3px; }
 #keys kbd { display: inline-block; min-width: 14px; padding: 1px 5px; margin-right: 5px; border-radius: 4px; background: #f2f2f2; color: #111; font: 700 12px var(--hud); text-align: center; text-shadow: none; box-shadow: 0 2px 0 #9aa3a8; }
@@ -3795,10 +3801,11 @@ function openPhone() {
   PHONE.open = true; uiOpen = true; if (document.pointerLockElement) document.exitPointerLock();
   phoneEl().hidden = false; phoneApp('home');
 }
-function closePhone() { PHONE.open = false; phoneEl().hidden = true; uiOpen = false; lockPointer(); }
+function closePhone() { PHONE.open = false; phoneEl().hidden = true; uiOpen = false; lockPointer(); refreshKeyHints(); }
 const km = (x, z) => { const d = Math.hypot(x - player.x, z - player.z); return d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'; };
 function directions(name, x, z) { WAYPOINT = { name, x, z }; GPS.t = 0; closePhone(); toast(`Heading to ${name} — ${km(x, z)} · follow the yellow line`); }
 function phoneApp(app) {
+  setTimeout(refreshKeyHints, 0); // the key strip follows the app (the HUD doesn't update while the phone is up)
   PHONE.app = app; const body = $('phone-body'); body.innerHTML = '';
   const btn = (label, sub, fn, ok = true) => { const b = document.createElement('button'); b.type = 'button'; b.className = 'papp'; b.disabled = !ok; b.innerHTML = '<b></b><span></span>'; b.firstChild.textContent = label; b.lastChild.textContent = sub || ''; b.addEventListener('click', fn); body.appendChild(b); return b; };
   const head = (t) => { const h = document.createElement('div'); h.className = 'psec'; h.textContent = t; body.appendChild(h); };
@@ -3810,7 +3817,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -3822,6 +3829,7 @@ function phoneApp(app) {
     tile('🌊', 'Swell', () => phoneApp('swell'));
     tile('🌤️', 'Weather', () => phoneApp('weather'));
     tile('🐶', 'Pet', () => phoneApp('pet'));
+    tile('💬', 'Chat', () => phoneApp('chat'), CHAT.unread ? String(Math.min(99, CHAT.unread)) : '');
     tile('🚋', 'Transit', () => phoneApp('transit'));
     if (MODE === 'multi') tile('🛡️', 'Crew', () => phoneApp('crew'), NET.status === 'on' && PARTY.invites.size ? '!' : '');
     tile('💼', 'Business', () => phoneApp('business'), (ECON.biz || []).some((b) => b.till > 0) ? '$' : '');
@@ -3871,6 +3879,7 @@ function phoneApp(app) {
     for (const q of list) btn(q.name, `${km(q.x, q.z)} · $150–450 in the till · 2 stars`, () => directions(q.name, q.x, q.z));
   } else if (app === 'jobs') { back(); jobsApp(btn, head); }
   else if (app === 'job') { jobApp(btn, head); }
+  else if (app === 'chat') { back(); chatApp(btn, head); }
   else if (app === 'transit') { back(); transitApp(btn, head); }
   else if (app === 'crew') { back(); crewApp(btn, head); }
   else if (app === 'business') { back(); businessApp(btn, head); }
@@ -6075,12 +6084,12 @@ function openAdmin() {
   const top = el('div', 'adm-top', null, P); el('b', '', '🛠 Admin · Gold Coast Streets', top);
   const close = el('button', 'adm-x', '✕', top); close.type = 'button'; close.addEventListener('click', () => { P.hidden = true; });
   const tabs = el('div', 'adm-tabs', null, P);
-  for (const [k, label] of [['overview', 'Overview'], ['users', 'Accounts'], ['records', 'Records'], ['crews', 'Crews'], ['log', 'Log']]) {
+  for (const [k, label] of [['overview', 'Overview'], ['users', 'Accounts'], ['chat', 'Chat'], ['records', 'Records'], ['crews', 'Crews'], ['log', 'Log']]) {
     const b = el('button', ADMIN.tab === k ? 'on' : '', label, tabs); b.type = 'button'; b.addEventListener('click', () => { ADMIN.tab = k; openAdmin(); });
   }
   const body = el('div', 'adm-body', 'Loading…', P);
   const fail = (e) => { body.textContent = e.message === 'not allowed' ? 'This account isn’t an admin.' : `Couldn’t load: ${e.message}`; };
-  ({ overview: adminOverview, users: adminUsers, records: adminRecords, crews: adminCrews, log: adminLog })[ADMIN.tab](body).catch(fail);
+  ({ overview: adminOverview, users: adminUsers, chat: adminChat, records: adminRecords, crews: adminCrews, log: adminLog })[ADMIN.tab](body).catch(fail);
 }
 function admBtn(parent, label, fn, cls) { const b = el('button', 'adm-b' + (cls ? ' ' + cls : ''), label, parent); b.type = 'button'; b.addEventListener('click', fn); return b; }
 async function adminOverview(body) {
@@ -6145,7 +6154,19 @@ async function adminUser(body, id) {
   if (!u.admin) {
     el('h3', '', 'Account', body); const ab = el('div', 'adm-bar', null, body);
     admBtn(ab, '👢 Kick from their world', async () => { const r = await api('/admin/kick', { id: u.id }).catch((e) => toast(e.message)); if (r) toast(r.n ? `Kicked ${u.name}` : `${u.name} isn’t in a world`); });
+    admBtn(ab, u.muted ? '💬 Unmute in chat' : '🔇 Mute in chat', async () => { await api('/admin/mute', { id: u.id, muted: !u.muted }).catch((e) => toast(e.message)); adminUser(body, u.id); });
     admBtn(ab, u.banned ? '✅ Unban' : '⛔ Ban', async () => { if (!u.banned && !confirm(`Ban ${u.name}? They’re signed out everywhere and can’t log in.`)) return; await api('/admin/ban', { id: u.id, banned: !u.banned }).catch((e) => toast(e.message)); adminUser(body, u.id); }, u.banned ? 'go' : 'warn');
+  }
+}
+async function adminChat(body) { // the global chat: take a message down, or mute whoever sent it
+  const d = await api('/admin/chat'); body.textContent = '';
+  el('p', 'adm-dim', 'The newest 150 messages (already filtered: swearing starred, slurs and contact details blocked). Removed ones are faded.', body);
+  if (!d.chat.length) el('p', 'adm-dim', 'Nobody has said anything yet.', body);
+  for (const m of d.chat) {
+    const row = el('div', 'adm-row', null, body); if (m.deleted) row.style.opacity = 0.45;
+    el('span', '', `${m.crew ? `[${m.crew}] ` : ''}${m.name}${m.muted ? ' (muted)' : ''}`, row); el('em', '', `${m.text} · ${fmtAgo(m.at)}`, row);
+    if (!m.deleted) admBtn(row, 'Remove', async () => { await api('/admin/chat-delete', { id: m.id }).catch((e) => toast(e.message)); adminChat(body); }, 'warn');
+    admBtn(row, m.muted ? 'Unmute' : 'Mute', async () => { await api('/admin/mute', { id: m.user_id, muted: !m.muted }).catch((e) => toast(e.message)); adminChat(body); }, m.muted ? 'go' : 'warn');
   }
 }
 async function adminRecords(body) {
@@ -6170,6 +6191,65 @@ async function adminLog(body) {
 }
 
 // ============================================================================
+// Gold Coast Streets — the global chat (phone → Chat): everyone with an account, in any world or none.
+// Only letters, numbers, spaces and . , ! ? ' can be typed. The server checks every message (server/src/filter.js):
+// swearing comes back starred out, and slurs, sexual stuff, threats, phone numbers and links are blocked.
+// ============================================================================
+const CHAT = { msgs: [], last: 0, unread: 0, seen: 0, t: 0, busy: false, el: null };
+const CHAT_OK = /[^A-Za-z0-9 .,!?']/g;
+function chatFetch() {
+  if (!ACCT.token || CHAT.busy) return Promise.resolve();
+  CHAT.busy = true;
+  return api('/chat' + (CHAT.last ? '?after=' + CHAT.last : '')).then((d) => {
+    for (const m of d.messages || []) if (!CHAT.msgs.some((q) => q.id === m.id)) { CHAT.msgs.push(m); if (m.name !== ACCT.name && m.id > CHAT.seen) CHAT.unread++; }
+    if (d.removed && d.removed.length) CHAT.msgs = CHAT.msgs.filter((m) => !d.removed.includes(m.id));
+    CHAT.msgs = CHAT.msgs.slice(-120); if (CHAT.msgs.length) CHAT.last = CHAT.msgs[CHAT.msgs.length - 1].id;
+    if (PHONE.open && PHONE.app === 'chat') { CHAT.unread = 0; CHAT.seen = CHAT.last; drawChat(); }
+  }).catch(() => {}).finally(() => { CHAT.busy = false; });
+}
+// every 3 s while the chat is open, every 25 s otherwise (for the badge)
+function updateChat(dt) {
+  if (!ACCT.token) return;
+  CHAT.t -= dt; if (CHAT.t > 0) return;
+  CHAT.t = PHONE.open && PHONE.app === 'chat' ? 3 : 25; chatFetch();
+}
+function chatApp(btn, head) {
+  const body = $('phone-body');
+  if (!ACCT.token) { head('Chat with everyone'); btn('You need an account to chat', 'pick Multiplayer on the main menu and sign in (it’s free, no email)', () => {}, false); return; }
+  const list = document.createElement('div'); list.className = 'chat-list'; body.appendChild(list); CHAT.el = list;
+  const row = document.createElement('div'); row.className = 'chat-row';
+  const inp = document.createElement('input'); inp.className = 'pinput chat-in'; inp.maxLength = 120; inp.placeholder = 'Say something nice…'; inp.autocomplete = 'off';
+  const send = document.createElement('button'); send.type = 'button'; send.className = 'chat-send'; send.textContent = 'Send';
+  const count = document.createElement('div'); count.className = 'chat-count';
+  inp.addEventListener('input', () => { const v = inp.value.replace(/[’‘]/g, "'"), c = v.replace(CHAT_OK, ''); if (c !== inp.value) inp.value = c; count.textContent = `${inp.value.length}/120`; }); // letters, numbers and . , ! ? ' only
+  const go = () => {
+    const text = inp.value.trim(); if (!text) return;
+    send.disabled = true;
+    api('/chat', { text }).then((r) => { inp.value = ''; count.textContent = ''; if (r.starred) toast('Some of that was starred out — keep it friendly'); CHAT.t = 0; return chatFetch(); })
+      .catch((e) => toast(e.message)).finally(() => { send.disabled = false; inp.focus(); });
+  };
+  send.addEventListener('click', go); inp.addEventListener('keydown', (e) => { if (e.key === 'Enter') { e.preventDefault(); go(); } });
+  row.append(inp, send); body.appendChild(row); body.appendChild(count);
+  const note = document.createElement('div'); note.className = 'pfoot'; note.textContent = 'Everyone online can see this. Swearing is starred out; slurs, rude stuff, phone numbers and links are blocked. Be kind!'; body.appendChild(note);
+  CHAT.unread = 0; drawChat(); CHAT.t = 0; chatFetch().then(() => { CHAT.seen = CHAT.last; });
+  setTimeout(() => inp.focus(), 50);
+}
+function drawChat() {
+  const list = CHAT.el; if (!list || !list.isConnected) return;
+  const atBottom = list.scrollHeight - list.scrollTop - list.clientHeight < 40;
+  list.textContent = '';
+  if (!CHAT.msgs.length) { const e = document.createElement('div'); e.className = 'chat-empty'; e.textContent = 'No messages yet — say g’day!'; list.appendChild(e); }
+  for (const m of CHAT.msgs) {
+    const d = document.createElement('div'); d.className = 'chat-msg' + (m.name === ACCT.name ? ' me' : '');
+    const who = document.createElement('b'); who.textContent = (m.crew ? `[${m.crew}] ` : '') + m.name;
+    const t = document.createElement('span'); t.textContent = m.text; // text only, never HTML
+    const when = document.createElement('em'); when.textContent = fmtAgo(m.at);
+    d.append(who, t, when); list.appendChild(d);
+  }
+  if (atBottom || list.dataset.first !== '1') { list.scrollTop = list.scrollHeight; list.dataset.first = '1'; }
+}
+
+// ============================================================================
 // Gold Coast Streets — the keys you can press right now, in a strip along the top of the screen. It changes with what
 // you're doing: on foot, driving, flying, in a boat, surfing, riding along, in a menu, and wanted by the cops (give up).
 // Hidden on touch screens (they have their own buttons) and in photo mode.
@@ -6179,7 +6259,7 @@ function keyHintList() {
   const L = [], add = (k, label, warn) => L.push([k, label, warn]);
   if (player.deadT > 0) return L;
   if (MG && MG.active) { add('Esc', 'Quit the game'); return L; }
-  if (PHONE.open) { add('P', 'Put the phone away'); add('Esc', 'Close'); return L; }
+  if (PHONE.open) { if (PHONE.app === 'chat') { add('Enter', 'Send'); add('Esc', 'Close'); return L; } add('P', 'Put the phone away'); add('Esc', 'Close'); return L; }
   if (!$('shop').hidden || !$('bag').hidden) { add('Esc', 'Close'); return L; }
   if (!$('casino').hidden) { add('Esc', 'Leave the table'); return L; }
   if (bigMapOpen) { add('M', 'Close the map'); add('Click', 'Set a destination'); add('X', 'Clear the route'); return L; }
@@ -6216,6 +6296,7 @@ function updateKeyHints(dt) {
   el.innerHTML = '';
   for (const [k, label, warn] of list) { const s = document.createElement('span'); s.className = 'kh' + (warn ? ' warn' : ''); const b = document.createElement('kbd'); b.textContent = k; s.appendChild(b); s.appendChild(document.createTextNode(label)); el.appendChild(s); }
 }
+function refreshKeyHints() { KEYHINT.t = 0; KEYHINT.last = ''; updateKeyHints(0); }
 
 // ============================================================================
 // Gold Coast Streets — fishing. Buy a rod at a servo or convenience store, stand at the water's edge facing the
@@ -13006,6 +13087,7 @@ function initBigMap() {
 const HUD_TIPS = {}; // controls shown once a session
 function updateHUD(dt) {
   updateKeyHints(dt); // the keys you can press right now, along the top (keyhints.js)
+  updateChat(dt); // the global chat: new messages and the badge (chat.js)
   const hh = Math.floor(gameHour), mm = Math.floor((gameHour % 1) * 60);
   $('clock').textContent = lifeClock() + String(hh).padStart(2, '0') + ':' + String(mm).padStart(2, '0');
   $('money').textContent = '$' + String(player.money).padStart(8, '0');
