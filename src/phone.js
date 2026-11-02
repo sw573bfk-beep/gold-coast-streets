@@ -24,7 +24,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -53,6 +53,7 @@ function phoneApp(app) {
     tile('🔫', 'Hold-ups', () => phoneApp('holdups'));
     tile('🏁', 'Street race', startRace);
     tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
+    tile('🧢', 'Mick', () => phoneApp('mick'), !MICK.M && MICK.done < MICK_JOBS.length ? '1' : '');
     head('Money & life'); grid = null;
     tile('📸', 'Tour', startTour);
     tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
@@ -105,6 +106,7 @@ function phoneApp(app) {
   else if (app === 'trials') { back(); trialsApp(btn, head); }
   else if (app === 'online') { back(); onlineApp(btn, head); }
   else if (app === 'rocco') { back(); roccoApp(btn, head); }
+  else if (app === 'mick') { back(); mickApp(btn, head); }
   else if (app === 'realty') { back(); realtyApp(btn, head); }
   else if (app === 'listing') { btn('← Listings', '', () => phoneApp('realty')); listingApp(btn, head); }
 }

@@ -202,6 +202,7 @@ function updateRobbery(dt) {
       const till = TILL[target.kind] || [150, 450]; let cash = Math.round(rr(till[0], till[1]) / 10) * 10;
       if (target.kind === 'bank') cash = heistRobDone(target, cash); // a planned heist pays out at the safehouse
       cash = storyRobDone(target, cash); // so does Rocco's casino job
+      cash = mickRobDone(target, cash); // and Mick's Queen Street Mall job (mick.js)
       player.money += cash; target.robbedAt = elapsed; target.robT = 0; robbing = null; el.hidden = true;
       addCrime(target.kind === 'bank' ? 4 : 2, 'robDone', true); player.stars = Math.max(player.stars, target.kind === 'bank' ? 4 : 2);
       toast(`${target.kind === 'bank' ? 'Bank job done' : 'Cash register emptied'} · +$${cash} — get out of there!`); sfxTone([523, 659, 784], 0.4, 0.08, 'triangle');

@@ -871,6 +871,15 @@ window.runRegression = async () => {
     const r = `${T.title}: ${(T.len / 1000).toFixed(0)} km, ${T.names.length} stations · CityCat ${F.names.length} terminals · stopped at Robina ${stopped} · boarded ${boarded} · got off ${off} · Brisbane activities ${acts}`;
     expect(T.names.length > 25 && F.names.length > 12 && stopped && boarded && off && acts, r); return r;
   });
+  await test('Mick’s Brisbane story: six jobs, the first gets you up to the Valley and pays; the rest need you in Brisbane', () => {
+    quiet(); const done0 = MICK.done, m0 = player.money; MICK.done = 0; MICK.M = null;
+    startMickJob(0); const started = !!MICK.M && WAYPOINT && /Valley/.test(WAYPOINT.name);
+    player.x = MICK.M.a.x; player.z = MICK.M.a.z; updateMick(0.1); const paid = !MICK.M && MICK.done === 1 && player.money === m0 + 1000;
+    home(); startMickJob(1); const refused = !MICK.M;
+    MICK.done = done0; player.money = m0; WAYPOINT = null; home();
+    const r = `${MICK_JOBS.length} jobs · job 1 started ${started}, paid ${paid} · job 2 waits till you’re in Brisbane ${refused}`;
+    expect(MICK_JOBS.length === 6 && started && paid && refused, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

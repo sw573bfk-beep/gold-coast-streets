@@ -2188,7 +2188,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

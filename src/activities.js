@@ -120,7 +120,7 @@ function actUse() { const a = actNear(8); if (!a) return false; startAct(a.id); 
 function actReady(a) { // null when it can start here, otherwise why not
   if (a.req) { const why = a.req(); if (why) return why; }
   if (ACT_CUR) return `You’re in the middle of ${ACT_BY[ACT_CUR.id].name}`;
-  if (STORY.M || MISSION || HEIST.stage || TRIAL || ECON.shift) return 'Finish what you’re doing first';
+  if (STORY.M || MICK.M || MISSION || HEIST.stage || TRIAL || ECON.shift) return 'Finish what you’re doing first';
   if (a.anywhere) return null;
   const w = actWhere(a); if (w && Math.hypot(w.x - player.x, w.z - player.z) > (a.range || 60)) return `Head to ${w.name} first`;
   return null;

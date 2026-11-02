@@ -219,7 +219,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), mick: MICK.done, act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -229,6 +229,7 @@ function economyLoad(s) {
   if (typeof s.aim === 'number') ECON.aim = clamp(s.aim, 0, 5);
   if (typeof s.rangeBest === 'number') ECON.rangeBest = s.rangeBest;
   storyLoad(s.story);
+  if (typeof s.mick === 'number') MICK.done = clamp(s.mick, 0, MICK_JOBS.length);
   if (s.act && typeof s.act === 'object') ECON.act = s.act;
   if (s.pet && BREEDS[s.pet.breed]) ECON.pet = s.pet;
   if (Array.isArray(s.biz)) ECON.biz = s.biz.filter((b) => b && BIZ_KINDS[b.kind]);

@@ -134,7 +134,7 @@ const CHAPTERS = [
 ];
 // ---------------------------------------------------------------- running a job
 function startChapter(i) {
-  if (STORY.M || MISSION || HEIST.stage) { toast('Finish what you’re doing first'); return; }
+  if (STORY.M || MICK.M || MISSION || HEIST.stage) { toast('Finish what you’re doing first'); return; }
   const C = CHAPTERS[i], M = { i, phase: 0, t: 0, hud: '' };
   const err = C.start(M); if (err) { toast(`${ROCCO}: “${err}”`); return; }
   STORY.M = M; closePhone(); toast(`${ROCCO}: “${C.intro[C.intro.length - 1]}”`); sfxTone([392, 523], 0.25, 0.05);
