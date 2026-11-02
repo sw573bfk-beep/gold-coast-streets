@@ -1,0 +1,4 @@
+/tiles/*
+  Access-Control-Allow-Origin: *
+/ground/*
+  Access-Control-Allow-Origin: *
