@@ -90,7 +90,7 @@ function updateGrass(dt) {
       const r1 = ((h >>> 8) & 1023) / 1024, r2 = ((h >>> 18) & 1023) / 1024, r3 = (h & 255) / 256;
       if (r3 < 0.06) continue; // a few bare patches
       const x = (gi + r1) * J.s, z = (gj + r2) * J.s, d = Math.hypot(x - J.px, z - J.pz); if (d > J.R) continue;
-      const c = grassAt(x, z); if (!c) continue;
+      const c = grassAt(x, z); if (!c || HOUSE_ACTIVE.some((H) => x > H.x0 && x < H.x1 && z > H.z0 && z < H.z1 && inRing(x, z, H.f))) continue; // none through the floor of a house you can go in
       const sc = (0.7 + r3 * 0.7) * Math.min(1, (J.R - d) / 8);
       _ge.set(0, r1 * TAU, 0); _gq.setFromEuler(_ge); _gm.compose(_gv.set(x, groundAt(x, z), z), _gq, _gs.set(sc, sc * (0.8 + r2 * 0.5), sc));
       M.setMatrixAt(J.n, _gm); M.setColorAt(J.n, _gcol.setRGB(c[0] * 1.05, c[1] * 1.12, c[2] * 0.95).convertSRGBToLinear()); J.n++; // the painted ground is sRGB; lighting works in linear

@@ -963,6 +963,27 @@ window.runRegression = async () => {
     const r = `occlusion on ${on} · GL error ${err} · ${puffy}/${leafy} crowns puffy · back to Ultra: occlusion off ${off}, ${back}/${leafy} crowns low-poly`;
     expect(on && err === 0 && leafy > 0 && puffy === leafy && off && back === leafy, r); return r;
   });
+  await test('wasted near Robina: you walk out of the nearest hospital and it says which; busted: the nearest police station', async () => {
+    quiet(); const m0 = player.money; player.x = -3704; player.z = 8614; player.deadT = 0; step(0.1);
+    endLife('wasted'); const P = await respawn(), msg = document.getElementById('toast').textContent, x0 = player.x, z0 = player.z;
+    const near = Math.hypot(player.x - P.x, player.z - P.z) < 200; step(1.6); const walked = Math.hypot(player.x - x0, player.z - z0);
+    player.x = -1200; player.z = -3500; step(0.1); endLife('busted'); const Q = await respawn(), msg2 = document.getElementById('toast').textContent;
+    player.money = m0; home();
+    const r = `"${msg}" (${near ? 'at its doors' : 'far from it'}, walked out ${walked.toFixed(1)} m) · "${msg2.split(' · ')[0]}"`;
+    expect(/^Discharged from .*Hospital/.test(msg) && near && walked > 3 && /^Released from .*Police/.test(msg2), r); return r;
+  });
+  await test('houses: each is done up its own way inside, and the backyards have their own things, fences and pools', async () => {
+    quiet(); player.x = -1939; player.z = 7704; for (let k = 0; k < 400 && (tileBusy || !TILES.has('-2,7')); k++) { step(0.05); await new Promise((r) => setTimeout(r, 5)); }
+    const T = TILES.get('-2,7'), sigs = new Set(); let built = 0;
+    for (const H of T.houses.filter((h) => h.top < 4.5 && (h.x1 - h.x0) * (h.z1 - h.z0) > 150).slice(0, 8)) {
+      buildHouseInterior(H); const c = H.inside.geo.attributes.color.array; let a = 0, b = 0; for (let k = 0; k < c.length; k += 3) { a += c[k] * 7 + c[k + 1] * 3; b += c[k + 2]; }
+      sigs.add(Math.round(a) + ':' + Math.round(b)); disposeHouseInterior(H); built++;
+    }
+    const water = T.meshes.find((m) => m.material === POOL_MAT);
+    const verts = T.meshes.filter((m) => m.userData.yard && m.material === buildingMats.plain).reduce((a, m) => a + m.geometry.attributes.position.count, 0), pools = (TILES.get('-2,7').houses.length, water ? water.geometry.attributes.position.count / 3 : 0); home();
+    const r = `${sigs.size}/${built} interiors different · yard props ${verts} vertices · ${T.fences.length} fences · pool water ${pools} triangles`;
+    expect(built >= 6 && sigs.size === built && verts > 5000 && T.fences.length > 200, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

@@ -145,6 +145,7 @@ function tileHouses(T, data, segs) {
       wallInto(FB, ox, oz, bx, bz, Math.min(g0, g1) - 0.3, Math.max(g0, g1) + 1.6, sz, -sx, FENCE_COL);
     }
   }
+  tileYards(T, data, segs); // backyards, garage doors and pools (yards.js), while the walls are still there to check against
   GRIDS.splice(GRIDS.indexOf(temp), 1);
   if (FB.pos.length) { const g = toGeometry(FB), m = new THREE.Mesh(g, buildingMats.plain); m.castShadow = true; T.meshes.push(m); T.disposables.push(g); }
   // door panels: one instance each, swung open when used
@@ -163,8 +164,18 @@ function doorMatrix(d) {
 }
 
 // ---------------------------------------------------------------- interiors
-const FLOOR_COLS = ['#b98a5c', '#c9a77c', '#d8d2c6', '#9c7a58', '#e2dccf'].map(col);
-const WALL_IN = ['#f3efe6', '#ece6d8', '#e8eef0', '#f1e9dc', '#e4e9e1'].map(col);
+// every house is done up its own way: one of these looks, then its own pick of colours from it for each room
+const HOUSE_STYLES = [
+  { walls: ['#f4f1ea', '#eef3f4', '#e9efe9'], accent: ['#7fa6b8', '#d9c7a3', '#9cb8a8'], floor: ['#c9a77c', '#d8c3a0'], carpet: ['#cfc6b5', '#b9c3c9'], kitchen: ['#f4f4f2', '#e7e2d6'], bench: ['#d9d4cb', '#b9b2a6'], couch: ['#d9d2c3', '#8fb0c0', '#6f8f9e'], bed: ['#f2efe8', '#cfe0e8', '#e9dcc8'], rug: ['#5f8fa3', '#c8b48c'] }, // coastal
+  { walls: ['#e3e3e0', '#d6d8d8', '#eceae6'], accent: ['#3a3f44', '#58606a', '#2f4a5a'], floor: ['#6b5240', '#8a8580', '#3f3a36'], carpet: ['#7a7d80', '#5e6266'], kitchen: ['#2b2d2f', '#8c9196'], bench: ['#f0efec', '#3a3a38'], couch: ['#4a4f55', '#7f8388', '#2e3238'], bed: ['#e8e8e6', '#4d5560', '#c9ccd0'], rug: ['#2f3236', '#9a9fa4'] }, // modern
+  { walls: ['#efe6d6', '#e8decb', '#f1ead9'], accent: ['#c97b5a', '#7a9e6c', '#d4a84b'], floor: ['#b98a5c', '#a87a50'], carpet: ['#a99a86', '#8c7f70', '#b8a58d'], kitchen: ['#e9e1cf', '#8a6a4a'], bench: ['#5a4b3f', '#d8d0c0'], couch: ['#7a5b4a', '#5b6670', '#8b7d6b'], bed: ['#5b7fa8', '#e07a6a', '#7bb37a', '#f0d36a'], rug: ['#a2563f', '#4f6d7a'] }, // family
+  { walls: ['#e6d3a8', '#d9c091', '#efe2bf'], accent: ['#b5652e', '#6f7c3a', '#8c4b2f'], floor: ['#7a5536', '#8f6a43'], carpet: ['#8a6a3c', '#6f5a3a', '#a07a40'], kitchen: ['#c9a05a', '#7a8a4a'], bench: ['#e9d9b0', '#5a4632'], couch: ['#a0612f', '#6b6a2f', '#7a3f2a'], bed: ['#d8a050', '#8aa05a', '#c8704a'], rug: ['#8c4b2f', '#c49a4a'] }, // seventies, never redone
+  { walls: ['#f6f4ef', '#eef0f2'], accent: ['#2f4a6b', '#5a7896'], floor: ['#d6c7ae', '#bfae94'], carpet: ['#d9d4c8', '#c2c8cf'], kitchen: ['#f7f6f2', '#dfe4ea'], bench: ['#ece9e2', '#c9c4ba'], couch: ['#f0ede6', '#2f4a6b', '#c9d3dd'], bed: ['#f4f2ec', '#dbe4ee', '#2f4a6b'], rug: ['#2f4a6b', '#e9e3d6'] }, // Hamptons
+  { walls: ['#f0ebe3', '#ece6dd'], accent: ['#c4623f', '#3f7f7a', '#8a9a5b', '#c9a13a', '#b5677d'], floor: ['#c79a6b', '#9c7a58', '#e2dccf'], carpet: ['#7d6f8a', '#5f7f6a', '#a78a6a'], kitchen: ['#3f6b5a', '#2f4a6b', '#f2f0ea'], bench: ['#e8e4dc', '#2b2b2b'], couch: ['#c4623f', '#3f7f7a', '#d9b45a'], bed: ['#e6c3c3', '#c9dbc4', '#f2e2b8'], rug: ['#c4623f', '#3f7f7a', '#e2c46a'] }, // bold colour
+];
+const ART_COLS = ['#c4623f', '#2f4a6b', '#e2c46a', '#3f7f7a', '#8a9a5b', '#d9d2c3', '#1d2125', '#b5677d', '#5f8fa3'];
+const KID_COLS = ['#d8433a', '#2f7fd0', '#f2c531', '#3aa45a', '#e46fa8', '#8a5ad0'];
+const BATH_TILES = ['#e8eef0', '#dfe3e6', '#cfd8dc', '#f0ece4', '#2f3b45', '#d8e4dc'];
 const FURN = { couch: ['#5b6670', '#7a5b4a', '#3f4f5f', '#8b8b7a'].map(col), wood: col('#8a6a4a'), white: col('#f4f4f2'), steel: col('#b8bcc0'),
   dark: col('#1d2125'), bed: ['#e9e4da', '#cfd8e0', '#e6d7cf'].map(col), rug: ['#a2563f', '#4f6d7a', '#c2a46a'].map(col), tile: col('#e8eaec') };
 const LOOT_KINDS = [
@@ -180,7 +191,8 @@ function buildHouseInterior(H) {
   const f = H.f, n = f.length / 2, y0 = H.floorY, top = Math.min(y0 + 2.7, H.base + H.top - 0.05), r = mulberry32(H.seed);
   const fd = H.doors.find((d) => d.type === 'front') || H.doors[0];
   const B = newBuf(), segs = [];
-  const floorC = FLOOR_COLS[Math.floor(r() * FLOOR_COLS.length)], wallC = WALL_IN[Math.floor(r() * WALL_IN.length)];
+  const S = HOUSE_STYLES[Math.floor(r() * HOUSE_STYLES.length)], pc = (a) => col(a[Math.floor(r() * a.length)]);
+  const floorC = pc(S.floor), wallC = pc(S.walls), accentC = pc(S.accent);
   // floor and ceiling
   const contour = []; for (let q = 0; q < n; q++) contour.push(new THREE.Vector2(f[2 * q], f[2 * q + 1]));
   let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { /* odd outline */ }
@@ -189,34 +201,12 @@ function buildHouseInterior(H) {
     triInto(B, [P[0][0], y0, P[0][2]], [P[1][0], y0, P[1][2]], [P[2][0], y0, P[2][2]], 1); for (let v = 0; v < 3; v++) { B.nor.push(0, 1, 0); B.col.push(floorC.r, floorC.g, floorC.b); }
     triInto(B, [P[0][0], top, P[0][2]], [P[1][0], top, P[1][2]], [P[2][0], top, P[2][2]], -1); for (let v = 0; v < 3; v++) { B.nor.push(0, -1, 0); B.col.push(0.95, 0.95, 0.94); }
   }
-  // lining just inside the outer walls (the outside walls only face out), with the door gaps and a window per long wall
-  let cx = 0, cz = 0; for (let q = 0; q < n; q++) { cx += f[2 * q]; cz += f[2 * q + 1]; } cx /= n; cz /= n;
-  const frameC = col('#f2f0ea'), windows = [];
-  for (let q = 0; q < n; q++) {
-    const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
-    const ex = (bx - ax) / L, ez = (bz - az) / L; let nx = -ez, nz = ex;
-    if (!inRing((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } // inward
-    const ix = nx * 0.08, iz = nz * 0.08;
-    const gaps = H.doors.filter((d) => Math.abs((d.x - ax) * nx + (d.z - az) * nz) < 0.2 && (d.x - ax) * ex + (d.z - az) * ez > 0 && (d.x - ax) * ex + (d.z - az) * ez < L)
-      .map((d) => { const t = (d.x - ax) * ex + (d.z - az) * ez; return [t - d.w / 2, t + d.w / 2]; });
-    const piece = (t0, t1, ya, yb) => { if (t1 - t0 > 0.01) wallInto(B, ax + ex * t0 + ix, az + ez * t0 + iz, ax + ex * t1 + ix, az + ez * t1 + iz, ya, yb, nx, nz, wallC); };
-    // real windows: an opening in the middle of each stretch of wall long enough (the outside wall gets the same hole, see houseWindows)
-    const runs = []; let from = 0; for (const [t0, t1] of gaps.sort((a, b) => a[0] - b[0])) { runs.push([from, t0]); from = t1; } runs.push([from, L]);
-    for (const [r0, r1] of runs) {
-      const len = r1 - r0, ww = Math.min(1.6, len - 1.2);
-      if (ww < 0.8 || top - y0 < 2.3) { piece(r0, r1, y0, top); continue; }
-      const w0 = (r0 + r1) / 2 - ww / 2, w1 = w0 + ww, sill = y0 + 0.9, head = y0 + 2.05;
-      piece(r0, w0, y0, top); piece(w0, w1, y0, sill); piece(w0, w1, head, top); piece(w1, r1, y0, top);
-      const mx = ax + ex * (w0 + ww / 2), mz = az + ez * (w0 + ww / 2);
-      windows.push({ x: mx, z: mz, nx: -nx, nz: -nz, hw: ww / 2, y0: sill, y1: head });
-      for (const [u, v, w, h] of [[0, sill, ww + 0.12, 0.06], [0, head, ww + 0.12, 0.06]]) quadInto(B, mx + nx * 0.12 + ex * u, v, mz + nz * 0.12 + ez * u, nx, nz, w, h, null, frameC); // sill and head inside
-    }
-  }
   // rooms: a cross wall splits the living area (front) from the bedrooms (back); the back splits into 2-3 rooms
   const ux = -fd.nz, uz = fd.nx, vx = -fd.nx, vz = -fd.nz; // u along the front, v from front to back
   let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
   for (let q = 0; q < n; q++) { const u = f[2 * q] * ux + f[2 * q + 1] * uz, v = f[2 * q] * vx + f[2 * q + 1] * vz; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
   const W = (u, v) => [u * ux + v * vx, u * uz + v * vz];
+  const rooms = [], roomAt = (x, z) => { const u = x * ux + z * uz, v = x * vx + z * vz; return rooms.find((R) => u >= R.ua - 0.05 && u <= R.ub + 0.05 && v >= R.va - 0.05 && v <= R.vb + 0.05) || rooms[0]; };
   const keepClear = []; // walkways furniture stays out of: in from every door, and both sides of every inside doorway
   const partition = (pa, pb, doorsAt) => { // an inside wall from pa to pb (u,v), clipped to the outline, with 0.9 m doorways at the given fractions
     const [ax, az] = W(...pa), [bx, bz] = W(...pb), L = Math.hypot(bx - ax, bz - az); if (L < 0.5) return;
@@ -232,7 +222,7 @@ function buildHouseInterior(H) {
       const piece = (t0, t1, ya, yb) => {
         if (t1 - t0 < 0.02) return;
         const px = ax + ex * t0, pz = az + ez * t0, qx = ax + ex * t1, qz = az + ez * t1;
-        wallInto(B, px, pz, qx, qz, ya, yb, nx, nz, wallC); wallInto(B, px, pz, qx, qz, ya, yb, -nx, -nz, wallC);
+        const mx = (px + qx) / 2, mz = (pz + qz) / 2; wallInto(B, px, pz, qx, qz, ya, yb, nx, nz, roomAt(mx + nx * 0.3, mz + nz * 0.3).wall); wallInto(B, px, pz, qx, qz, ya, yb, -nx, -nz, roomAt(mx - nx * 0.3, mz - nz * 0.3).wall);
         if (ya === y0) segs.push(px, pz, qx, qz, 2.6);
       };
       for (const [t0, t1] of cuts) {
@@ -242,7 +232,7 @@ function buildHouseInterior(H) {
       piece(from, s1 * L, y0, top);
     }
   };
-  const depth = v1 - v0, width = u1 - u0, rooms = [];
+  const depth = v1 - v0, width = u1 - u0;
   if (depth > 7.5 && width > 5) {
     let vs = v0 + depth * (0.48 + r() * 0.08); const nb = width > 13 ? 3 : 2, splits = [];
     // inside walls keep 1.3 m to the side of every outside door, so the way in is never along a wall
@@ -253,18 +243,43 @@ function buildHouseInterior(H) {
       for (const [du] of doorUV) if (Math.abs(du - us) < 1.3) us = du + (us >= du ? 1.3 : -1.3);
       splits.push(us);
     }
+    rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: vs, wall: wallC });
+    const edges = [u0, ...splits, u1];
+    for (let k = 0; k < nb; k++) { const kind = k === nb - 1 && nb === 3 ? 'bath' : 'bed'; rooms.push({ kind, ua: edges[k], ub: edges[k + 1], va: vs, vb: v1, wall: kind === 'bath' ? pc(BATH_TILES) : r() < 0.35 ? pc(S.accent) : pc(S.walls) }); }
     partition([u0 - 1, vs], [u1 + 1, vs], [...Array(nb).keys()].map((k) => (0.5 + k) / nb * (width / (width + 2)) + 1 / (width + 2)));
     for (const us of splits) partition([us, vs], [us, v1 + 1], []);
-    rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: vs });
-    const edges = [u0, ...splits, u1];
-    for (let k = 0; k < nb; k++) rooms.push({ kind: k === nb - 1 && nb === 3 ? 'bath' : 'bed', ua: edges[k], ub: edges[k + 1], va: vs, vb: v1 });
-  } else rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: v1 });
+  } else rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: v1, wall: wallC });
+  // lining just inside the outer walls (the outside walls only face out), with the door gaps and a window per long wall
+  // which room each outside wall faces sets its colour; the longest wall of the living room may be the feature wall
+  const faces = (q) => { const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az) || 1; let nx = -(bz - az) / L, nz = (bx - ax) / L; if (!inRing((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } return { R: roomAt((ax + bx) / 2 + nx * 0.4, (az + bz) / 2 + nz * 0.4), L }; };
+  let featureQ = -1, fl = 0; if (r() < 0.65) for (let q = 0; q < n; q++) { const F = faces(q); if (F.R.kind === 'living' && F.L > fl) { fl = F.L; featureQ = q; } }
+  const frameC = col('#f2f0ea'), windows = [];
+  for (let q = 0; q < n; q++) {
+    const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
+    const ex = (bx - ax) / L, ez = (bz - az) / L; let nx = -ez, nz = ex;
+    if (!inRing((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } // inward
+    const ix = nx * 0.08, iz = nz * 0.08;
+    const gaps = H.doors.filter((d) => Math.abs((d.x - ax) * nx + (d.z - az) * nz) < 0.2 && (d.x - ax) * ex + (d.z - az) * ez > 0 && (d.x - ax) * ex + (d.z - az) * ez < L)
+      .map((d) => { const t = (d.x - ax) * ex + (d.z - az) * ez; return [t - d.w / 2, t + d.w / 2]; });
+    const piece = (t0, t1, ya, yb) => { if (t1 - t0 > 0.01) { const tm = (t0 + t1) / 2, c = q === featureQ ? accentC : roomAt(ax + ex * tm + nx * 0.4, az + ez * tm + nz * 0.4).wall; wallInto(B, ax + ex * t0 + ix, az + ez * t0 + iz, ax + ex * t1 + ix, az + ez * t1 + iz, ya, yb, nx, nz, c); } };
+    // real windows: an opening in the middle of each stretch of wall long enough (the outside wall gets the same hole, see houseWindows)
+    const runs = []; let from = 0; for (const [t0, t1] of gaps.sort((a, b) => a[0] - b[0])) { runs.push([from, t0]); from = t1; } runs.push([from, L]);
+    for (const [r0, r1] of runs) {
+      const len = r1 - r0, ww = Math.min(1.6, len - 1.2);
+      if (ww < 0.8 || top - y0 < 2.3) { piece(r0, r1, y0, top); continue; }
+      const w0 = (r0 + r1) / 2 - ww / 2, w1 = w0 + ww, sill = y0 + 0.9, head = y0 + 2.05;
+      piece(r0, w0, y0, top); piece(w0, w1, y0, sill); piece(w0, w1, head, top); piece(w1, r1, y0, top);
+      const mx = ax + ex * (w0 + ww / 2), mz = az + ez * (w0 + ww / 2);
+      windows.push({ x: mx, z: mz, nx: -nx, nz: -nz, hw: ww / 2, y0: sill, y1: head });
+      for (const [u, v, w, h] of [[0, sill, ww + 0.12, 0.06], [0, head, ww + 0.12, 0.06]]) quadInto(B, mx + nx * 0.12 + ex * u, v, mz + nz * 0.12 + ez * u, nx, nz, w, h, null, frameC); // sill and head inside
+    }
+  }
   // furniture: kept inside the outline, a little off the walls
   const props = [], loot = [];
   // a clear walkway 1.8 m in from every door (and the doorways in the inside walls): furniture never sits in it
   for (const d of H.doors) for (let k = 0.15; k <= 1.8; k += 0.3) { const x = d.x - d.nx * k, z = d.z - d.nz * k; keepClear.push([x * ux + z * uz, x * vx + z * vz]); }
   const blocksDoor = (u, v, sx, sz) => keepClear.some(([pu, pv]) => Math.abs(pu - u) < sx / 2 + 0.5 && Math.abs(pv - v) < sz / 2 + 0.5);
-  const place = (u0, v, sx, sy, sz, c, solid = true) => {
+  const place = (u0, v, sx, sy, sz, c, solid = true, yoff = 0) => {
     let u = null; // try where it belongs first, then slide it along the wall out of the doorway
     for (const du of [0, 1.3, -1.3, 2.2, -2.2, 3.1, -3.1]) {
       const uu = u0 + du, [x, z] = W(uu, v);
@@ -274,34 +289,69 @@ function buildHouseInterior(H) {
     if (u === null) return null;
     const [x, z] = W(u, v);
     // boxInto is axis-aligned, so build the box in u/v and rotate it into place
-    const s0 = B.pos.length; boxInto(B, 0, 0, 0, sx, sy, sz, c);
-    for (let k = s0; k < B.pos.length; k += 3) { const pu = B.pos[k], pv = B.pos[k + 2]; B.pos[k] = x + pu * ux + pv * vx; B.pos[k + 1] += y0; B.pos[k + 2] = z + pu * uz + pv * vz; const nu = B.nor[k], nv = B.nor[k + 2]; B.nor[k] = nu * ux + nv * vx; B.nor[k + 2] = nu * uz + nv * vz; }
+    emit(x, z, sx, sy, sz, c, yoff);
     if (solid) { const c4 = [[-sx / 2, -sz / 2], [sx / 2, -sz / 2], [sx / 2, sz / 2], [-sx / 2, sz / 2]].map(([a, b]) => W(u + a, v + b)); for (let k = 0; k < 4; k++) segs.push(c4[k][0], c4[k][1], c4[(k + 1) % 4][0], c4[(k + 1) % 4][1], sy); }
-    return { x, z, top: y0 + sy };
+    return { x, z, u, v, top: y0 + yoff + sy };
+  };
+  // boxInto is axis-aligned, so build the box in u/v and turn it into place
+  function emit(x, z, sx, sy, sz, c, yoff = 0) {
+    const s0 = B.pos.length; boxInto(B, 0, 0, 0, sx, sy, sz, c);
+    for (let k = s0; k < B.pos.length; k += 3) { const pu = B.pos[k], pv = B.pos[k + 2]; B.pos[k] = x + pu * ux + pv * vx; B.pos[k + 1] += y0 + yoff; B.pos[k + 2] = z + pu * uz + pv * vz; const nu = B.nor[k], nv = B.nor[k + 2]; B.nor[k] = nu * ux + nv * vx; B.nor[k + 2] = nu * uz + nv * vz; }
+  }
+  const on = (spot, du, dv, sx, sy, sz, c, yoff) => { if (!spot) return; const [x, z] = W(spot.u + du, spot.v + dv); if (inRing(x, z, f)) emit(x, z, sx, sy, sz, c, yoff); }; // something sitting on or beside a placed piece
+  const cover = (R, c) => { // carpet or tiles over a room's floor, as big as fits inside the outline
+    const um = (R.ua + R.ub) / 2, vm = (R.va + R.vb) / 2;
+    for (const k of [0.96, 0.85, 0.72, 0.58]) { const w = (R.ub - R.ua) * k, d = (R.vb - R.va) * k; if ([[-1, -1], [1, -1], [1, 1], [-1, 1]].every(([a, b]) => { const [x, z] = W(um + a * w / 2, vm + b * d / 2); return inRing(x, z, f); })) { const [x, z] = W(um, vm); emit(x, z, w, 0.012, d, c, 0.002); return; } }
   };
   const lootOn = (spot, chance) => {
     if (!spot || r() > chance) return;
     const L = LOOT_KINDS[Math.floor(r() * LOOT_KINDS.length)];
     loot.push({ x: spot.x + (r() - 0.5) * 0.3, z: spot.z + (r() - 0.5) * 0.3, y: spot.top, kind: L, value: Math.round((L.min + r() * (L.max - L.min)) / 5) * 5 });
   };
+  const kitchenRight = r() < 0.5, wood = pc(['#8a6a4a', '#a58a6a', '#5a4632', '#c9b08a', '#3a2f28']);
   for (const R of rooms) {
     const um = (R.ua + R.ub) / 2, vm = (R.va + R.vb) / 2, w = R.ub - R.ua, d = R.vb - R.va;
     if (R.kind === 'living') {
-      place(um, R.va + d * 0.62, Math.min(2.4, w * 0.4), 0.85, 0.9, FURN.couch[Math.floor(r() * 4)]);
-      lootOn(place(um, R.va + d * 0.42, 1.1, 0.45, 0.6, FURN.wood), 0.8);           // coffee table
-      lootOn(place(um, R.va + 0.7, 1.8, 0.55, 0.45, FURN.dark), 0.7);               // TV unit
-      place(um, R.va + 0.7, 1.3, 0.75, 0.06, FURN.dark, false);
-      place(um, R.va + d * 0.42, Math.min(2.6, w * 0.5), 0.01, 1.8, FURN.rug[Math.floor(r() * 3)], false);
-      lootOn(place(R.ub - 1.0, R.vb - 0.45, 2.2, 0.92, 0.65, FURN.white), 0.8);     // kitchen bench
-      place(R.ub - 0.45, R.vb - 1.3, 0.8, 1.8, 0.75, FURN.steel);                    // fridge
-      lootOn(place(R.ua + 1.2, R.vb - 1.2, 1.4, 0.75, 0.9, FURN.wood), 0.6);        // dining table
+      const kU = kitchenRight ? R.ub : R.ua, sg = kitchenRight ? -1 : 1, lounge = kitchenRight ? R.ua + w * 0.36 : R.ub - w * 0.36;
+      const couch = place(lounge, R.va + d * 0.62, Math.min(2.4, w * 0.38), 0.45, 0.9, pc(S.couch)); on(couch, 0, 0.36, Math.min(2.4, w * 0.38), 0.45, 0.18, pc(S.couch), 0.45); // seat and back
+      if (couch && r() < 0.6) { on(couch, 0, 0.15, 0.4, 0.12, 0.4, pc(ART_COLS), 0.45); on(couch, Math.min(2.4, w * 0.38) / 2 - 0.3, 0.15, 0.4, 0.12, 0.4, pc(ART_COLS), 0.45); } // cushions
+      if (r() < 0.55) place(lounge - sg * 1.9, R.va + d * 0.45, 0.9, 0.85, 0.9, pc(S.couch)); // armchair
+      lootOn(place(lounge, R.va + d * 0.42, 1.1, 0.42, 0.6, wood), 0.8); // coffee table
+      const tv = place(lounge, R.va + 0.6, 1.8, 0.5, 0.45, pc(['#1d2125', '#e9e6df', '#5a4632'])); lootOn(tv, 0.7);
+      on(tv, 0, 0, 1.3, 0.75, 0.06, col('#111316'), 0.5); // the TV on it
+      place(lounge, R.va + d * 0.42, Math.min(2.6, w * 0.5), 0.01, 1.8, pc(S.rug), false);
+      if (r() < 0.45) lootOn(place(kitchenRight ? R.ua + 0.25 : R.ub - 0.25, R.va + d * 0.3, 0.35, 1.9, 1.4, wood), 0.3); // bookshelf
+      if (r() < 0.55) { const lamp = place(lounge + sg * 1.5, R.va + d * 0.72, 0.3, 1.5, 0.3, col('#2b2b2b')); on(lamp, 0, 0, 0.5, 0.35, 0.5, col('#f2e6c8'), 1.45); }
+      for (let k = 0, m = 1 + Math.floor(r() * 3); k < m; k++) { const pot = place(R.ua + 0.4 + r() * (w - 0.8), R.va + 0.4 + r() * Math.max(0.1, d - 0.8), 0.4, 0.45, 0.4, pc(['#b5652e', '#e9e6df', '#3a3f44', '#c9b08a'])); on(pot, 0, 0, 0.6, 0.8, 0.6, pc(['#3f6e2f', '#4e7d36', '#5a8a3c']), 0.45); } // indoor plants
+      for (let k = 0, m = 1 + Math.floor(r() * 3); k < m; k++) place(R.ua + 1 + r() * Math.max(0.1, w - 2), R.va + 0.1, 0.7 + r() * 0.6, 0.5 + r() * 0.4, 0.04, pc(ART_COLS), false, 1.25); // pictures on the wall
+      // the kitchen: base cupboards and benchtop, maybe cupboards above and an island, and the fridge
+      const kc = pc(S.kitchen), bt = pc(S.bench), bench = place(kU + sg * 1.3, R.vb - 0.4, 2.6, 0.88, 0.62, kc);
+      lootOn(bench, 0.8); on(bench, 0, 0, 2.62, 0.05, 0.66, bt, 0.88);
+      if (r() < 0.55) on(bench, 0, 0.12, 2.6, 0.7, 0.36, kc, 1.5);
+      place(kU + sg * 0.45, R.vb - 1.35, 0.8, 1.8, 0.72, r() < 0.5 ? FURN.steel : pc(['#1d2125', '#f4f4f2']));
+      if (w > 7 && d > 5 && r() < 0.45) { const isl = place(kU + sg * 1.6, R.vb - 2.3, 2.0, 0.9, 0.9, kc); on(isl, 0, 0, 2.05, 0.05, 0.95, bt, 0.9); for (const du of [-0.6, 0.6]) on(isl, du, -0.75, 0.4, 0.75, 0.4, col('#2b2b2b')); } // island and stools
+      // dining table and chairs
+      const tc = r() < 0.5 ? wood : pc(['#f4f4f2', '#1d2125', '#c9b08a']), tbl = place(kU + sg * 3.3, R.vb - 1.7, 1.5, 0.75, 0.9, tc); lootOn(tbl, 0.6);
+      if (tbl) { const cc = pc(['#2b2b2b', '#f4f4f2', '#8a6a4a', '#5f8fa3', '#c4623f']); for (const [du, dv] of [[-0.45, -0.7], [0.45, -0.7], [-0.45, 0.7], [0.45, 0.7]]) { on(tbl, du, dv, 0.42, 0.46, 0.42, cc); on(tbl, du, dv + (dv > 0 ? 0.19 : -0.19), 0.42, 0.45, 0.05, cc, 0.46); } }
     } else if (R.kind === 'bed') {
-      lootOn(place(um, vm + d * 0.1, Math.min(1.6, w * 0.6), 0.55, Math.min(2.0, d * 0.6), FURN.bed[Math.floor(r() * 3)]), 0.5);
-      lootOn(place(R.ub - 0.35, R.va + 0.5, 0.45, 0.55, 0.45, FURN.wood), 0.9);     // bedside table
-      lootOn(place(R.ua + 0.35, vm, 0.6, 2.0, Math.min(1.8, d * 0.5), FURN.wood), 0.5); // wardrobe
+      const kid = r() < 0.32 && w * d < 13, bw = kid ? 0.95 : Math.min(1.55, w * 0.6), bl = Math.min(kid ? 1.9 : 2.0, d * 0.62), bc = kid ? pc(KID_COLS) : pc(S.bed);
+      const bed = place(um, vm + d * 0.08, bw, 0.42, bl, pc(['#6b5844', '#e9e4da', '#3a3f44', '#a58a6a', '#f4f4f2'])); lootOn(bed, 0.5);
+      on(bed, 0, -0.2, bw + 0.04, 0.12, bl - 0.42, bc, 0.42); // the doona
+      on(bed, 0, bl / 2 - 0.25, bw * 0.8, 0.12, 0.34, col('#f6f4ee'), 0.44); // pillows
+      on(bed, 0, bl / 2 + 0.04, bw + 0.1, 0.95, 0.06, pc(['#6b5844', '#e9e4da', '#3a3f44', '#a58a6a', S.accent[0]])); // bedhead
+      const side = place(um + bw / 2 + 0.35, vm + d * 0.08 + bl / 2 - 0.25, 0.45, 0.55, 0.42, wood); lootOn(side, 0.9); on(side, 0, 0, 0.25, 0.3, 0.25, col('#f2e6c8'), 0.55); // bedside table and lamp
+      if (!kid && r() < 0.6) lootOn(place(um - bw / 2 - 0.35, vm + d * 0.08 + bl / 2 - 0.25, 0.45, 0.55, 0.42, wood), 0.6);
+      lootOn(place(R.ua + 0.35, vm, 0.6, 2.0, Math.min(1.8, d * 0.5), r() < 0.5 ? wood : pc(['#f4f4f2', '#e9e4da', '#3a3f44'])), 0.5); // wardrobe
+      if (kid) { place(R.ub - 0.5, R.va + 0.5, 0.7, 0.45, 0.45, pc(KID_COLS)); place(um, vm - d * 0.25, 1.4, 0.01, 1.0, pc(KID_COLS), false); } // toy box and a bright rug
+      else if (r() < 0.4) { const desk = place(R.ub - 0.4, R.va + d * 0.3, 0.6, 0.75, 1.2, wood); lootOn(desk, 0.9); on(desk, -0.55, 0, 0.45, 0.45, 0.45, col('#2b2b2b')); } // a study corner
+      if (r() < 0.75) cover(R, pc(S.carpet));
+      place(um, R.va + 0.1, 0.7, 0.5, 0.04, pc(ART_COLS), false, 1.3);
     } else {
-      place(um, R.vb - 0.45, Math.min(1.6, w * 0.7), 0.55, 0.75, FURN.tile);         // bath
-      lootOn(place(R.ua + 0.4, R.va + 0.5, 0.6, 0.85, 0.45, FURN.white), 0.4);      // vanity
+      cover(R, pc(BATH_TILES));
+      if (r() < 0.55) place(um, R.vb - 0.45, Math.min(1.6, w * 0.7), 0.55, 0.75, FURN.tile); // bath
+      else { const sh = place(R.ub - 0.5, R.vb - 0.5, 0.9, 0.05, 0.9, FURN.tile, false); on(sh, -0.45, 0, 0.03, 2.0, 0.9, col('#cfe3ee')); } // shower
+      const van = place(R.ua + 0.4, R.va + 0.5, 0.6, 0.85, 0.45, pc(['#f4f4f2', '#8a6a4a', '#3a3f44'])); lootOn(van, 0.4); on(van, -0.27, 0, 0.04, 0.7, 0.55, col('#cdd6dc'), 1.15); // vanity and mirror
+      const loo = place(um + 0.4, R.va + 0.35, 0.4, 0.42, 0.6, FURN.white); on(loo, 0, -0.25, 0.45, 0.45, 0.18, FURN.white, 0.42); // toilet and cistern
     }
   }
   if (LOOTED.has(H.id)) loot.length = 0;
@@ -338,6 +388,7 @@ function buildHouseInterior(H) {
   if (windows.length) { const G = newBuf(); for (const w of windows) quadInto(G, w.x - w.nx * 0.04, (w.y0 + w.y1) / 2, w.z - w.nz * 0.04, w.nx, w.nz, w.hw * 2, w.y1 - w.y0, null, col('#cfe3ee')); glassMesh = new THREE.Mesh(toGeometry(G), HOUSE_GLASS); scene.add(glassMesh); }
   H.windows = windows;
   H.inside = { mesh, geo, grid, loot, top, residents, glassMesh };
+  GFX.rescatter = true; // the grass clears off its floor
 }
 function disposeHouseInterior(H) {
   const I = H.inside; if (!I) return;

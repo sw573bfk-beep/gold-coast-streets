@@ -123,8 +123,9 @@ function updateTiles(dt) {
   for (const [k, T] of TILES) if (dist(T.i, T.j) > UNLOAD_RADIUS) unloadTile(k);
   // small things (trees, lamps, poles, furniture, wires, paint) only on the tiles near you: far off they're a few pixels
   // each but millions of triangles, and drawing them halved the frame rate on a laptop
-  const near = GFX.level === 'ultra' ? 900 : GFX.level === 'low' ? 420 : 650;
-  for (const T of TILES.values()) { const vis = dist(T.i, T.j) < near; if (T.detailVis === vis) continue; T.detailVis = vis; for (const m of T.meshes) if (m.isInstancedMesh || m.isLineSegments || m.userData.detail) m.visible = vis; }
+  const near = GFX.level === 'ultra' || GFX.level === 'hyper' ? 900 : GFX.level === 'low' ? 420 : 650;
+  const nearYard = GFX.level === 'low' ? 200 : GFX.level === 'high' ? 320 : 450; // backyards (yards.js): small things, so only close by
+  for (const T of TILES.values()) { const dd = dist(T.i, T.j), vis = dd < near, yv = dd < nearYard; if (T.detailVis === vis && T.yardVis === yv) continue; T.detailVis = vis; T.yardVis = yv; for (const m of T.meshes) if (m.userData.yard) m.visible = yv; else if (m.isInstancedMesh || m.isLineSegments || m.userData.detail) m.visible = vis; }
   if (tileBusy) return;
   let best = null, bd = LOAD_RADIUS;
   const i0 = Math.floor((px - LOAD_RADIUS) / S), i1 = Math.floor((px + LOAD_RADIUS) / S), j0 = Math.floor((pz - LOAD_RADIUS) / S), j1 = Math.floor((pz + LOAD_RADIUS) / S);

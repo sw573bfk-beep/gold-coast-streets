@@ -9577,8 +9577,9 @@ function updateTiles(dt) {
   for (const [k, T] of TILES) if (dist(T.i, T.j) > UNLOAD_RADIUS) unloadTile(k);
   // small things (trees, lamps, poles, furniture, wires, paint) only on the tiles near you: far off they're a few pixels
   // each but millions of triangles, and drawing them halved the frame rate on a laptop
-  const near = GFX.level === 'ultra' ? 900 : GFX.level === 'low' ? 420 : 650;
-  for (const T of TILES.values()) { const vis = dist(T.i, T.j) < near; if (T.detailVis === vis) continue; T.detailVis = vis; for (const m of T.meshes) if (m.isInstancedMesh || m.isLineSegments || m.userData.detail) m.visible = vis; }
+  const near = GFX.level === 'ultra' || GFX.level === 'hyper' ? 900 : GFX.level === 'low' ? 420 : 650;
+  const nearYard = GFX.level === 'low' ? 200 : GFX.level === 'high' ? 320 : 450; // backyards (yards.js): small things, so only close by
+  for (const T of TILES.values()) { const dd = dist(T.i, T.j), vis = dd < near, yv = dd < nearYard; if (T.detailVis === vis && T.yardVis === yv) continue; T.detailVis = vis; T.yardVis = yv; for (const m of T.meshes) if (m.userData.yard) m.visible = yv; else if (m.isInstancedMesh || m.isLineSegments || m.userData.detail) m.visible = vis; }
   if (tileBusy) return;
   let best = null, bd = LOAD_RADIUS;
   const i0 = Math.floor((px - LOAD_RADIUS) / S), i1 = Math.floor((px + LOAD_RADIUS) / S), j0 = Math.floor((pz - LOAD_RADIUS) / S), j1 = Math.floor((pz + LOAD_RADIUS) / S);
@@ -11133,7 +11134,7 @@ function updateGrass(dt) {
       const r1 = ((h >>> 8) & 1023) / 1024, r2 = ((h >>> 18) & 1023) / 1024, r3 = (h & 255) / 256;
       if (r3 < 0.06) continue; // a few bare patches
       const x = (gi + r1) * J.s, z = (gj + r2) * J.s, d = Math.hypot(x - J.px, z - J.pz); if (d > J.R) continue;
-      const c = grassAt(x, z); if (!c) continue;
+      const c = grassAt(x, z); if (!c || HOUSE_ACTIVE.some((H) => x > H.x0 && x < H.x1 && z > H.z0 && z < H.z1 && inRing(x, z, H.f))) continue; // none through the floor of a house you can go in
       const sc = (0.7 + r3 * 0.7) * Math.min(1, (J.R - d) / 8);
       _ge.set(0, r1 * TAU, 0); _gq.setFromEuler(_ge); _gm.compose(_gv.set(x, groundAt(x, z), z), _gq, _gs.set(sc, sc * (0.8 + r2 * 0.5), sc));
       M.setMatrixAt(J.n, _gm); M.setColorAt(J.n, _gcol.setRGB(c[0] * 1.05, c[1] * 1.12, c[2] * 0.95).convertSRGBToLinear()); J.n++; // the painted ground is sRGB; lighting works in linear
@@ -11290,6 +11291,7 @@ function tileHouses(T, data, segs) {
       wallInto(FB, ox, oz, bx, bz, Math.min(g0, g1) - 0.3, Math.max(g0, g1) + 1.6, sz, -sx, FENCE_COL);
     }
   }
+  tileYards(T, data, segs); // backyards, garage doors and pools (yards.js), while the walls are still there to check against
   GRIDS.splice(GRIDS.indexOf(temp), 1);
   if (FB.pos.length) { const g = toGeometry(FB), m = new THREE.Mesh(g, buildingMats.plain); m.castShadow = true; T.meshes.push(m); T.disposables.push(g); }
   // door panels: one instance each, swung open when used
@@ -11308,8 +11310,18 @@ function doorMatrix(d) {
 }
 
 // ---------------------------------------------------------------- interiors
-const FLOOR_COLS = ['#b98a5c', '#c9a77c', '#d8d2c6', '#9c7a58', '#e2dccf'].map(col);
-const WALL_IN = ['#f3efe6', '#ece6d8', '#e8eef0', '#f1e9dc', '#e4e9e1'].map(col);
+// every house is done up its own way: one of these looks, then its own pick of colours from it for each room
+const HOUSE_STYLES = [
+  { walls: ['#f4f1ea', '#eef3f4', '#e9efe9'], accent: ['#7fa6b8', '#d9c7a3', '#9cb8a8'], floor: ['#c9a77c', '#d8c3a0'], carpet: ['#cfc6b5', '#b9c3c9'], kitchen: ['#f4f4f2', '#e7e2d6'], bench: ['#d9d4cb', '#b9b2a6'], couch: ['#d9d2c3', '#8fb0c0', '#6f8f9e'], bed: ['#f2efe8', '#cfe0e8', '#e9dcc8'], rug: ['#5f8fa3', '#c8b48c'] }, // coastal
+  { walls: ['#e3e3e0', '#d6d8d8', '#eceae6'], accent: ['#3a3f44', '#58606a', '#2f4a5a'], floor: ['#6b5240', '#8a8580', '#3f3a36'], carpet: ['#7a7d80', '#5e6266'], kitchen: ['#2b2d2f', '#8c9196'], bench: ['#f0efec', '#3a3a38'], couch: ['#4a4f55', '#7f8388', '#2e3238'], bed: ['#e8e8e6', '#4d5560', '#c9ccd0'], rug: ['#2f3236', '#9a9fa4'] }, // modern
+  { walls: ['#efe6d6', '#e8decb', '#f1ead9'], accent: ['#c97b5a', '#7a9e6c', '#d4a84b'], floor: ['#b98a5c', '#a87a50'], carpet: ['#a99a86', '#8c7f70', '#b8a58d'], kitchen: ['#e9e1cf', '#8a6a4a'], bench: ['#5a4b3f', '#d8d0c0'], couch: ['#7a5b4a', '#5b6670', '#8b7d6b'], bed: ['#5b7fa8', '#e07a6a', '#7bb37a', '#f0d36a'], rug: ['#a2563f', '#4f6d7a'] }, // family
+  { walls: ['#e6d3a8', '#d9c091', '#efe2bf'], accent: ['#b5652e', '#6f7c3a', '#8c4b2f'], floor: ['#7a5536', '#8f6a43'], carpet: ['#8a6a3c', '#6f5a3a', '#a07a40'], kitchen: ['#c9a05a', '#7a8a4a'], bench: ['#e9d9b0', '#5a4632'], couch: ['#a0612f', '#6b6a2f', '#7a3f2a'], bed: ['#d8a050', '#8aa05a', '#c8704a'], rug: ['#8c4b2f', '#c49a4a'] }, // seventies, never redone
+  { walls: ['#f6f4ef', '#eef0f2'], accent: ['#2f4a6b', '#5a7896'], floor: ['#d6c7ae', '#bfae94'], carpet: ['#d9d4c8', '#c2c8cf'], kitchen: ['#f7f6f2', '#dfe4ea'], bench: ['#ece9e2', '#c9c4ba'], couch: ['#f0ede6', '#2f4a6b', '#c9d3dd'], bed: ['#f4f2ec', '#dbe4ee', '#2f4a6b'], rug: ['#2f4a6b', '#e9e3d6'] }, // Hamptons
+  { walls: ['#f0ebe3', '#ece6dd'], accent: ['#c4623f', '#3f7f7a', '#8a9a5b', '#c9a13a', '#b5677d'], floor: ['#c79a6b', '#9c7a58', '#e2dccf'], carpet: ['#7d6f8a', '#5f7f6a', '#a78a6a'], kitchen: ['#3f6b5a', '#2f4a6b', '#f2f0ea'], bench: ['#e8e4dc', '#2b2b2b'], couch: ['#c4623f', '#3f7f7a', '#d9b45a'], bed: ['#e6c3c3', '#c9dbc4', '#f2e2b8'], rug: ['#c4623f', '#3f7f7a', '#e2c46a'] }, // bold colour
+];
+const ART_COLS = ['#c4623f', '#2f4a6b', '#e2c46a', '#3f7f7a', '#8a9a5b', '#d9d2c3', '#1d2125', '#b5677d', '#5f8fa3'];
+const KID_COLS = ['#d8433a', '#2f7fd0', '#f2c531', '#3aa45a', '#e46fa8', '#8a5ad0'];
+const BATH_TILES = ['#e8eef0', '#dfe3e6', '#cfd8dc', '#f0ece4', '#2f3b45', '#d8e4dc'];
 const FURN = { couch: ['#5b6670', '#7a5b4a', '#3f4f5f', '#8b8b7a'].map(col), wood: col('#8a6a4a'), white: col('#f4f4f2'), steel: col('#b8bcc0'),
   dark: col('#1d2125'), bed: ['#e9e4da', '#cfd8e0', '#e6d7cf'].map(col), rug: ['#a2563f', '#4f6d7a', '#c2a46a'].map(col), tile: col('#e8eaec') };
 const LOOT_KINDS = [
@@ -11325,7 +11337,8 @@ function buildHouseInterior(H) {
   const f = H.f, n = f.length / 2, y0 = H.floorY, top = Math.min(y0 + 2.7, H.base + H.top - 0.05), r = mulberry32(H.seed);
   const fd = H.doors.find((d) => d.type === 'front') || H.doors[0];
   const B = newBuf(), segs = [];
-  const floorC = FLOOR_COLS[Math.floor(r() * FLOOR_COLS.length)], wallC = WALL_IN[Math.floor(r() * WALL_IN.length)];
+  const S = HOUSE_STYLES[Math.floor(r() * HOUSE_STYLES.length)], pc = (a) => col(a[Math.floor(r() * a.length)]);
+  const floorC = pc(S.floor), wallC = pc(S.walls), accentC = pc(S.accent);
   // floor and ceiling
   const contour = []; for (let q = 0; q < n; q++) contour.push(new THREE.Vector2(f[2 * q], f[2 * q + 1]));
   let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { /* odd outline */ }
@@ -11334,34 +11347,12 @@ function buildHouseInterior(H) {
     triInto(B, [P[0][0], y0, P[0][2]], [P[1][0], y0, P[1][2]], [P[2][0], y0, P[2][2]], 1); for (let v = 0; v < 3; v++) { B.nor.push(0, 1, 0); B.col.push(floorC.r, floorC.g, floorC.b); }
     triInto(B, [P[0][0], top, P[0][2]], [P[1][0], top, P[1][2]], [P[2][0], top, P[2][2]], -1); for (let v = 0; v < 3; v++) { B.nor.push(0, -1, 0); B.col.push(0.95, 0.95, 0.94); }
   }
-  // lining just inside the outer walls (the outside walls only face out), with the door gaps and a window per long wall
-  let cx = 0, cz = 0; for (let q = 0; q < n; q++) { cx += f[2 * q]; cz += f[2 * q + 1]; } cx /= n; cz /= n;
-  const frameC = col('#f2f0ea'), windows = [];
-  for (let q = 0; q < n; q++) {
-    const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
-    const ex = (bx - ax) / L, ez = (bz - az) / L; let nx = -ez, nz = ex;
-    if (!inRing((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } // inward
-    const ix = nx * 0.08, iz = nz * 0.08;
-    const gaps = H.doors.filter((d) => Math.abs((d.x - ax) * nx + (d.z - az) * nz) < 0.2 && (d.x - ax) * ex + (d.z - az) * ez > 0 && (d.x - ax) * ex + (d.z - az) * ez < L)
-      .map((d) => { const t = (d.x - ax) * ex + (d.z - az) * ez; return [t - d.w / 2, t + d.w / 2]; });
-    const piece = (t0, t1, ya, yb) => { if (t1 - t0 > 0.01) wallInto(B, ax + ex * t0 + ix, az + ez * t0 + iz, ax + ex * t1 + ix, az + ez * t1 + iz, ya, yb, nx, nz, wallC); };
-    // real windows: an opening in the middle of each stretch of wall long enough (the outside wall gets the same hole, see houseWindows)
-    const runs = []; let from = 0; for (const [t0, t1] of gaps.sort((a, b) => a[0] - b[0])) { runs.push([from, t0]); from = t1; } runs.push([from, L]);
-    for (const [r0, r1] of runs) {
-      const len = r1 - r0, ww = Math.min(1.6, len - 1.2);
-      if (ww < 0.8 || top - y0 < 2.3) { piece(r0, r1, y0, top); continue; }
-      const w0 = (r0 + r1) / 2 - ww / 2, w1 = w0 + ww, sill = y0 + 0.9, head = y0 + 2.05;
-      piece(r0, w0, y0, top); piece(w0, w1, y0, sill); piece(w0, w1, head, top); piece(w1, r1, y0, top);
-      const mx = ax + ex * (w0 + ww / 2), mz = az + ez * (w0 + ww / 2);
-      windows.push({ x: mx, z: mz, nx: -nx, nz: -nz, hw: ww / 2, y0: sill, y1: head });
-      for (const [u, v, w, h] of [[0, sill, ww + 0.12, 0.06], [0, head, ww + 0.12, 0.06]]) quadInto(B, mx + nx * 0.12 + ex * u, v, mz + nz * 0.12 + ez * u, nx, nz, w, h, null, frameC); // sill and head inside
-    }
-  }
   // rooms: a cross wall splits the living area (front) from the bedrooms (back); the back splits into 2-3 rooms
   const ux = -fd.nz, uz = fd.nx, vx = -fd.nx, vz = -fd.nz; // u along the front, v from front to back
   let u0 = 1e9, u1 = -1e9, v0 = 1e9, v1 = -1e9;
   for (let q = 0; q < n; q++) { const u = f[2 * q] * ux + f[2 * q + 1] * uz, v = f[2 * q] * vx + f[2 * q + 1] * vz; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v0 = Math.min(v0, v); v1 = Math.max(v1, v); }
   const W = (u, v) => [u * ux + v * vx, u * uz + v * vz];
+  const rooms = [], roomAt = (x, z) => { const u = x * ux + z * uz, v = x * vx + z * vz; return rooms.find((R) => u >= R.ua - 0.05 && u <= R.ub + 0.05 && v >= R.va - 0.05 && v <= R.vb + 0.05) || rooms[0]; };
   const keepClear = []; // walkways furniture stays out of: in from every door, and both sides of every inside doorway
   const partition = (pa, pb, doorsAt) => { // an inside wall from pa to pb (u,v), clipped to the outline, with 0.9 m doorways at the given fractions
     const [ax, az] = W(...pa), [bx, bz] = W(...pb), L = Math.hypot(bx - ax, bz - az); if (L < 0.5) return;
@@ -11377,7 +11368,7 @@ function buildHouseInterior(H) {
       const piece = (t0, t1, ya, yb) => {
         if (t1 - t0 < 0.02) return;
         const px = ax + ex * t0, pz = az + ez * t0, qx = ax + ex * t1, qz = az + ez * t1;
-        wallInto(B, px, pz, qx, qz, ya, yb, nx, nz, wallC); wallInto(B, px, pz, qx, qz, ya, yb, -nx, -nz, wallC);
+        const mx = (px + qx) / 2, mz = (pz + qz) / 2; wallInto(B, px, pz, qx, qz, ya, yb, nx, nz, roomAt(mx + nx * 0.3, mz + nz * 0.3).wall); wallInto(B, px, pz, qx, qz, ya, yb, -nx, -nz, roomAt(mx - nx * 0.3, mz - nz * 0.3).wall);
         if (ya === y0) segs.push(px, pz, qx, qz, 2.6);
       };
       for (const [t0, t1] of cuts) {
@@ -11387,7 +11378,7 @@ function buildHouseInterior(H) {
       piece(from, s1 * L, y0, top);
     }
   };
-  const depth = v1 - v0, width = u1 - u0, rooms = [];
+  const depth = v1 - v0, width = u1 - u0;
   if (depth > 7.5 && width > 5) {
     let vs = v0 + depth * (0.48 + r() * 0.08); const nb = width > 13 ? 3 : 2, splits = [];
     // inside walls keep 1.3 m to the side of every outside door, so the way in is never along a wall
@@ -11398,18 +11389,43 @@ function buildHouseInterior(H) {
       for (const [du] of doorUV) if (Math.abs(du - us) < 1.3) us = du + (us >= du ? 1.3 : -1.3);
       splits.push(us);
     }
+    rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: vs, wall: wallC });
+    const edges = [u0, ...splits, u1];
+    for (let k = 0; k < nb; k++) { const kind = k === nb - 1 && nb === 3 ? 'bath' : 'bed'; rooms.push({ kind, ua: edges[k], ub: edges[k + 1], va: vs, vb: v1, wall: kind === 'bath' ? pc(BATH_TILES) : r() < 0.35 ? pc(S.accent) : pc(S.walls) }); }
     partition([u0 - 1, vs], [u1 + 1, vs], [...Array(nb).keys()].map((k) => (0.5 + k) / nb * (width / (width + 2)) + 1 / (width + 2)));
     for (const us of splits) partition([us, vs], [us, v1 + 1], []);
-    rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: vs });
-    const edges = [u0, ...splits, u1];
-    for (let k = 0; k < nb; k++) rooms.push({ kind: k === nb - 1 && nb === 3 ? 'bath' : 'bed', ua: edges[k], ub: edges[k + 1], va: vs, vb: v1 });
-  } else rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: v1 });
+  } else rooms.push({ kind: 'living', ua: u0, ub: u1, va: v0, vb: v1, wall: wallC });
+  // lining just inside the outer walls (the outside walls only face out), with the door gaps and a window per long wall
+  // which room each outside wall faces sets its colour; the longest wall of the living room may be the feature wall
+  const faces = (q) => { const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az) || 1; let nx = -(bz - az) / L, nz = (bx - ax) / L; if (!inRing((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } return { R: roomAt((ax + bx) / 2 + nx * 0.4, (az + bz) / 2 + nz * 0.4), L }; };
+  let featureQ = -1, fl = 0; if (r() < 0.65) for (let q = 0; q < n; q++) { const F = faces(q); if (F.R.kind === 'living' && F.L > fl) { fl = F.L; featureQ = q; } }
+  const frameC = col('#f2f0ea'), windows = [];
+  for (let q = 0; q < n; q++) {
+    const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 0.05) continue;
+    const ex = (bx - ax) / L, ez = (bz - az) / L; let nx = -ez, nz = ex;
+    if (!inRing((ax + bx) / 2 + nx * 0.3, (az + bz) / 2 + nz * 0.3, f)) { nx = -nx; nz = -nz; } // inward
+    const ix = nx * 0.08, iz = nz * 0.08;
+    const gaps = H.doors.filter((d) => Math.abs((d.x - ax) * nx + (d.z - az) * nz) < 0.2 && (d.x - ax) * ex + (d.z - az) * ez > 0 && (d.x - ax) * ex + (d.z - az) * ez < L)
+      .map((d) => { const t = (d.x - ax) * ex + (d.z - az) * ez; return [t - d.w / 2, t + d.w / 2]; });
+    const piece = (t0, t1, ya, yb) => { if (t1 - t0 > 0.01) { const tm = (t0 + t1) / 2, c = q === featureQ ? accentC : roomAt(ax + ex * tm + nx * 0.4, az + ez * tm + nz * 0.4).wall; wallInto(B, ax + ex * t0 + ix, az + ez * t0 + iz, ax + ex * t1 + ix, az + ez * t1 + iz, ya, yb, nx, nz, c); } };
+    // real windows: an opening in the middle of each stretch of wall long enough (the outside wall gets the same hole, see houseWindows)
+    const runs = []; let from = 0; for (const [t0, t1] of gaps.sort((a, b) => a[0] - b[0])) { runs.push([from, t0]); from = t1; } runs.push([from, L]);
+    for (const [r0, r1] of runs) {
+      const len = r1 - r0, ww = Math.min(1.6, len - 1.2);
+      if (ww < 0.8 || top - y0 < 2.3) { piece(r0, r1, y0, top); continue; }
+      const w0 = (r0 + r1) / 2 - ww / 2, w1 = w0 + ww, sill = y0 + 0.9, head = y0 + 2.05;
+      piece(r0, w0, y0, top); piece(w0, w1, y0, sill); piece(w0, w1, head, top); piece(w1, r1, y0, top);
+      const mx = ax + ex * (w0 + ww / 2), mz = az + ez * (w0 + ww / 2);
+      windows.push({ x: mx, z: mz, nx: -nx, nz: -nz, hw: ww / 2, y0: sill, y1: head });
+      for (const [u, v, w, h] of [[0, sill, ww + 0.12, 0.06], [0, head, ww + 0.12, 0.06]]) quadInto(B, mx + nx * 0.12 + ex * u, v, mz + nz * 0.12 + ez * u, nx, nz, w, h, null, frameC); // sill and head inside
+    }
+  }
   // furniture: kept inside the outline, a little off the walls
   const props = [], loot = [];
   // a clear walkway 1.8 m in from every door (and the doorways in the inside walls): furniture never sits in it
   for (const d of H.doors) for (let k = 0.15; k <= 1.8; k += 0.3) { const x = d.x - d.nx * k, z = d.z - d.nz * k; keepClear.push([x * ux + z * uz, x * vx + z * vz]); }
   const blocksDoor = (u, v, sx, sz) => keepClear.some(([pu, pv]) => Math.abs(pu - u) < sx / 2 + 0.5 && Math.abs(pv - v) < sz / 2 + 0.5);
-  const place = (u0, v, sx, sy, sz, c, solid = true) => {
+  const place = (u0, v, sx, sy, sz, c, solid = true, yoff = 0) => {
     let u = null; // try where it belongs first, then slide it along the wall out of the doorway
     for (const du of [0, 1.3, -1.3, 2.2, -2.2, 3.1, -3.1]) {
       const uu = u0 + du, [x, z] = W(uu, v);
@@ -11419,34 +11435,69 @@ function buildHouseInterior(H) {
     if (u === null) return null;
     const [x, z] = W(u, v);
     // boxInto is axis-aligned, so build the box in u/v and rotate it into place
-    const s0 = B.pos.length; boxInto(B, 0, 0, 0, sx, sy, sz, c);
-    for (let k = s0; k < B.pos.length; k += 3) { const pu = B.pos[k], pv = B.pos[k + 2]; B.pos[k] = x + pu * ux + pv * vx; B.pos[k + 1] += y0; B.pos[k + 2] = z + pu * uz + pv * vz; const nu = B.nor[k], nv = B.nor[k + 2]; B.nor[k] = nu * ux + nv * vx; B.nor[k + 2] = nu * uz + nv * vz; }
+    emit(x, z, sx, sy, sz, c, yoff);
     if (solid) { const c4 = [[-sx / 2, -sz / 2], [sx / 2, -sz / 2], [sx / 2, sz / 2], [-sx / 2, sz / 2]].map(([a, b]) => W(u + a, v + b)); for (let k = 0; k < 4; k++) segs.push(c4[k][0], c4[k][1], c4[(k + 1) % 4][0], c4[(k + 1) % 4][1], sy); }
-    return { x, z, top: y0 + sy };
+    return { x, z, u, v, top: y0 + yoff + sy };
+  };
+  // boxInto is axis-aligned, so build the box in u/v and turn it into place
+  function emit(x, z, sx, sy, sz, c, yoff = 0) {
+    const s0 = B.pos.length; boxInto(B, 0, 0, 0, sx, sy, sz, c);
+    for (let k = s0; k < B.pos.length; k += 3) { const pu = B.pos[k], pv = B.pos[k + 2]; B.pos[k] = x + pu * ux + pv * vx; B.pos[k + 1] += y0 + yoff; B.pos[k + 2] = z + pu * uz + pv * vz; const nu = B.nor[k], nv = B.nor[k + 2]; B.nor[k] = nu * ux + nv * vx; B.nor[k + 2] = nu * uz + nv * vz; }
+  }
+  const on = (spot, du, dv, sx, sy, sz, c, yoff) => { if (!spot) return; const [x, z] = W(spot.u + du, spot.v + dv); if (inRing(x, z, f)) emit(x, z, sx, sy, sz, c, yoff); }; // something sitting on or beside a placed piece
+  const cover = (R, c) => { // carpet or tiles over a room's floor, as big as fits inside the outline
+    const um = (R.ua + R.ub) / 2, vm = (R.va + R.vb) / 2;
+    for (const k of [0.96, 0.85, 0.72, 0.58]) { const w = (R.ub - R.ua) * k, d = (R.vb - R.va) * k; if ([[-1, -1], [1, -1], [1, 1], [-1, 1]].every(([a, b]) => { const [x, z] = W(um + a * w / 2, vm + b * d / 2); return inRing(x, z, f); })) { const [x, z] = W(um, vm); emit(x, z, w, 0.012, d, c, 0.002); return; } }
   };
   const lootOn = (spot, chance) => {
     if (!spot || r() > chance) return;
     const L = LOOT_KINDS[Math.floor(r() * LOOT_KINDS.length)];
     loot.push({ x: spot.x + (r() - 0.5) * 0.3, z: spot.z + (r() - 0.5) * 0.3, y: spot.top, kind: L, value: Math.round((L.min + r() * (L.max - L.min)) / 5) * 5 });
   };
+  const kitchenRight = r() < 0.5, wood = pc(['#8a6a4a', '#a58a6a', '#5a4632', '#c9b08a', '#3a2f28']);
   for (const R of rooms) {
     const um = (R.ua + R.ub) / 2, vm = (R.va + R.vb) / 2, w = R.ub - R.ua, d = R.vb - R.va;
     if (R.kind === 'living') {
-      place(um, R.va + d * 0.62, Math.min(2.4, w * 0.4), 0.85, 0.9, FURN.couch[Math.floor(r() * 4)]);
-      lootOn(place(um, R.va + d * 0.42, 1.1, 0.45, 0.6, FURN.wood), 0.8);           // coffee table
-      lootOn(place(um, R.va + 0.7, 1.8, 0.55, 0.45, FURN.dark), 0.7);               // TV unit
-      place(um, R.va + 0.7, 1.3, 0.75, 0.06, FURN.dark, false);
-      place(um, R.va + d * 0.42, Math.min(2.6, w * 0.5), 0.01, 1.8, FURN.rug[Math.floor(r() * 3)], false);
-      lootOn(place(R.ub - 1.0, R.vb - 0.45, 2.2, 0.92, 0.65, FURN.white), 0.8);     // kitchen bench
-      place(R.ub - 0.45, R.vb - 1.3, 0.8, 1.8, 0.75, FURN.steel);                    // fridge
-      lootOn(place(R.ua + 1.2, R.vb - 1.2, 1.4, 0.75, 0.9, FURN.wood), 0.6);        // dining table
+      const kU = kitchenRight ? R.ub : R.ua, sg = kitchenRight ? -1 : 1, lounge = kitchenRight ? R.ua + w * 0.36 : R.ub - w * 0.36;
+      const couch = place(lounge, R.va + d * 0.62, Math.min(2.4, w * 0.38), 0.45, 0.9, pc(S.couch)); on(couch, 0, 0.36, Math.min(2.4, w * 0.38), 0.45, 0.18, pc(S.couch), 0.45); // seat and back
+      if (couch && r() < 0.6) { on(couch, 0, 0.15, 0.4, 0.12, 0.4, pc(ART_COLS), 0.45); on(couch, Math.min(2.4, w * 0.38) / 2 - 0.3, 0.15, 0.4, 0.12, 0.4, pc(ART_COLS), 0.45); } // cushions
+      if (r() < 0.55) place(lounge - sg * 1.9, R.va + d * 0.45, 0.9, 0.85, 0.9, pc(S.couch)); // armchair
+      lootOn(place(lounge, R.va + d * 0.42, 1.1, 0.42, 0.6, wood), 0.8); // coffee table
+      const tv = place(lounge, R.va + 0.6, 1.8, 0.5, 0.45, pc(['#1d2125', '#e9e6df', '#5a4632'])); lootOn(tv, 0.7);
+      on(tv, 0, 0, 1.3, 0.75, 0.06, col('#111316'), 0.5); // the TV on it
+      place(lounge, R.va + d * 0.42, Math.min(2.6, w * 0.5), 0.01, 1.8, pc(S.rug), false);
+      if (r() < 0.45) lootOn(place(kitchenRight ? R.ua + 0.25 : R.ub - 0.25, R.va + d * 0.3, 0.35, 1.9, 1.4, wood), 0.3); // bookshelf
+      if (r() < 0.55) { const lamp = place(lounge + sg * 1.5, R.va + d * 0.72, 0.3, 1.5, 0.3, col('#2b2b2b')); on(lamp, 0, 0, 0.5, 0.35, 0.5, col('#f2e6c8'), 1.45); }
+      for (let k = 0, m = 1 + Math.floor(r() * 3); k < m; k++) { const pot = place(R.ua + 0.4 + r() * (w - 0.8), R.va + 0.4 + r() * Math.max(0.1, d - 0.8), 0.4, 0.45, 0.4, pc(['#b5652e', '#e9e6df', '#3a3f44', '#c9b08a'])); on(pot, 0, 0, 0.6, 0.8, 0.6, pc(['#3f6e2f', '#4e7d36', '#5a8a3c']), 0.45); } // indoor plants
+      for (let k = 0, m = 1 + Math.floor(r() * 3); k < m; k++) place(R.ua + 1 + r() * Math.max(0.1, w - 2), R.va + 0.1, 0.7 + r() * 0.6, 0.5 + r() * 0.4, 0.04, pc(ART_COLS), false, 1.25); // pictures on the wall
+      // the kitchen: base cupboards and benchtop, maybe cupboards above and an island, and the fridge
+      const kc = pc(S.kitchen), bt = pc(S.bench), bench = place(kU + sg * 1.3, R.vb - 0.4, 2.6, 0.88, 0.62, kc);
+      lootOn(bench, 0.8); on(bench, 0, 0, 2.62, 0.05, 0.66, bt, 0.88);
+      if (r() < 0.55) on(bench, 0, 0.12, 2.6, 0.7, 0.36, kc, 1.5);
+      place(kU + sg * 0.45, R.vb - 1.35, 0.8, 1.8, 0.72, r() < 0.5 ? FURN.steel : pc(['#1d2125', '#f4f4f2']));
+      if (w > 7 && d > 5 && r() < 0.45) { const isl = place(kU + sg * 1.6, R.vb - 2.3, 2.0, 0.9, 0.9, kc); on(isl, 0, 0, 2.05, 0.05, 0.95, bt, 0.9); for (const du of [-0.6, 0.6]) on(isl, du, -0.75, 0.4, 0.75, 0.4, col('#2b2b2b')); } // island and stools
+      // dining table and chairs
+      const tc = r() < 0.5 ? wood : pc(['#f4f4f2', '#1d2125', '#c9b08a']), tbl = place(kU + sg * 3.3, R.vb - 1.7, 1.5, 0.75, 0.9, tc); lootOn(tbl, 0.6);
+      if (tbl) { const cc = pc(['#2b2b2b', '#f4f4f2', '#8a6a4a', '#5f8fa3', '#c4623f']); for (const [du, dv] of [[-0.45, -0.7], [0.45, -0.7], [-0.45, 0.7], [0.45, 0.7]]) { on(tbl, du, dv, 0.42, 0.46, 0.42, cc); on(tbl, du, dv + (dv > 0 ? 0.19 : -0.19), 0.42, 0.45, 0.05, cc, 0.46); } }
     } else if (R.kind === 'bed') {
-      lootOn(place(um, vm + d * 0.1, Math.min(1.6, w * 0.6), 0.55, Math.min(2.0, d * 0.6), FURN.bed[Math.floor(r() * 3)]), 0.5);
-      lootOn(place(R.ub - 0.35, R.va + 0.5, 0.45, 0.55, 0.45, FURN.wood), 0.9);     // bedside table
-      lootOn(place(R.ua + 0.35, vm, 0.6, 2.0, Math.min(1.8, d * 0.5), FURN.wood), 0.5); // wardrobe
+      const kid = r() < 0.32 && w * d < 13, bw = kid ? 0.95 : Math.min(1.55, w * 0.6), bl = Math.min(kid ? 1.9 : 2.0, d * 0.62), bc = kid ? pc(KID_COLS) : pc(S.bed);
+      const bed = place(um, vm + d * 0.08, bw, 0.42, bl, pc(['#6b5844', '#e9e4da', '#3a3f44', '#a58a6a', '#f4f4f2'])); lootOn(bed, 0.5);
+      on(bed, 0, -0.2, bw + 0.04, 0.12, bl - 0.42, bc, 0.42); // the doona
+      on(bed, 0, bl / 2 - 0.25, bw * 0.8, 0.12, 0.34, col('#f6f4ee'), 0.44); // pillows
+      on(bed, 0, bl / 2 + 0.04, bw + 0.1, 0.95, 0.06, pc(['#6b5844', '#e9e4da', '#3a3f44', '#a58a6a', S.accent[0]])); // bedhead
+      const side = place(um + bw / 2 + 0.35, vm + d * 0.08 + bl / 2 - 0.25, 0.45, 0.55, 0.42, wood); lootOn(side, 0.9); on(side, 0, 0, 0.25, 0.3, 0.25, col('#f2e6c8'), 0.55); // bedside table and lamp
+      if (!kid && r() < 0.6) lootOn(place(um - bw / 2 - 0.35, vm + d * 0.08 + bl / 2 - 0.25, 0.45, 0.55, 0.42, wood), 0.6);
+      lootOn(place(R.ua + 0.35, vm, 0.6, 2.0, Math.min(1.8, d * 0.5), r() < 0.5 ? wood : pc(['#f4f4f2', '#e9e4da', '#3a3f44'])), 0.5); // wardrobe
+      if (kid) { place(R.ub - 0.5, R.va + 0.5, 0.7, 0.45, 0.45, pc(KID_COLS)); place(um, vm - d * 0.25, 1.4, 0.01, 1.0, pc(KID_COLS), false); } // toy box and a bright rug
+      else if (r() < 0.4) { const desk = place(R.ub - 0.4, R.va + d * 0.3, 0.6, 0.75, 1.2, wood); lootOn(desk, 0.9); on(desk, -0.55, 0, 0.45, 0.45, 0.45, col('#2b2b2b')); } // a study corner
+      if (r() < 0.75) cover(R, pc(S.carpet));
+      place(um, R.va + 0.1, 0.7, 0.5, 0.04, pc(ART_COLS), false, 1.3);
     } else {
-      place(um, R.vb - 0.45, Math.min(1.6, w * 0.7), 0.55, 0.75, FURN.tile);         // bath
-      lootOn(place(R.ua + 0.4, R.va + 0.5, 0.6, 0.85, 0.45, FURN.white), 0.4);      // vanity
+      cover(R, pc(BATH_TILES));
+      if (r() < 0.55) place(um, R.vb - 0.45, Math.min(1.6, w * 0.7), 0.55, 0.75, FURN.tile); // bath
+      else { const sh = place(R.ub - 0.5, R.vb - 0.5, 0.9, 0.05, 0.9, FURN.tile, false); on(sh, -0.45, 0, 0.03, 2.0, 0.9, col('#cfe3ee')); } // shower
+      const van = place(R.ua + 0.4, R.va + 0.5, 0.6, 0.85, 0.45, pc(['#f4f4f2', '#8a6a4a', '#3a3f44'])); lootOn(van, 0.4); on(van, -0.27, 0, 0.04, 0.7, 0.55, col('#cdd6dc'), 1.15); // vanity and mirror
+      const loo = place(um + 0.4, R.va + 0.35, 0.4, 0.42, 0.6, FURN.white); on(loo, 0, -0.25, 0.45, 0.45, 0.18, FURN.white, 0.42); // toilet and cistern
     }
   }
   if (LOOTED.has(H.id)) loot.length = 0;
@@ -11483,6 +11534,7 @@ function buildHouseInterior(H) {
   if (windows.length) { const G = newBuf(); for (const w of windows) quadInto(G, w.x - w.nx * 0.04, (w.y0 + w.y1) / 2, w.z - w.nz * 0.04, w.nx, w.nz, w.hw * 2, w.y1 - w.y0, null, col('#cfe3ee')); glassMesh = new THREE.Mesh(toGeometry(G), HOUSE_GLASS); scene.add(glassMesh); }
   H.windows = windows;
   H.inside = { mesh, geo, grid, loot, top, residents, glassMesh };
+  GFX.rescatter = true; // the grass clears off its floor
 }
 function disposeHouseInterior(H) {
   const I = H.inside; if (!I) return;
@@ -11643,6 +11695,196 @@ function updateVault(dt) {
   const P = player.model; P.legL.rotation.x = -1.1 * Math.sin(k * Math.PI); P.legR.rotation.x = -0.6 * Math.sin(k * Math.PI); P.armR.rotation.x = P.armL.rotation.x = -2.2 * Math.sin(k * Math.PI);
   P.root.position.set(player.x, standAt(player.x, player.z) + player.y, player.z); P.root.rotation.set(0, player.h, 0);
   if (k >= 1) { player.vault = null; player.y = 0; }
+}
+
+// Gold Coast Streets — backyards, garages and pools. Every house's backyard reaches back to halfway to whatever is behind
+// it (the next house, a fence, a road) and gets what its household would have: a Hills hoist, a trampoline and swing
+// set for a family, a veggie patch and shed for retirees, a surfboard rack and a boat for surfers, a patio and barbecue
+// for the ones who entertain, a water tank, a kennel, a Colorbond back fence. Chosen from the house's own number, so
+// no two yards are the same and each stays the same every visit. Pools come from the map (OpenStreetMap and the aerial
+// photos): water, a stone edge and the pool fence Queensland requires, glass or black aluminium. Long front walls get
+// a garage door. All of it is one mesh per tile, shown only on the few tiles right around you (yards are small).
+
+const YARD_COLS = {
+  fence: ['#5d6457', '#8a8d82', '#b5ad98', '#3f4a3c', '#7a6a55', '#a7a196', '#4a4f55', '#9b8c74'],
+  shed: ['#6b6f5f', '#8a8d82', '#c9c3b2', '#4f5b4f', '#a9a59a', '#7d6a55', '#d8d2c2'],
+  tank: ['#4f5b4f', '#8a8d82', '#c9c3b2', '#3f4a3c', '#e2ded2'],
+  garage: ['#f2f0ea', '#cfcac0', '#5d6457', '#8a8d82', '#3a3f44', '#a58a6a', '#e9e3d6', '#6a5a48'],
+  play: ['#d8433a', '#2f7fd0', '#f2c531', '#3aa45a', '#e46fa8', '#ff8a2a'],
+  umbrella: ['#f2efe6', '#2f4a6b', '#c4623f', '#3f7f7a', '#e2c46a', '#8a2f2f'],
+};
+// the props, built once each per colour: local x across the yard, z away from the house, y up, the base on the ground
+const YARD_GEO = new Map();
+function yardGeo(kind, c) {
+  const key = kind + (c || ''); if (YARD_GEO.has(key)) return YARD_GEO.get(key);
+  const cyl = (rt, rb, h, seg, x, y, z, colr, open) => paintGeo(new THREE.CylinderGeometry(rt, rb, h, seg, 1, !!open).translate(x, y + h / 2, z), colr);
+  const bx = (w, h, d, x, y, z, colr) => box(w, h, d, x, y + h / 2, z, colr);
+  const steel = '#c7cbcf', wood = '#8a6a4a', dark = '#2b2e31', P = [];
+  if (kind === 'hoist') { // the Hills hoist: a pole, four arms at the top and the lines strung square between them
+    P.push(cyl(0.04, 0.05, 2.1, 6, 0, 0, 0, steel));
+    for (const a of [0.785, 2.356]) { const g = bx(3.4, 0.04, 0.04, 0, 2.05, 0, steel); g.rotateY(a); P.push(g); }
+    for (const s of [0.6, 1.15]) for (const sg of [-1, 1]) { P.push(bx(2 * s, 0.015, 0.015, 0, 2.06, sg * s, '#e8e8e2'), bx(0.015, 0.015, 2 * s, sg * s, 2.06, 0, '#e8e8e2')); }
+  } else if (kind === 'trampoline') {
+    P.push(cyl(1.75, 1.75, 0.12, 12, 0, 0.78, 0, c, true), cyl(1.6, 1.6, 0.03, 12, 0, 0.8, 0, '#16181a'), cyl(1.75, 1.75, 0.04, 12, 0, 2.4, 0, c, true));
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2 + 0.785; P.push(bx(0.06, 0.8, 0.06, Math.cos(a) * 1.6, 0, Math.sin(a) * 1.6, steel)); }
+    for (let k = 0; k < 4; k++) { const a = k * Math.PI / 2; P.push(cyl(0.025, 0.025, 1.6, 3, Math.cos(a) * 1.75, 0.85, Math.sin(a) * 1.75, dark)); }
+  } else if (kind === 'swing') { // an A-frame swing set with two seats
+    for (const sx of [-1.4, 1.4]) for (const sz of [-0.6, 0.6]) { const g = bx(0.07, 2.3, 0.07, 0, 0, 0, c); g.rotateX(sz > 0 ? -0.26 : 0.26); g.translate(sx, 0, sz); P.push(g); }
+    P.push(bx(2.9, 0.08, 0.08, 0, 2.2, 0, c));
+    for (const x of [-0.6, 0.6]) { P.push(bx(0.45, 0.04, 0.2, x, 0.45, 0, '#222'), bx(0.015, 1.75, 0.015, x - 0.2, 0.47, 0, '#999'), bx(0.015, 1.75, 0.015, x + 0.2, 0.47, 0, '#999')); }
+  } else if (kind === 'shed') {
+    P.push(bx(2.3, 1.95, 1.7, 0, 0, 0, c), bx(2.5, 0.08, 1.9, 0, 1.95, 0, c), bx(0.95, 1.75, 0.03, 0.4, 0, -0.86, '#e8e4dc'));
+  } else if (kind === 'tank') {
+    P.push(cyl(0.85, 0.85, 1.9, 10, 0, 0, 0, c), cyl(0.3, 0.85, 0.18, 10, 0, 1.9, 0, c));
+  } else if (kind === 'patio') { // a concrete slab, an outdoor table for six and a market umbrella
+    P.push(bx(4.2, 0.1, 3.2, 0, -0.02, 0, '#bdb7ab'), bx(1.8, 0.05, 0.9, 0, 0.72, 0, wood));
+    for (const x of [-0.8, 0.8]) for (const z of [-0.38, 0.38]) P.push(bx(0.06, 0.72, 0.06, x, 0, z, wood));
+    for (const x of [-0.45, 0.45]) for (const z of [-0.8, 0.8]) P.push(bx(0.45, 0.9, 0.45, x, 0, z, '#3a3f44'));
+    P.push(cyl(0.03, 0.03, 2.3, 4, 0, 0, 0, steel), cyl(0.02, 1.35, 0.45, 8, 0, 2.05, 0, c, true));
+  } else if (kind === 'pergola') { // a timber pergola over a deck, a lounge setting under it
+    P.push(bx(4.4, 0.15, 3.4, 0, 0, 0, '#9c7a58'));
+    for (const x of [-2, 2]) for (const z of [-1.5, 1.5]) P.push(bx(0.12, 2.5, 0.12, x, 0.15, z, '#7a5a3c'));
+    for (const z of [-1.5, 1.5]) P.push(bx(4.4, 0.18, 0.1, 0, 2.6, z, '#7a5a3c'));
+    for (let k = 0; k < 5; k++) P.push(bx(0.06, 0.12, 3.4, -1.8 + k * 0.9, 2.78, 0, '#7a5a3c'));
+    P.push(bx(2.2, 0.45, 0.85, 0, 0.15, 0.9, c), bx(2.2, 0.4, 0.15, 0, 0.6, 1.3, c), bx(0.9, 0.38, 0.6, 0, 0.15, -0.2, wood));
+  } else if (kind === 'bbq') {
+    P.push(bx(1.3, 0.85, 0.6, 0, 0, 0, '#3a3d40'), bx(0.9, 0.3, 0.55, 0, 0.85, 0, '#9aa0a6'), cyl(0.15, 0.15, 0.45, 8, 0.85, 0, 0, '#c9d1d6'));
+  } else if (kind === 'veggie') { // two raised timber beds, something growing in each
+    for (const x of [-0.75, 0.75]) P.push(bx(1.1, 0.4, 2.4, x, 0, 0, wood), bx(0.95, 0.25, 2.25, x, 0.4, 0, '#4f8a3a'));
+  } else if (kind === 'kennel') {
+    P.push(bx(0.8, 0.65, 1.0, 0, 0, 0, c), bx(0.95, 0.07, 1.15, 0, 0.65, 0, '#6b3d2e'), bx(0.35, 0.4, 0.02, 0, 0, -0.51, '#1b1b1b'));
+  } else if (kind === 'boat') { // a tinny on its trailer
+    P.push(bx(1.9, 0.7, 4.4, 0, 0.45, 0, '#e9ecee'), bx(1.92, 0.12, 4.42, 0, 0.9, 0, c), bx(1.6, 0.4, 1.4, 0, 1.0, -0.6, '#1f2a33'), bx(0.12, 0.3, 1.8, 0, 0.2, -2.6, steel));
+    for (const x of [-0.95, 0.95]) P.push(bx(0.2, 0.6, 0.6, x, 0, 0.3, '#151515')); // the trailer's wheels
+  } else if (kind === 'surf') { // a rack of boards
+    for (const x of [-0.9, 0.9]) P.push(bx(0.08, 1.6, 0.08, x, 0, 0, wood));
+    for (let k = 0; k < 4; k++) P.push(bx(2.1, 0.06, 0.55, 0, 0.35 + k * 0.32, 0, YARD_COLS.play[(k + (c ? c.length : 0)) % YARD_COLS.play.length]));
+  } else if (kind === 'sandpit') {
+    P.push(bx(1.7, 0.22, 1.7, 0, 0, 0, wood), bx(1.5, 0.2, 1.5, 0, 0.04, 0, '#e3cf9a'), bx(0.25, 0.2, 0.25, 0.3, 0.24, 0.2, c));
+  } else if (kind === 'paddle') {
+    P.push(cyl(1.0, 1.0, 0.28, 14, 0, 0, 0, c), cyl(0.9, 0.9, 0.02, 14, 0, 0.22, 0, '#6fc6e6'));
+  } else if (kind === 'firepit') {
+    P.push(cyl(0.55, 0.6, 0.35, 10, 0, 0, 0, '#5a524a'), cyl(0.42, 0.42, 0.02, 10, 0, 0.3, 0, '#1a1a1a'));
+    for (let k = 0; k < 3; k++) { const a = k * 2.09; P.push(bx(1.0, 0.4, 0.4, Math.cos(a) * 1.4, 0, Math.sin(a) * 1.4, '#9c7a58').rotateY(-a)); }
+  }
+  const g = mergeGeos(P); YARD_GEO.set(key, g); return g;
+}
+// copy a prop into the tile's buffer: turned by rot inside the yard, the yard's axes U (across) and V (away from the house)
+function stampProp(B, g, x, z, U, V, rot) {
+  const p = g.attributes.position, n = g.attributes.normal, c = g.attributes.color, y0 = groundAt(x, z), cr = Math.cos(rot), sr = Math.sin(rot);
+  for (let k = 0; k < p.count; k++) {
+    if (k % 3 === 0 && n.getY(k) < -0.9 && n.getY(k + 1) < -0.9 && n.getY(k + 2) < -0.9) { k += 2; continue; } // undersides: nobody sees them
+    const lx = p.getX(k) * cr - p.getZ(k) * sr, lz = p.getX(k) * sr + p.getZ(k) * cr, nlx = n.getX(k) * cr - n.getZ(k) * sr, nlz = n.getX(k) * sr + n.getZ(k) * cr;
+    B.pos.push(x + lx * U[0] + lz * V[0], y0 + p.getY(k), z + lx * U[1] + lz * V[1]);
+    B.nor.push(nlx * U[0] + nlz * V[0], n.getY(k), nlx * U[1] + nlz * V[1]);
+    B.col.push(c.getX(k), c.getY(k), c.getZ(k));
+  }
+}
+const YARD_PROPS = { // footprint radius of each, for keeping them apart
+  hoist: 1.5, trampoline: 1.9, swing: 1.7, shed: 1.4, tank: 1.0, patio: 2.4, pergola: 2.5, bbq: 0.8, veggie: 1.5, kennel: 0.7, boat: 2.5, surf: 1.2, sandpit: 1.0, paddle: 1.1, firepit: 1.8,
+};
+const HOUSEHOLDS = [ // who lives there, and how likely each thing is in their yard
+  { hoist: 0.85, trampoline: 0.8, swing: 0.5, sandpit: 0.4, paddle: 0.3, patio: 0.5, shed: 0.5, kennel: 0.45, bbq: 0.4 },        // a family with kids
+  { patio: 0.7, pergola: 0.35, bbq: 0.75, veggie: 0.45, hoist: 0.55, shed: 0.4, tank: 0.35, firepit: 0.35 },                   // a couple who entertain
+  { surf: 0.85, boat: 0.4, hoist: 0.5, bbq: 0.6, patio: 0.45, kennel: 0.3, firepit: 0.3 },                                      // surfers
+  { veggie: 0.85, shed: 0.8, tank: 0.65, hoist: 0.9, patio: 0.55, bbq: 0.3 },                                                   // retirees
+  { shed: 0.7, boat: 0.45, tank: 0.5, hoist: 0.7, kennel: 0.5, bbq: 0.35 },                                                     // a tradie
+  { hoist: 0.4, patio: 0.3 },                                                                                                   // renters: not much out the back
+];
+const POOL_MAT = new THREE.MeshStandardMaterial({ color: col('#3fb4d8'), roughness: 0.08, metalness: 0.1, emissive: col('#0d4a63'), emissiveIntensity: 0.35, envMapIntensity: 1.2 });
+function tileYards(T, data, segs) {
+  if (!T.houses || !T.houses.length) return;
+  const CH = new Map(), GB = newBuf(), WB = newBuf(), pools = []; // the props in 250 m chunks, so the ones off-screen aren't drawn
+  const cb = (x, z) => { const k = Math.floor((x - T.x0) / 250) + ',' + Math.floor((z - T.z0) / 250); if (!CH.has(k)) CH.set(k, newBuf()); return CH.get(k); };
+  // pools from the map: kept clear of props, and given their water, edge and fence
+  for (const poly of (data.areas && data.areas.pool) || []) {
+    const f = Array.isArray(poly[0]) ? poly[0] : poly; if (f.length < 6) continue;
+    let x0 = 1e9, z0 = 1e9, x1 = -1e9, z1 = -1e9; for (let q = 0; q < f.length; q += 2) { x0 = Math.min(x0, f[q]); x1 = Math.max(x1, f[q]); z0 = Math.min(z0, f[q + 1]); z1 = Math.max(z1, f[q + 1]); }
+    pools.push({ f, x0, z0, x1, z1 });
+  }
+  const inPool = (x, z, m) => pools.some((P) => x > P.x0 - m && x < P.x1 + m && z > P.z0 - m && z < P.z1 + m);
+  const treeAt = new Map(); for (const t of data.trees || []) { const k = Math.floor(t[0] / 8) + ',' + Math.floor(t[1] / 8); if (!treeAt.has(k)) treeAt.set(k, []); treeAt.get(k).push(t); }
+  const nearTree = (x, z, r) => { for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (const t of treeAt.get((Math.floor(x / 8) + i) + ',' + (Math.floor(z / 8) + j)) || []) if (Math.hypot(t[0] - x, t[1] - z) < r + 0.8) return true; return false; };
+  const roadOK = (x, z) => tileIsLand(x, z) && !onCarriageway(data.roads, x, z, 2);
+  // a new fence that would cross one already standing (a side fence, the neighbour's back fence) isn't built
+  const crossesFence = (ax, az, bx, bz) => { const x0 = Math.min(ax, bx) - 1, x1 = Math.max(ax, bx) + 1, z0 = Math.min(az, bz) - 1, z1 = Math.max(az, bz) + 1; return T.fences.some(([cx, cz, dx, dz]) => Math.max(cx, dx) > x0 && Math.min(cx, dx) < x1 && Math.max(cz, dz) > z0 && Math.min(cz, dz) < z1 && segIntersect(ax, az, bx, bz, cx, cz, dx, dz) > 0.02 && segIntersect(cx, cz, dx, dz, ax, az, bx, bz) > 0.02); };
+  for (const H of T.houses) {
+    const fd = H.doors.find((d) => d.type === 'front'); if (!fd) continue;
+    const r = mulberry32((H.seed ^ 0x5bd1e995) >>> 0), pk = (a) => a[Math.floor(r() * a.length)], f = H.f, n = f.length / 2; // the house's own numbers: the same yard every visit
+    const U = [-fd.nz, fd.nx], V = [-fd.nx, -fd.nz]; // across the house, and from the front towards the back
+    let u0 = 1e9, u1 = -1e9, v1 = -1e9;
+    for (let q = 0; q < n; q++) { const u = f[2 * q] * U[0] + f[2 * q + 1] * U[1], v = f[2 * q] * V[0] + f[2 * q + 1] * V[1]; u0 = Math.min(u0, u); u1 = Math.max(u1, u); v1 = Math.max(v1, v); }
+    const W = (u, v) => [u * U[0] + v * V[0], u * U[1] + v * V[1]], um = (u0 + u1) / 2;
+    // the garage: a door on the long front wall, at the end away from the front door
+    let q0 = -1, bd = 1e9; for (let q = 0; q < n; q++) { const mx = (f[2 * q] + f[(2 * q + 2) % (2 * n)]) / 2, mz = (f[2 * q + 1] + f[(2 * q + 3) % (2 * n)]) / 2, d = Math.hypot(mx - fd.x, mz - fd.z); if (d < bd) { bd = d; q0 = q; } }
+    if (q0 >= 0) {
+      const ax = f[2 * q0], az = f[2 * q0 + 1], bx = f[(2 * q0 + 2) % (2 * n)], bz = f[(2 * q0 + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az), ex = (bx - ax) / L, ez = (bz - az) / L;
+      const td = (fd.x - ax) * ex + (fd.z - az) * ez, gw = L >= 13 ? 5.0 : 2.7, side = td > L / 2 ? 0 : 1, room = side ? L - td - 0.8 : td - 0.8;
+      if (L >= 8.5 && room >= gw + 0.6 && r() < 0.85) {
+        const t0 = side ? L - 0.4 - gw : 0.4, gc = col(YARD_COLS.garage[Math.floor(r() * YARD_COLS.garage.length)]), lines = gc.clone().multiplyScalar(0.82), y = H.floorY - 0.1;
+        const px = ax + ex * t0 + fd.nx * 0.04, pz = az + ez * t0 + fd.nz * 0.04, qx = px + ex * gw, qz = pz + ez * gw;
+        const YB = cb(px, pz); wallInto(YB, px, pz, qx, qz, y, y + 2.15, fd.nx, fd.nz, gc);
+        for (let k = 1; k < 5; k++) wallInto(YB, px + fd.nx * 0.01, pz + fd.nz * 0.01, qx + fd.nx * 0.01, qz + fd.nz * 0.01, y + k * 0.43 - 0.02, y + k * 0.43 + 0.02, fd.nx, fd.nz, lines); // the panel lines
+      }
+    }
+    // the backyard: back to halfway to whatever is behind (a house, a fence), short of a road or the water
+    const sx = W(um, v1 + 0.4), ex = W(um, v1 + 30), t = rayWalls(sx[0], sx[1], ex[0], ex[1], 1);
+    let reach = t < 1 ? t * 29.6 : 30;
+    for (let v = 1; v < reach; v += 1) { const p = W(um, v1 + v); if (!roadOK(p[0], p[1])) { reach = Math.max(0, v - 2); break; } }
+    const D = t < 1 && reach >= t * 29.6 - 0.01 ? reach * 0.5 - 0.15 : Math.min(reach, 15);
+    if (D < 2.2) continue;
+    const half = (u1 - u0) / 2 + 0.8, hold = HOUSEHOLDS[Math.floor(r() * HOUSEHOLDS.length)], placed = [];
+    const back = H.doors.find((d) => d.type === 'back'); if (back) placed.push([back.x - back.nx * -1.5, back.z - back.nz * -1.5, 1.4]);
+    const fits = (x, z, rad) => {
+      for (const [k, s] of [[0, 0], [1, 0], [-1, 0], [0, 1], [0, -1]]) { const px = x + k * rad * 0.8, pz = z + s * rad * 0.8; if (!roadOK(px, pz)) return false; }
+      if (inPool(x, z, rad + 0.5) || nearTree(x, z, rad * 0.6) || resolveCircle(x, z, rad)) return false;
+      return !placed.some(([px, pz, pr]) => Math.hypot(px - x, pz - z) < pr + rad + 0.3);
+    };
+    const want = Object.entries(hold).filter(([, p]) => r() < p).map(([k]) => k).sort((a, b) => YARD_PROPS[b] - YARD_PROPS[a]);
+    for (const k of want) {
+      const rad = YARD_PROPS[k]; if (rad * 2 > D + 1) continue;
+      for (let tries = 0; tries < 8; tries++) {
+        const nearHouse = (k === 'patio' || k === 'pergola' || k === 'bbq') && tries < 4;
+        const u = um + (r() * 2 - 1) * Math.max(0, half - rad), v = v1 + (nearHouse ? rad + 0.3 : rad + 0.6 + r() * Math.max(0, D - 2 * rad - 0.8));
+        const [x, z] = W(u, v); if (!fits(x, z, rad)) continue;
+        const c = k === 'shed' ? pk(YARD_COLS.shed) : k === 'tank' ? pk(YARD_COLS.tank) : k === 'patio' ? pk(YARD_COLS.umbrella) : k === 'kennel' ? pk(YARD_COLS.shed) : k === 'pergola' ? pk(['#d9d2c3', '#3a3f44', '#8fb0c0', '#7a5b4a']) : k === 'boat' ? pk(['#2f4a6b', '#c43a2a', '#2a7a5a']) : pk(YARD_COLS.play);
+        stampProp(cb(x, z), yardGeo(k, c), x, z, U, V, k === 'patio' || k === 'pergola' || k === 'veggie' || k === 'shed' ? (r() < 0.5 ? 0 : Math.PI) : r() * TAU);
+        placed.push([x, z, rad]);
+        if (['shed', 'tank', 'boat', 'pergola'].includes(k)) segs.push(...(() => { const o = []; for (let a = 0; a < 4; a++) { const p0 = [x + Math.cos(a * 1.571) * rad * 0.7, z + Math.sin(a * 1.571) * rad * 0.7], p1 = [x + Math.cos((a + 1) * 1.571) * rad * 0.7, z + Math.sin((a + 1) * 1.571) * rad * 0.7]; o.push(p0[0], p0[1], p1[0], p1[1], 1.8); } return o; })());
+        break;
+      }
+    }
+    // the back fence along the far end of the yard (a little short of the middle, so the neighbour's doesn't sit in the same place)
+    if (t < 1 || reach < 30) {
+      const fc = col(pk(YARD_COLS.fence)), a = W(um - half - 0.6, v1 + D), b = W(um + half + 0.6, v1 + D);
+      if (roadOK(a[0], a[1]) && roadOK(b[0], b[1]) && roadOK((a[0] + b[0]) / 2, (a[1] + b[1]) / 2) && !nearRealBarrier(T, (a[0] + b[0]) / 2, (a[1] + b[1]) / 2, 2.5) && rayWalls(a[0], a[1], b[0], b[1], 2) >= 1 && !crossesFence(a[0], a[1], b[0], b[1])) {
+        const g0 = groundAt(a[0], a[1]), g1 = groundAt(b[0], b[1]), lo = Math.min(g0, g1) - 0.3, hi = Math.max(g0, g1) + 1.8;
+        const YB = cb(a[0], a[1]); wallInto(YB, a[0], a[1], b[0], b[1], lo, hi, V[0], V[1], fc); wallInto(YB, a[0], a[1], b[0], b[1], lo, hi, -V[0], -V[1], fc);
+        segs.push(a[0], a[1], b[0], b[1], 1.8); T.fences.push([a[0], a[1], b[0], b[1]]);
+      }
+    }
+  }
+  // pools: water a touch below the ground, a stone edge, and a fence 1.2 m out (glass or black aluminium)
+  for (const P of pools) {
+    const f = P.f, n = f.length / 2, cx = (P.x0 + P.x1) / 2, cz = (P.z0 + P.z1) / 2, g = groundAt(cx, cz), r = mulberry32(((cx * 73856093) ^ (cz * 19349663)) >>> 0), pk = (a) => a[Math.floor(r() * a.length)];
+    const contour = []; for (let q = 0; q < n; q++) contour.push(new THREE.Vector2(f[2 * q], f[2 * q + 1]));
+    let tris = []; try { tris = THREE.ShapeUtils.triangulateShape(contour, []); } catch (e) { /* odd outline */ }
+    for (const t of tris) { triInto(WB, [f[2 * t[0]], g + 0.04, f[2 * t[0] + 1]], [f[2 * t[1]], g + 0.04, f[2 * t[1] + 1]], [f[2 * t[2]], g + 0.04, f[2 * t[2] + 1]], 1); for (let v = 0; v < 3; v++) WB.nor.push(0, 1, 0); }
+    const stone = col(pk(['#e8e2d4', '#d9d2c3', '#c9c3b5', '#efece4'])), YB = cb(cx, cz);
+    for (let q = 0; q < n; q++) { const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 0.2) continue; let nx = (bz - az) / L, nz = -(bx - ax) / L; if (inRing((ax + bx) / 2 + nx * 0.2, (az + bz) / 2 + nz * 0.2, f)) { nx = -nx; nz = -nz; } wallInto(YB, ax + nx * 0.3, az + nz * 0.3, bx + nx * 0.3, bz + nz * 0.3, g - 0.1, g + 0.1, nx, nz, stone); wallInto(YB, ax, az, bx, bz, g - 0.1, g + 0.1, -nx, -nz, stone); }
+    // the fence: the pool's box, 1.2 m out, side by side (a side that would run through a wall is left off)
+    const glass = r() < 0.65, fx0 = P.x0 - 1.2, fz0 = P.z0 - 1.2, fx1 = P.x1 + 1.2, fz1 = P.z1 + 1.2;
+    for (const [ax, az, bx, bz] of [[fx0, fz0, fx1, fz0], [fx1, fz0, fx1, fz1], [fx1, fz1, fx0, fz1], [fx0, fz1, fx0, fz0]]) {
+      if (rayWalls(ax, az, bx, bz, 1.5) < 1 || !roadOK((ax + bx) / 2, (az + bz) / 2) || crossesFence(ax, az, bx, bz)) continue;
+      const L = Math.hypot(bx - ax, bz - az), ex = (bx - ax) / L, ez = (bz - az) / L, gy = groundAt((ax + bx) / 2, (az + bz) / 2);
+      if (glass) { wallInto(GB, ax, az, bx, bz, gy + 0.05, gy + 1.25, -ez, ex, null); wallInto(GB, ax, az, bx, bz, gy + 0.05, gy + 1.25, ez, -ex, null); for (let s = 0; s <= L; s += 1.3) boxInto(YB, ax + ex * s, gy, az + ez * s, 0.06, 0.12, 0.06, col('#c7cbcf')); }
+      else { const blk = col('#1d2023'); for (const yy of [0.1, 1.15]) boxInto(YB, (ax + bx) / 2, gy + yy, (az + bz) / 2, Math.abs(ex) * L + 0.03, 0.04, Math.abs(ez) * L + 0.03, blk); for (let s = 0; s <= L; s += 0.9) boxInto(YB, ax + ex * s, gy + 0.1, az + ez * s, 0.03, 1.05, 0.03, blk); }
+      segs.push(ax, az, bx, bz, 1.2); T.fences.push([ax, az, bx, bz]);
+    }
+  }
+  const add = (B, mat, shadow) => { if (!B.pos.length) return; const geo = toGeometry(B), m = new THREE.Mesh(geo, mat); m.castShadow = shadow; m.receiveShadow = true; m.userData.yard = true; m.visible = T.yardVis !== false; T.meshes.push(m); T.disposables.push(geo); };
+  const shadows = GFX.level === 'ultra' || GFX.level === 'hyper'; // little shadows cost a lot on the slower settings
+  for (const B of CH.values()) add(B, buildingMats.plain, shadows); add(WB, POOL_MAT, false); add(GB, HOUSE_GLASS, false);
 }
 
 // Gold Coast Streets — hotels, towers and malls you can go inside.
@@ -13372,20 +13614,55 @@ function endLife(kind) {
   if (player.state === 'car') bailOut();
   if (kind === 'wasted') { player.model.root.rotation.x = -Math.PI / 2; player.model.root.position.y = 0.13; }
 }
-function respawn() {
-  const kind = player.endKind, lm = MAP.landmarks;
-  const at = kind === 'busted' && lm['Surfers Paradise Police Centre'] ? lm['Surfers Paradise Police Centre'] : [playerSpot.x, playerSpot.z];
-  const s = sidewalkNear(at[0], at[1]);
-  player.x = s.x; player.z = s.z; player.y = 0; player.h = s.h; camYaw = s.h;
+// where you come back: the nearest real hospital (not a day surgery or a GP) after you're wasted, the nearest police
+// station when you're busted; you walk out of its doors and it says where you are
+const HOSPITAL_RE = /hospital$/i, NOT_HOSPITAL_RE = /day hospital|day surgery|specialist|suites/i, POLICE_RE = /police (station|centre|beat)$/i;
+function nearestRespawn(kind) {
+  const re = kind === 'busted' ? POLICE_RE : HOSPITAL_RE; let best = null, bd = 1e12;
+  for (const e of (REGION && REGION.search) || []) {
+    if (!re.test(e[0]) || (kind !== 'busted' && (e[1] !== 4 || NOT_HOSPITAL_RE.test(e[0]))) || /federal|water police/i.test(e[0])) continue;
+    const d = Math.hypot(e[2] - player.x, e[3] - player.z); if (d < bd) { bd = d; best = { name: e[0], x: e[2], z: e[3] }; }
+  }
+  if (best) return best;
+  const lm = MAP.landmarks, n = kind === 'busted' ? 'Surfers Paradise Police Centre' : null; // the Surfers core on its own
+  return n && lm[n] ? { name: n, x: lm[n][0], z: lm[n][1] } : { name: 'Cavill Mall', x: playerSpot.x, z: playerSpot.z };
+}
+// just outside the building's wall nearest a road, facing out (or the footpath beside the spot)
+function doorstepOf(P) {
+  let B = null, bd = 1e9;
+  for (const q of bigBuildingsNear(P.x, P.z, 250)) { const d = Math.hypot((q.x0 + q.x1) / 2 - P.x, (q.z0 + q.z1) / 2 - P.z) - (q.name === P.name ? 200 : 0) - (q.kind === 'hospital' ? 100 : 0); if (d < bd) { bd = d; B = q; } }
+  if (B && bd < 150) {
+    const f = B.f, n = f.length / 2; let best = null, be = 1e9;
+    for (let q = 0; q < n; q++) {
+      const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 4) continue;
+      let nx = (bz - az) / L, nz = -(bx - ax) / L; const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (inRing(mx + nx * 0.5, mz + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+      const x = mx + nx * 1.2, z = mz + nz * 1.2; if (!isLand(x, z) || resolveCircle(x, z, 0.4)) continue;
+      const ne = nearestEdge(x + nx * 8, z + nz * 8), d = ne.e < 0 ? 1e6 : ne.d;
+      if (d < be) { be = d; best = { x, z, h: Math.atan2(nx, nz) }; }
+    }
+    if (best) return best;
+  }
+  const s = sidewalkNear(P.x, P.z); return { x: s.x, z: s.z, h: s.h };
+}
+async function respawn() {
+  if (player.respawning) return; player.respawning = true;
+  const kind = player.endKind, P = nearestRespawn(kind);
+  player.x = P.x; player.z = P.z;
+  for (let k = 0; k < 200; k++) { updateTiles(0.5); if (k > 4 && !tileBusy && (!REGION || inCore(P.x, P.z) || TILES.has(Math.floor(P.x / REGION.tile) + ',' + Math.floor(P.z / REGION.tile)))) break; await new Promise((r) => setTimeout(r, 20)); }
+  const D = doorstepOf(P);
+  player.x = D.x; player.z = D.z; player.y = 0; player.h = D.h; camYaw = D.h;
   player.health = 100; player.stars = 0; player.deadT = 0; player.state = 'foot'; player.mode = 'foot'; player.car = null; player.seq = null;
   const fee = Math.min(player.money, 100); player.money -= fee;
   if (kind === 'busted' && Object.keys(player.weapons).length) { player.weapons = {}; player.weapon = 'fist'; attachGun(); }
   saveGame();
   player.model.root.rotation.set(0, player.h, 0); player.model.root.visible = true;
   $('big').style.opacity = 0;
-  toast(kind === 'busted' ? `Released from Surfers Paradise Police Centre · -$${fee}${player.weapon === 'fist' ? ' · weapons confiscated' : ''}` : `Back on Cavill Mall · hospital bill -$${fee}`);
+  player.exitWalk = 1.4; // a few steps out through the doors
+  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${player.weapon === 'fist' ? ' · weapons confiscated' : ''}` : `Discharged from ${P.name} · hospital bill -$${fee}`);
   for (const c of cars.slice()) if (c.kind === 'police') c.remove();
   for (const p of peds.slice()) if (p.cop) p.remove();
+  player.respawning = false;
+  return P;
 }
 function nearestEnterableCar() {
   let best = null, bd = 3.6;
@@ -13557,8 +13834,9 @@ function updatePlayer(dt) {
   }
   // on foot
   if (player.vault) return updateVault(dt);
-  const kF = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
-  const kR = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  if (player.exitWalk > 0) { player.exitWalk -= dt; camYaw += angDiff(camYaw, player.h) * Math.min(1, dt * 6); } // walking out of the hospital (or the police station)
+  const kF = player.exitWalk > 0 ? 1 : (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  const kR = player.exitWalk > 0 ? 0 : (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   squeal = 0;
   const swim = !isLand(player.x, player.z);
   const fx = Math.sin(camYaw), fz = Math.cos(camYaw), rxv = -Math.cos(camYaw), rzv = Math.sin(camYaw);

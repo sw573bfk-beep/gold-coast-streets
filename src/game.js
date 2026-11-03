@@ -1239,20 +1239,55 @@ function endLife(kind) {
   if (player.state === 'car') bailOut();
   if (kind === 'wasted') { player.model.root.rotation.x = -Math.PI / 2; player.model.root.position.y = 0.13; }
 }
-function respawn() {
-  const kind = player.endKind, lm = MAP.landmarks;
-  const at = kind === 'busted' && lm['Surfers Paradise Police Centre'] ? lm['Surfers Paradise Police Centre'] : [playerSpot.x, playerSpot.z];
-  const s = sidewalkNear(at[0], at[1]);
-  player.x = s.x; player.z = s.z; player.y = 0; player.h = s.h; camYaw = s.h;
+// where you come back: the nearest real hospital (not a day surgery or a GP) after you're wasted, the nearest police
+// station when you're busted; you walk out of its doors and it says where you are
+const HOSPITAL_RE = /hospital$/i, NOT_HOSPITAL_RE = /day hospital|day surgery|specialist|suites/i, POLICE_RE = /police (station|centre|beat)$/i;
+function nearestRespawn(kind) {
+  const re = kind === 'busted' ? POLICE_RE : HOSPITAL_RE; let best = null, bd = 1e12;
+  for (const e of (REGION && REGION.search) || []) {
+    if (!re.test(e[0]) || (kind !== 'busted' && (e[1] !== 4 || NOT_HOSPITAL_RE.test(e[0]))) || /federal|water police/i.test(e[0])) continue;
+    const d = Math.hypot(e[2] - player.x, e[3] - player.z); if (d < bd) { bd = d; best = { name: e[0], x: e[2], z: e[3] }; }
+  }
+  if (best) return best;
+  const lm = MAP.landmarks, n = kind === 'busted' ? 'Surfers Paradise Police Centre' : null; // the Surfers core on its own
+  return n && lm[n] ? { name: n, x: lm[n][0], z: lm[n][1] } : { name: 'Cavill Mall', x: playerSpot.x, z: playerSpot.z };
+}
+// just outside the building's wall nearest a road, facing out (or the footpath beside the spot)
+function doorstepOf(P) {
+  let B = null, bd = 1e9;
+  for (const q of bigBuildingsNear(P.x, P.z, 250)) { const d = Math.hypot((q.x0 + q.x1) / 2 - P.x, (q.z0 + q.z1) / 2 - P.z) - (q.name === P.name ? 200 : 0) - (q.kind === 'hospital' ? 100 : 0); if (d < bd) { bd = d; B = q; } }
+  if (B && bd < 150) {
+    const f = B.f, n = f.length / 2; let best = null, be = 1e9;
+    for (let q = 0; q < n; q++) {
+      const ax = f[2 * q], az = f[2 * q + 1], bx = f[(2 * q + 2) % (2 * n)], bz = f[(2 * q + 3) % (2 * n)], L = Math.hypot(bx - ax, bz - az); if (L < 4) continue;
+      let nx = (bz - az) / L, nz = -(bx - ax) / L; const mx = (ax + bx) / 2, mz = (az + bz) / 2; if (inRing(mx + nx * 0.5, mz + nz * 0.5, f)) { nx = -nx; nz = -nz; }
+      const x = mx + nx * 1.2, z = mz + nz * 1.2; if (!isLand(x, z) || resolveCircle(x, z, 0.4)) continue;
+      const ne = nearestEdge(x + nx * 8, z + nz * 8), d = ne.e < 0 ? 1e6 : ne.d;
+      if (d < be) { be = d; best = { x, z, h: Math.atan2(nx, nz) }; }
+    }
+    if (best) return best;
+  }
+  const s = sidewalkNear(P.x, P.z); return { x: s.x, z: s.z, h: s.h };
+}
+async function respawn() {
+  if (player.respawning) return; player.respawning = true;
+  const kind = player.endKind, P = nearestRespawn(kind);
+  player.x = P.x; player.z = P.z;
+  for (let k = 0; k < 200; k++) { updateTiles(0.5); if (k > 4 && !tileBusy && (!REGION || inCore(P.x, P.z) || TILES.has(Math.floor(P.x / REGION.tile) + ',' + Math.floor(P.z / REGION.tile)))) break; await new Promise((r) => setTimeout(r, 20)); }
+  const D = doorstepOf(P);
+  player.x = D.x; player.z = D.z; player.y = 0; player.h = D.h; camYaw = D.h;
   player.health = 100; player.stars = 0; player.deadT = 0; player.state = 'foot'; player.mode = 'foot'; player.car = null; player.seq = null;
   const fee = Math.min(player.money, 100); player.money -= fee;
   if (kind === 'busted' && Object.keys(player.weapons).length) { player.weapons = {}; player.weapon = 'fist'; attachGun(); }
   saveGame();
   player.model.root.rotation.set(0, player.h, 0); player.model.root.visible = true;
   $('big').style.opacity = 0;
-  toast(kind === 'busted' ? `Released from Surfers Paradise Police Centre · -$${fee}${player.weapon === 'fist' ? ' · weapons confiscated' : ''}` : `Back on Cavill Mall · hospital bill -$${fee}`);
+  player.exitWalk = 1.4; // a few steps out through the doors
+  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${player.weapon === 'fist' ? ' · weapons confiscated' : ''}` : `Discharged from ${P.name} · hospital bill -$${fee}`);
   for (const c of cars.slice()) if (c.kind === 'police') c.remove();
   for (const p of peds.slice()) if (p.cop) p.remove();
+  player.respawning = false;
+  return P;
 }
 function nearestEnterableCar() {
   let best = null, bd = 3.6;
@@ -1424,8 +1459,9 @@ function updatePlayer(dt) {
   }
   // on foot
   if (player.vault) return updateVault(dt);
-  const kF = (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
-  const kR = (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
+  if (player.exitWalk > 0) { player.exitWalk -= dt; camYaw += angDiff(camYaw, player.h) * Math.min(1, dt * 6); } // walking out of the hospital (or the police station)
+  const kF = player.exitWalk > 0 ? 1 : (keys.KeyW || keys.ArrowUp ? 1 : 0) - (keys.KeyS || keys.ArrowDown ? 1 : 0);
+  const kR = player.exitWalk > 0 ? 0 : (keys.KeyD || keys.ArrowRight ? 1 : 0) - (keys.KeyA || keys.ArrowLeft ? 1 : 0);
   squeal = 0;
   const swim = !isLand(player.x, player.z);
   const fx = Math.sin(camYaw), fz = Math.cos(camYaw), rxv = -Math.cos(camYaw), rzv = Math.sin(camYaw);
