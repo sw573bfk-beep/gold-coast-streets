@@ -11,7 +11,7 @@ function keyHintList() {
   if (PHONE.open) { if (PHONE.app === 'chat') { add('Enter', 'Send'); add('Esc', 'Close'); return L; } add('P', 'Put the phone away'); add('Esc', 'Close'); return L; }
   if (!$('shop').hidden || !$('bag').hidden) { add('Esc', 'Close'); return L; }
   if (!$('casino').hidden) { add('Esc', 'Leave the table'); return L; }
-  if (bigMapOpen) { add('M', 'Close the map'); add('Click', 'Set a destination'); add('X', 'Clear the route'); return L; }
+  if (bigMapOpen) { add('M', 'Close the map'); add('Click', 'Pick a spot: Go, Taxi or Teleport $50'); add('X', 'Clear the route'); return L; }
   if (player.stars > 2) add('★'.repeat(player.stars), 'Lose the cops (too wanted to give up)', true);
   else if (player.stars > 0) add('G', 'Give up to a cop nearby (pay a fine)', true);
   const st = player.state;

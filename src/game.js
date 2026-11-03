@@ -1875,7 +1875,38 @@ function dropPin(px, py) {
   $('pin-sub').textContent = `${name && st && st !== name ? st + ' · ' : ''}${sub ? sub + ' · ' : ''}${d < 1000 ? Math.round(d) + ' m' : (d / 1000).toFixed(1) + ' km'} away`;
   const fare = Math.round(5 + d / 1000 * 2.6), taxiOk = player.state === 'foot' && player.money >= fare;
   $('pin-taxi').textContent = `🚕 Taxi $${fare}`; $('pin-taxi').disabled = !taxiOk; $('pin-taxi').title = taxiOk ? '' : player.state !== 'foot' ? 'get out of the car first' : 'not enough cash';
+  const tpOk = teleportBlock() === null; $('pin-tp').textContent = `✨ Teleport $${TELEPORT_FEE}`; $('pin-tp').disabled = !tpOk; $('pin-tp').title = tpOk ? 'go there now (your car comes too)' : teleportBlock();
   $('mappin').hidden = false; drawBigMap();
+}
+// teleport: $50 to anywhere on the map, on foot or in a car (it comes with you), but not with the cops after you
+const TELEPORT_FEE = 50;
+function teleportBlock() { // why you can't teleport right now, or null
+  if (player.deadT > 0) return 'not now';
+  if (player.stars) return 'not with the cops after you';
+  if (player.state !== 'foot' && player.state !== 'car') return 'on foot or in a car only';
+  if (player.money < TELEPORT_FEE) return `you need $${TELEPORT_FEE} cash`;
+  return null;
+}
+async function teleportTo(P) {
+  const why = teleportBlock(); if (why) { toast(`Can’t teleport: ${why}`); return false; }
+  player.money -= TELEPORT_FEE; MAPV.pin = null; $('mappin').hidden = true; if (bigMapOpen) toggleMap();
+  if (TOWER) { disposeTowerLevel(); TOWER = null; } // out of whatever building you were in
+  const c = player.state === 'car' ? player.car : null;
+  sfxTone([392, 523, 784, 1046], 0.35, 0.06, 'triangle'); toast(`✨ Teleporting to ${P.name}…`);
+  player.x = P.x; player.z = P.z; if (c) { c.x = P.x; c.z = P.z; }
+  for (let k = 0; k < 250; k++) { updateTiles(0.5); await new Promise((r) => setTimeout(r, 20)); if (k > 4 && !tileBusy && (!REGION || inCore(P.x, P.z) || TILES.has(Math.floor(P.x / REGION.tile) + ',' + Math.floor(P.z / REGION.tile)))) break; } // the streets there load in
+  if (c) { // onto the nearest road, stopped, pointing along it
+    const Q = curbNear(P.x, P.z) || { x: P.x, z: P.z, h: c.h };
+    c.x = Q.x; c.z = Q.z; c.h = Q.h; c.vx = c.vz = 0; c.alt = undefined; c.y = 0; c.sync(0); player.x = c.x; player.z = c.z; player.h = c.h; camYaw = c.h;
+  } else { // right on the spot if it's clear ground, else the nearest clear spot, else the footpath
+    const clear = (x, z) => isLand(x, z) && !resolveCircle(x, z, 0.5) && !houseAt(x, z) && !bigBuildingsNear(x, z, 0.5).some((B) => inRing(x, z, B.f));
+    let f = null; for (const r of [0, 8, 20, 40, 80, 150, 300, 500, 800]) { for (let k = 0; k < (r ? 24 : 1) && !f; k++) { const a = k / 24 * TAU, x = P.x + Math.cos(a) * r, z = P.z + Math.sin(a) * r; if (clear(x, z)) f = [x, z]; } if (f) break; } // rings outward: the nearest clear ground (the shore, outside the mall)
+    const s = f ? { x: f[0], z: f[1], h: player.h } : sidewalkNear(P.x, P.z);
+    player.x = s.x; player.z = s.z; player.y = 0; player.vy = 0; player.h = s.h; camYaw = s.h;
+  }
+  for (let i = 0; i < 6; i++) emit(player.x + rr(-1, 1), groundAt(player.x, player.z) + rr(0.2, 2), player.z + rr(-1, 1), 0, rr(1, 3), 0, 0.8, 0.3, 1.2, '#bfe9ff', 0.8);
+  saveGame(); toast(`✨ Teleported to ${P.name} · -$${TELEPORT_FEE}`);
+  return true;
 }
 function pinGo() {
   const P = MAPV.pin; if (!P) return;
@@ -1897,6 +1928,7 @@ function initBigMap() {
   c.addEventListener('dblclick', (e) => { dropPin(e.clientX, e.clientY); pinGo(); });
   $('pin-go').addEventListener('click', pinGo);
   $('pin-taxi').addEventListener('click', () => { if (!MAPV.pin) return; pinGo(); taxi(); });
+  $('pin-tp').addEventListener('click', () => { if (MAPV.pin) teleportTo(MAPV.pin); });
   $('pin-x').addEventListener('click', () => { MAPV.pin = null; $('mappin').hidden = true; drawBigMap(); });
   $('mapq').addEventListener('input', renderSearch);
   $('mapq').addEventListener('keydown', (e) => { if (e.key === 'Enter') { const t = topicResults($('mapq').value), r = t && t.list.length ? t.list : searchPlaces($('mapq').value); if (r.length) goToPlace(r[0]); } });

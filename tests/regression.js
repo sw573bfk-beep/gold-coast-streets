@@ -1010,6 +1010,18 @@ window.runRegression = async () => {
     const r = `wasted with $4,000: $${afterDeath.money} left, savings $${afterDeath.bank}, safe $${afterDeath.safe} · helicopter over the roof ${shown === 1}, called down ${down}, gone from the roof ${hidden}, sent home ${back}`;
     expect(deathOK && shown === 1 && down && hidden && back, r); return r;
   });
+  await test('teleport: $50 to a spot picked on the map, on foot or in a car, but not while wanted', async () => {
+    quiet(); const m0 = player.money; player.money = 500; player.x = 727; player.z = 305; step(0.1);
+    const ok1 = await teleportTo({ name: 'a Robina street', x: -1939, z: 7704 }), d1 = Math.hypot(player.x + 1939, player.z - 7704), paid = player.money === 450;
+    await teleportTo({ name: 'the Broadwater', x: 1800, z: -4200 }); const shore = isLand(player.x, player.z) && Math.hypot(player.x - 1800, player.z + 4200) < 900; player.money = 450; // a spot in the water: the nearest shore
+    const c = new Car('sedan', '#cc3333', player.x + 3, player.z, 0); cars.push(c); player.state = 'car'; player.car = c; player.mode = 'car';
+    const ok2 = await teleportTo({ name: 'Southport', x: -1200, z: -3500 }), withCar = Math.hypot(c.x + 1200, c.z + 3500) < 120 && player.car === c;
+    player.state = 'foot'; player.car = null; player.mode = 'foot'; c.remove();
+    player.stars = 2; const blocked = !(await teleportTo({ name: 'Burleigh', x: 4000, z: 12000 })) && player.money === 400; player.stars = 0;
+    player.money = m0; home();
+    const r = `on foot to a clear spot ${ok1} (${d1.toFixed(0)} m from it), $50 taken ${paid}, water spot lands on the shore ${shore} · in a car to Southport ${ok2}, car came too ${withCar} · refused while wanted ${blocked}`;
+    expect(ok1 && d1 < 5 && paid && shore && ok2 && withCar && blocked, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

@@ -36,6 +36,7 @@ function guideList() { // [icon, name, how, action]
     hasBrisbane() ? ['🚆', 'Go to Brisbane', 'Catch the train to Roma Street, then ride a CityCat up the river.', A('transit')] : ['🚆', 'Catch a train', 'Trains run Varsity Lakes to Coomera. Wait on a platform and press E when one stops.', A('transit')],
     ['🌐', 'Play with friends', 'Join a public world or make a private one with a code.', A('online')],
     ['🗺️', 'Explore', 'Open the map (M), click anywhere and follow the yellow line. Every street is real.', () => { closePhone(); toggleMap(); }],
+    ['✨', 'Teleport', `Open the map (M), click a spot and press Teleport: $${TELEPORT_FEE}, anywhere, even in your car (not with the cops after you).`, () => { closePhone(); toggleMap(); }],
   ].filter(Boolean);
 }
 function guideApp(btn, head) {
