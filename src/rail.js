@@ -1,7 +1,7 @@
 // ============================================================================
 // Gold Coast Streets — trains and CityCats (tools/build_transit.py works out their routes from OpenStreetMap).
-// Trains run the Gold Coast line, Varsity Lakes to Roma Street (88 km, 33 stations), both ways on their own tracks;
-// the CityCats run the Brisbane River, Northshore Hamilton to UQ St Lucia (20 terminals). Hop on with E while one
+// Trains run the Gold Coast line both ways on their own tracks (Varsity Lakes to Roma Street, 88 km, with Brisbane; Varsity
+// Lakes to Coomera on the Gold Coast-only map); with Brisbane the CityCats run the river, Northshore Hamilton to UQ St Lucia. Hop on with E while one
 // is stopped (like the G:link and the buses) and E at a stop to get off.
 // ============================================================================
 const TRANSIT = { lines: [], vehicles: [], track: new Map(), loaded: false, trackT: 0 };

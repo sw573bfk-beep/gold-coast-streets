@@ -2,7 +2,7 @@
 
 dist/gold-coast-streets.html  page body for publishing (the host adds the document skeleton)
 dist/index.html               full document for local testing
-docs/                         the public website (GitHub Pages): index.html plus the map tiles
+docs/                         the public website: index.html plus the published map (dist/site: the Gold Coast tiles)
 """
 import os
 
@@ -35,48 +35,86 @@ with open(os.path.join(ROOT, 'dist', 'index.html'), 'w', encoding='utf-8') as f:
 import shutil
 os.makedirs(os.path.join(ROOT, 'dist', 'tests'), exist_ok=True)
 for t in ('regression.js', 'activities_test.js'): shutil.copy(os.path.join(ROOT, 'tests', t), os.path.join(ROOT, 'dist', 'tests', t))  # local test page only; never published
-# the public site: the full page and every map tile (no tests)
+# ---------------------------------------------------------------- the map that gets published
+# The Gold Coast only: Brisbane made the whole game lag (its overview roads, search entries and 88 km of railway weigh
+# on every frame even down the coast). The full build stays in dist/tiles; set BRISBANE = True to publish it again.
+BRISBANE = False
+import collections, json
+tiles, ground = os.path.join(ROOT, 'dist', 'tiles'), os.path.join(ROOT, 'dist', 'ground')
+REG = json.load(open(os.path.join(tiles, 'region.json'))) if os.path.exists(os.path.join(tiles, 'region.json')) else {}
+GCB = (REG.get('boxes') or [REG.get('bounds')])[0] if REG else None
+in_gc = lambda x, z, m=1: not GCB or (GCB[0] - m <= x <= GCB[2] + m and GCB[1] - m <= z <= GCB[3] + m)
+tile_gc = lambda i, j: not GCB or (j + 1) * 1000 > GCB[1]  # everything south of where Brisbane starts (Brisbane's box sits on the Gold Coast's north edge)
+block_gc = lambda bi, bj: tile_gc(bi * PACK + PACK - 1, bj * PACK + PACK - 1)
+touches = lambda pts: any(in_gc(pts[k], pts[k + 1], 300) for k in range(0, len(pts) - 1, 2))
+def gold_coast(R):
+    g = dict(R); g['tiles'] = [t for t in R['tiles'] if tile_gc(t[0], t[1])]
+    g['search'] = [q for q in R.get('search', []) if in_gc(q[2], q[3])]; g['suburbs'] = [q for q in R.get('suburbs', []) if in_gc(q[0], q[1])]
+    g['landmarks'] = [q for q in R.get('landmarks', []) if in_gc(q[0], q[1])]
+    g['roads'] = [r for r in R.get('roads', []) if touches(r[1:])]; g['water'] = [w for w in R.get('water', []) if touches(w)]; g['coast'] = [c for c in R.get('coast', []) if touches(c)]
+    if g.get('airport'): g['airport'] = dict(g['airport'], runways=[r for r in g['airport']['runways'] if in_gc(r[0], r[1]) and in_gc(r[2], r[3])])  # Gold Coast Airport's, not Brisbane's
+    g['bounds'] = GCB; g['boxes'] = [GCB]; g.pop('storyBridge', None)
+    return g
+def gold_coast_transit(T):
+    out = {'trains': [], 'ferries': []}  # the CityCats are Brisbane's
+    for L in T.get('trains', []):
+        p, cum, cut = L['line'], 0.0, None
+        for k in range(2, len(p), 2):
+            if not in_gc(p[k], p[k + 1]): cut = k; break
+            cum += ((p[k] - p[k - 2]) ** 2 + (p[k + 1] - p[k - 1]) ** 2) ** 0.5
+        if cut is None: out['trains'].append(L); continue
+        stops = [st for st in L['stops'] if st[0] <= cum - 60]
+        if len(stops) >= 2: out['trains'].append(dict(L, line=p[:cut], stops=stops, len=round(cum, 1)))  # the Gold Coast end of the line: Varsity Lakes up to the last station before Brisbane's box
+    return out
+SITE = os.path.join(ROOT, 'dist', 'site')  # what's published, laid out as the site serves it (hard links into dist/tiles and dist/ground)
+if REG:
+    for sub in ('tiles', 'ground'): shutil.rmtree(os.path.join(SITE, sub), ignore_errors=True); os.makedirs(os.path.join(SITE, sub))
+    GR = REG if BRISBANE else gold_coast(REG)
+    keep = {(t[0], t[1]) for t in GR['tiles']}
+    for name in os.listdir(tiles):
+        if name.startswith('t_') and (lambda ij: (ij[0], ij[1]) in keep)(list(map(int, name[2:-5].split('_')))): os.link(os.path.join(tiles, name), os.path.join(SITE, 'tiles', name))
+    json.dump(GR, open(os.path.join(SITE, 'tiles', 'region.json'), 'w'), separators=(',', ':'))
+    if os.path.exists(os.path.join(tiles, 'transit.json')):
+        T = json.load(open(os.path.join(tiles, 'transit.json'))); json.dump(T if BRISBANE else gold_coast_transit(T), open(os.path.join(SITE, 'tiles', 'transit.json'), 'w'), separators=(',', ':'))
+    if os.path.isdir(ground):
+        idx = [k for k in json.load(open(os.path.join(ground, 'index.json'))) if BRISBANE or block_gc(*map(int, k.split('_')))]
+        for k in idx:
+            if os.path.exists(os.path.join(ground, 'g_%s.jpg' % k)): os.link(os.path.join(ground, 'g_%s.jpg' % k), os.path.join(SITE, 'ground', 'g_%s.jpg' % k))
+        json.dump(idx, open(os.path.join(SITE, 'ground', 'index.json'), 'w'))
+    print('published map: %d tiles, %d overview roads, %d search entries, %d ground photos%s' % (len(GR['tiles']), len(GR.get('roads', [])), len(GR.get('search', [])), len(os.listdir(os.path.join(SITE, 'ground'))) - 1, '' if BRISBANE else ' (Gold Coast only)'))
+# the local test page reads the published map too
+html_local = open(os.path.join(ROOT, 'dist', 'index.html'), encoding='utf-8').read().replace('<body>\n', '<body>\n<script>window.MAP_DIR=\'site/\';</script>\n', 1)
+open(os.path.join(ROOT, 'dist', 'index.html'), 'w', encoding='utf-8').write(html_local)
+# the public site: the full page and the published map (no tests)
 site = os.path.join(ROOT, 'docs')
 os.makedirs(os.path.join(site, 'tiles'), exist_ok=True)
 # the public site counts visits with GoatCounter (only there: the Claude-hosted page doesn't load outside scripts)
 GOATCOUNTER = '<script data-goatcounter="https://sw573.goatcounter.com/count" async src="https://gc.zgo.at/count.js"></script>'
-html = open(os.path.join(ROOT, 'dist', 'index.html'), encoding='utf-8').read().replace('</body>', GOATCOUNTER + '\n</body>', 1)
+html = html_local.replace("<script>window.MAP_DIR='site/';</script>\n", '', 1).replace('</body>', GOATCOUNTER + '\n</body>', 1)
 open(os.path.join(site, 'index.html'), 'w', encoding='utf-8').write(html)
 open(os.path.join(site, '.nojekyll'), 'w').close()  # serve files as they are
 # the GitHub Pages copy of the page reads the map from the Cloudflare Pages copy (MAP_BASE in src/tiles.js), so Cloudflare lets other sites read it
 open(os.path.join(site, '_headers'), 'w').write('/tiles/*\n  Access-Control-Allow-Origin: *\n/ground/*\n  Access-Control-Allow-Origin: *\n')
-tiles = os.path.join(ROOT, 'dist', 'tiles')
-if os.path.isdir(tiles):
-    for name in os.listdir(os.path.join(site, 'tiles')):
-        if not os.path.exists(os.path.join(tiles, name)): os.remove(os.path.join(site, 'tiles', name))
-    for name in os.listdir(tiles):
-        shutil.copy(os.path.join(tiles, name), os.path.join(site, 'tiles', name))
-# the aerial photos on the ground (tools/ground_photos.py), for the site too
-ground = os.path.join(ROOT, 'dist', 'ground')
-if os.path.isdir(ground):
-    shutil.rmtree(os.path.join(site, 'ground'), ignore_errors=True); shutil.copytree(ground, os.path.join(site, 'ground'))
-# tile packs for the Claude-hosted page: dist/packs/p_<i//3>_<j//3>.json = {"i_j": tile, ...}
-import collections, json
+for sub in ('tiles', 'ground'):
+    a, b = os.path.join(SITE, sub), os.path.join(site, sub)
+    if not os.path.isdir(a): continue
+    os.makedirs(b, exist_ok=True)
+    for name in os.listdir(b):
+        if not os.path.exists(os.path.join(a, name)): os.remove(os.path.join(b, name))
+    for name in os.listdir(a):
+        if not os.path.exists(os.path.join(b, name)) or os.path.getsize(os.path.join(b, name)) != os.path.getsize(os.path.join(a, name)) or name.endswith('index.json') or name in ('region.json', 'transit.json'): shutil.copy(os.path.join(a, name), os.path.join(b, name))
+# tile packs for the Claude-hosted page: dist/packs/p_<i//3>_<j//3>.json = {"i_j": tile, ...}, the Gold Coast only (it can't fit Brisbane)
 packs = os.path.join(ROOT, 'dist', 'packs')
-if os.path.isdir(tiles):
+if REG:
     shutil.rmtree(packs, ignore_errors=True); os.makedirs(packs)
     groups = collections.defaultdict(list)
     for name in os.listdir(tiles):
         if name.startswith('t_'):
-            i, j = map(int, name[2:-5].split('_')); groups[(i // PACK, j // PACK)].append((i, j, name))
-    # the Claude-hosted page holds the Gold Coast only (it can't fit Brisbane): its packs and a map index for just that box
-    REG = json.load(open(os.path.join(tiles, 'region.json'))) if os.path.exists(os.path.join(tiles, 'region.json')) else {}
-    GCB = (REG.get('boxes') or [REG.get('bounds')])[0] if REG else None
-    in_gc = lambda x, z: not GCB or (GCB[0] - 1 <= x <= GCB[2] + 1 and GCB[1] - 1 <= z <= GCB[3] + 1)
-    tile_gc = lambda i, j: not GCB or (j + 1) * 1000 > GCB[1]  # everything south of where Brisbane starts (Brisbane's box sits on the Gold Coast's north edge)
-    if REG and GCB:
-        art = dict(REG); art['tiles'] = [t for t in REG['tiles'] if tile_gc(t[0], t[1])]
-        art['search'] = [q for q in REG.get('search', []) if in_gc(q[2], q[3])]; art['suburbs'] = [q for q in REG.get('suburbs', []) if in_gc(q[0], q[1])]
-        art['landmarks'] = [q for q in REG.get('landmarks', []) if in_gc(q[0], q[1])]; art['bounds'] = GCB; art['boxes'] = [GCB]
-        os.makedirs(os.path.join(ROOT, 'dist', 'art'), exist_ok=True); json.dump(art, open(os.path.join(ROOT, 'dist', 'art', 'region.json'), 'w'), separators=(',', ':'))
+            i, j = map(int, name[2:-5].split('_'))
+            if tile_gc(i, j): groups[(i // PACK, j // PACK)].append((i, j, name))
+    os.makedirs(os.path.join(ROOT, 'dist', 'art'), exist_ok=True); json.dump(gold_coast(REG), open(os.path.join(ROOT, 'dist', 'art', 'region.json'), 'w'), separators=(',', ':'))
     for (a, b), items in groups.items():
-        items = [it for it in items if tile_gc(it[0], it[1])]
-        if not items: continue
         with open(os.path.join(packs, 'p_%d_%d.json' % (a, b)), 'w', encoding='utf-8') as f:
             f.write('{' + ','.join('"%d_%d":%s' % (i, j, src('dist', 'tiles', name)) for i, j, name in items) + '}')
+    if os.path.isdir(ground): json.dump([k for k in json.load(open(os.path.join(ground, 'index.json'))) if (tuple(map(int, k.split('_'))) in groups) and os.path.exists(os.path.join(ground, 'g_%s.jpg' % k))], open(os.path.join(ROOT, 'dist', 'art', 'ground_index.json'), 'w'))
 print('bundled', os.path.getsize(os.path.join(ROOT, 'dist', 'index.html')), 'bytes')

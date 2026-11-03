@@ -4,6 +4,7 @@
 // Climb, the Wheel of Brisbane, Lone Pine, a CityCat cruise and the train up from the Gold Coast.
 // ============================================================================
 const SBRIDGE = { pts: [], mesh: null, w: 22 };
+const hasBrisbane = () => !!(REGION && REGION.boxes && REGION.boxes.length > 1); // the map can be published without Brisbane (it lagged the game): then none of this shows
 // the truss's line comes with the map (region.json storyBridge: its two ends, centred where the bridge crosses the river);
 // it goes up once every tile along it has loaded, so the deck heights under it are known
 function storyBridgeTile() {
@@ -78,3 +79,5 @@ function updateBrisbaneRides() {
   if (cur.ride === 'train' && /South Brisbane|Roma Street/.test(at) && /Varsity|Robina|Nerang|Helensvale|Coomera|Hope Island|Pimpama/.test(BRIS_RIDE.from)) actComplete('trainup', { msg: `🚆 From ${BRIS_RIDE.from} all the way to ${at}!`, money: 120 });
 }
 brisbaneActivities();
+const BRIS_ACTS = ['storyclimb', 'wheel', 'lonepine', 'citycat', 'trainup'];
+function dropBrisbaneActs() { for (const id of BRIS_ACTS) { const k = ACTS.findIndex((a) => a.id === id); if (k >= 0) ACTS.splice(k, 1); delete ACT_BY[id]; } }

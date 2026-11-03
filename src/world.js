@@ -993,10 +993,11 @@ function buildTrees() {
     const k = 0.88 + 0.24 * (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 0.5 + 0.5);
     ip.setXYZ(i, x * k, y * k, z * k);
   }
-  ico.computeVertexNormals();
+  ico.computeVertexNormals(); ico.setAttribute('color', new THREE.Float32BufferAttribute(new Array(ip.count * 3).fill(1), 3));
   const tr2 = new THREE.CylinderGeometry(0.12, 0.2, 1, 6); tr2.translate(0, 0.5, 0);
   const lt = new THREE.InstancedMesh(tr2, new THREE.MeshStandardMaterial({ color: col('#6b5844') }), leafy.length);
-  const lc = new THREE.InstancedMesh(ico, new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true }), leafy.length);
+  const lc = new THREE.InstancedMesh(ico, new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true, vertexColors: true }), leafy.length);
+  lc.userData.leafy = true; lc.userData.lowGeo = ico; // Hyper swaps in the puffy crown (setTreeStyle in tiles.js)
   const greens = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a'].map(col);
   leafy.forEach(([x, z], i) => {
     const H = rr(2.2, 4.5), R = rr(1.8, 3.4);
@@ -1008,6 +1009,7 @@ function buildTrees() {
   });
   lt.castShadow = lc.castShadow = true;
   scene.add(lt, lc);
+  if (GFX.cfg.puffy) setTreeStyle(true);
 }
 function buildStreetLights() {
   const spots = [];

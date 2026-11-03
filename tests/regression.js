@@ -859,19 +859,20 @@ window.runRegression = async () => {
     const safe = !box.querySelector('img') && /hello/.test(box.textContent); box.remove(); CHAT.msgs = keep; CHAT.el = null;
     const r = `typed "${typed}" · message drawn as text ${safe}`; expect(typed === 'hi bthereb me 100 ok!' && safe, r); return r;
   });
-  await test('trains and CityCats: the Gold Coast line (Varsity Lakes to Roma Street) and the river CityCat run, stop and can be ridden', async () => {
+  await test('trains (and CityCats with Brisbane): the Gold Coast line runs, stops and can be ridden', async () => {
     quiet(); for (let k = 0; k < 50 && !TRANSIT.lines.length; k++) { await initTransitLines(); await new Promise((r) => setTimeout(r, 100)); }
     const T = TRANSIT.lines.find((l) => l.kind === 'train'), F = TRANSIT.lines.find((l) => l.kind === 'ferry');
-    expect(T && F, 'lines not loaded'); const i = T.names.indexOf('Robina'), P = {}; railPoint(T, T.stops[i], P);
+    const B = hasBrisbane(); expect(T && (F || !B), 'lines not loaded'); const i = T.names.indexOf('Robina'), P = {}; railPoint(T, T.stops[i], P);
     const V = TRANSIT.vehicles.find((v) => v.kind === 'train'); V.s = T.stops[i] - 1.2 * V.dir; V.v = 1; V.dwell = 0; V.update(1 / 60); V.update(1 / 60);
     const stopped = V.dwell > 0 && V.stopName(false) === 'Robina';
     const md = V.mods[2]; player.x = md.x - md.tz * 4; player.z = md.z + md.tx * 4; player.state = 'foot'; player.money = Math.max(player.money, 100);
     const boarded = boardRide() && player.state === 'ride' && RIDE.kind === 'train'; updateRide(0.1); V.dwell = 5; leaveRide(); const off = player.state === 'foot'; home();
-    const acts = ['storyclimb', 'wheel', 'lonepine', 'citycat', 'trainup'].every((id) => ACT_BY[id]);
-    const r = `${T.title}: ${(T.len / 1000).toFixed(0)} km, ${T.names.length} stations · CityCat ${F.names.length} terminals · stopped at Robina ${stopped} · boarded ${boarded} · got off ${off} · Brisbane activities ${acts}`;
-    expect(T.names.length > 25 && F.names.length > 12 && stopped && boarded && off && acts, r); return r;
+    const acts = BRIS_ACTS.every((id) => B ? ACT_BY[id] : !ACT_BY[id]); // Brisbane's activities only when Brisbane is on the map
+    const r = `${T.title}: ${(T.len / 1000).toFixed(0)} km, ${T.names.length} stations · ${B ? 'CityCat ' + F.names.length + ' terminals' : 'Gold Coast only, no CityCat ' + !F} · stopped at Robina ${stopped} · boarded ${boarded} · got off ${off} · Brisbane activities ${acts}`;
+    expect((B ? T.names.length > 25 && F.names.length > 12 : T.names.length >= 5 && !F && T.names.includes('Coomera')) && stopped && boarded && off && acts, r); return r;
   });
   await test('Mick’s Brisbane story: six jobs, the first gets you up to the Valley and pays; the rest need you in Brisbane', () => {
+    if (!hasBrisbane()) { const r = `Brisbane isn't on the published map · Mick's app hidden ${(openPhone(), ![...document.querySelectorAll('#phone-body .ptile b')].some((b) => b.textContent === 'Mick'))}`; closePhone(); expect(/true$/.test(r), r); return r; }
     quiet(); const done0 = MICK.done, m0 = player.money; MICK.done = 0; MICK.M = null;
     startMickJob(0); const started = !!MICK.M && WAYPOINT && /Valley/.test(WAYPOINT.name);
     player.x = MICK.M.a.x; player.z = MICK.M.a.z; updateMick(0.1); const paid = !MICK.M && MICK.done === 1 && player.money === m0 + 1000;
@@ -880,7 +881,8 @@ window.runRegression = async () => {
     const r = `${MICK_JOBS.length} jobs · job 1 started ${started}, paid ${paid} · job 2 waits till you’re in Brisbane ${refused}`;
     expect(MICK_JOBS.length === 6 && started && paid && refused, r); return r;
   });
-  await test('Brisbane: the CBD has its towers, the Story Bridge has its steel truss, the landmarks are on the map', async () => {
+  await test('Brisbane: the CBD has its towers, the Story Bridge has its steel truss, the landmarks are on the map (or none of it, on the Gold Coast-only map)', async () => {
+    if (!hasBrisbane()) { const none = !REGION.storyBridge && !REGION.search.some((q) => /^Queen Street Mall|^Story Bridge$/.test(q[0])) && REGION.tiles.every((t) => (t[1] + 1) * 1000 > REGION.bounds[1]); const r = `Gold Coast only: no Brisbane tiles, places or bridge ${none} · ${REGION.tiles.length} tiles`; expect(none, r); return r; }
     quiet(); await goToTile(-27.4690, 153.0260); // Queen Street Mall
     for (let k = 0; k < 700 && (tileBusy || TILES.size < 9); k++) { stepWorld(1 / 60); await new Promise((r) => setTimeout(r, 5)); } // the blocks round it too
     const near = [...TILES.values()].filter((T) => Math.hypot(T.x0 + 500 - player.x, T.z0 + 500 - player.z) < 1500);
@@ -951,6 +953,15 @@ window.runRegression = async () => {
     TUT.el.querySelectorAll('button')[1].click(); const ended = !TUT.on && TUT.el.hidden && localStorage.getItem('gcs-tutorial') === 'done';
     if (flag === null) localStorage.removeItem('gcs-tutorial'); else localStorage.setItem('gcs-tutorial', flag);
     const r = `shown ${shown} · walking finishes step 1 ${walked} · Enter skips ${skipped} · Skip tutorial ends it ${ended}`; home(); expect(shown && walked && skipped && ended, r); return r;
+  });
+  await test('graphics: Hyper turns on ambient occlusion and puffy trees, renders cleanly, and switching back undoes it', () => {
+    home(); const before = GFX.level, gl = renderer.getContext(); gl.getError();
+    applyGfx('hyper'); step(0.1); renderFrame(); const on = !!POST.ao && !!POST.rt.depthTexture, err = gl.getError();
+    let puffy = 0, leafy = 0; scene.traverse((o) => { if (o.userData.leafy) { leafy++; if (o.geometry === LEAFY_GEO.puffy) puffy++; } });
+    applyGfx('ultra'); step(0.05); renderFrame(); let back = 0; scene.traverse((o) => { if (o.userData.leafy && o.geometry !== LEAFY_GEO.puffy) back++; });
+    const off = !POST.ao; applyGfx(before);
+    const r = `occlusion on ${on} · GL error ${err} · ${puffy}/${leafy} crowns puffy · back to Ultra: occlusion off ${off}, ${back}/${leafy} crowns low-poly`;
+    expect(on && err === 0 && leafy > 0 && puffy === leafy && off && back === leafy, r); return r;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

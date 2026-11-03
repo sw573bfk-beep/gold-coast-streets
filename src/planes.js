@@ -150,7 +150,8 @@ let AIRPORT = null, OVERVIEW_MESH = null;
 function setupAirport() {
   AIRPORT = REGION && REGION.airport;
   if (!AIRPORT || !AIRPORT.runways.length) return;
-  const [x1, z1, x2, z2] = AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
+  const B = (REGION.boxes || [REGION.bounds])[0], inGC = (r) => r[0] > B[0] && r[0] < B[2] && r[1] > B[1] && r[1] < B[3]; // Gold Coast Airport: with Brisbane on the map its airport's longer runways come first
+  const [x1, z1, x2, z2] = AIRPORT.runways.find(inGC) || AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
   AIRPORT.rw = { x1, z1, x2, z2, h, ex, ez, nx, nz, len: Math.hypot(x2 - x1, z2 - z1) };
   // parked planes beside the runway near its start: two Cessnas and an airliner
   AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['twin', 165, 72], ['bizjet', 200, 78], ['fighter', 240, 78], ['jet', 310, 95]];

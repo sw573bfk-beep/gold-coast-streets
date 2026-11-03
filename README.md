@@ -22,6 +22,9 @@ A GTA-style open-world browser game set on the real Gold Coast, Queensland, buil
 - Police with roadblocks, spike strips and the POLAIR helicopter at 3 stars and up. Barbers, tattoo parlours, electronics stores and a shooting range.
 - Driving with drift handling, police chases and arrests, punches and guns, outfits, money and shops.
 
+- **Graphics levels** on the start screen: Low, High, Ultra and **Hyper** (ambient occlusion for soft shade in every corner, puffy cartoon tree crowns, punchy stylised colour and sharpening).
+- **Map**: the published game is the Gold Coast only. Brisbane was built too (V24) but made the whole game lag, so `tools/bundle.py` leaves it out (`BRISBANE = False`); the full build stays in `dist/tiles`.
+
 ## Play
 
 **Play online:** https://sw573bfk-beep.github.io/gold-coast-streets/

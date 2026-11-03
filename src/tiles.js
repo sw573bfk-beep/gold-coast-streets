@@ -6,8 +6,8 @@
 // street shops, petrol stations, collision walls and road network.
 // ============================================================================
 let REGION = null;                 // tiles/region.json: index, overview roads/water, suburbs, landmarks
-// GitHub Pages can't hold the whole map (Brisbane too), so the page there reads its map files from the Cloudflare Pages copy
-const MAP_BASE = location.hostname.endsWith('github.io') ? 'https://gold-coast-streets-3k3.pages.dev/' : '';
+// the page on GitHub Pages reads its map files from the Cloudflare Pages copy; the local test page reads dist/site (MAP_DIR), the map as published
+const MAP_BASE = location.hostname.endsWith('github.io') ? 'https://gold-coast-streets-3k3.pages.dev/' : (window.MAP_DIR || '');
 const WORLD = { x0: MINX, z0: MINZ, x1: MAXX, z1: MAXZ };
 const TILES = new Map();           // "i,j" -> loaded tile
 const TILE_INDEX = new Set();      // tiles that exist on disk
@@ -26,6 +26,7 @@ async function loadRegion() {
   for (const [i, j] of REGION.tiles) TILE_INDEX.add(i + ',' + j);
   Object.assign(WORLD, { x0: REGION.bounds[0], z0: REGION.bounds[1], x1: REGION.bounds[2], z1: REGION.bounds[3] });
   buildOverview(); setupAirport();
+  if (!hasBrisbane()) dropBrisbaneActs(); // the published map is the Gold Coast only (tools/bundle.py)
   buildRegionSurf();
 }
 // a band of white water just off every stretch of open coastline (the core has its own)
@@ -608,11 +609,33 @@ const LEAFY_GEO = (() => {
   const ico = new THREE.DodecahedronGeometry(1, 0), ip = ico.attributes.position; // 36 triangles a crown: there are thousands
   for (let q = 0; q < ip.count; q++) { const x = ip.getX(q), y = ip.getY(q), z = ip.getZ(q), k = 0.88 + 0.24 * (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 0.5 + 0.5); ip.setXYZ(q, x * k, y * k, z * k); }
   ico.computeVertexNormals();
+  ico.setAttribute('color', new THREE.Float32BufferAttribute(new Array(ip.count * 3).fill(1), 3));
   const tr = new THREE.CylinderGeometry(0.12, 0.2, 1, 6); tr.translate(0, 0.5, 0);
-  return { ico, tr };
+  return { ico, tr, puffy: puffyCrown() };
 })();
+// Hyper's crowns: soft and rounded, four lumps of foliage, lit lighter on top and darker underneath (the cartoon look)
+function puffyCrown() {
+  const pos = [], nor = [], colr = [], lobe = new THREE.IcosahedronGeometry(1, 1), lp = lobe.attributes.position;
+  for (const [cx, cy, cz, r] of [[0, 0.12, 0, 0.82], [0.48, -0.12, 0.22, 0.6], [-0.44, -0.08, -0.26, 0.62], [0.06, -0.14, -0.5, 0.56], [-0.12, -0.2, 0.5, 0.55]])
+    for (let q = 0; q < lp.count; q++) {
+      const x = lp.getX(q), y = lp.getY(q), z = lp.getZ(q), wy = cy + y * r;
+      pos.push(cx + x * r, wy, cz + z * r); nor.push(x, y, z);
+      const k = 0.62 + 0.55 * Math.min(1, Math.max(0, (wy + 0.7) / 1.5)); colr.push(k, k * 1.02, k * 0.9);
+    }
+  lobe.dispose();
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3));
+  g.computeBoundingSphere(); return g;
+}
+// switch every leafy crown on the map between the two shapes (graphics level Hyper or not)
+function setTreeStyle(puffy) {
+  scene.traverse((o) => {
+    if (!o.isInstancedMesh || !o.userData.leafy) return;
+    o.geometry = puffy ? LEAFY_GEO.puffy : o.userData.lowGeo || LEAFY_GEO.ico;
+    if (o.material.flatShading === puffy) { o.material.flatShading = !puffy; o.material.needsUpdate = true; }
+  });
+}
 const TREE_MATS = { trunk: new THREE.MeshStandardMaterial({ color: col('#8b7a62'), roughness: 0.95, envMapIntensity: 0.3 }), crown: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide, envMapIntensity: 0.3 }),
-  ltrunk: new THREE.MeshStandardMaterial({ color: col('#6b5844'), envMapIntensity: 0.3 }), leaf: new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true, envMapIntensity: 0.3 }) };
+  ltrunk: new THREE.MeshStandardMaterial({ color: col('#6b5844'), envMapIntensity: 0.3 }), leaf: new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: !(GFX.cfg && GFX.cfg.puffy), vertexColors: true, envMapIntensity: 0.3 }) };
 // leaves and palm fronds sway in the sea breeze: each instance moves out of step, more at the top
 const TREE_WIND = { value: 0 };
 function addWind(mat, amt) {
@@ -737,7 +760,7 @@ function tileTrees(T, data, segs) {
     tm.castShadow = cm.castShadow = true; T.meshes.push(tm, cm); T.disposables.push(tm, cm);
   }
   if (leafy.length) {
-    const lt = new THREE.InstancedMesh(LEAFY_GEO.tr, TREE_MATS.ltrunk, leafy.length), lc = new THREE.InstancedMesh(LEAFY_GEO.ico, TREE_MATS.leaf, leafy.length);
+    const lt = new THREE.InstancedMesh(LEAFY_GEO.tr, TREE_MATS.ltrunk, leafy.length), lc = new THREE.InstancedMesh(GFX.cfg.puffy ? LEAFY_GEO.puffy : LEAFY_GEO.ico, TREE_MATS.leaf, leafy.length); lc.userData.leafy = true;
     leafy.forEach(([x, z, , crown, street], k) => { // crowns measured from the aerial photo carry their radius
       let R, H, tw = 1;
       if (crown) { R = crown * (0.85 + r() * 0.25); H = 1.4 + R * (0.6 + r() * 0.5) + r() * 2.5; }

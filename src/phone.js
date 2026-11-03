@@ -55,7 +55,7 @@ function phoneApp(app) {
     tile('🔫', 'Hold-ups', () => phoneApp('holdups'));
     tile('🏁', 'Street race', startRace);
     tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
-    tile('🧢', 'Mick', () => phoneApp('mick'), !MICK.M && MICK.done < MICK_JOBS.length ? '1' : '');
+    if (hasBrisbane()) tile('🧢', 'Mick', () => phoneApp('mick'), !MICK.M && MICK.done < MICK_JOBS.length ? '1' : '');
     head('Money & life'); grid = null;
     tile('📸', 'Tour', startTour);
     tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');

@@ -19,7 +19,7 @@ function guideList() { // [icon, name, how, action]
     ['💼', 'Jobs', 'Work real shifts: barista, taxi driver, lifeguard, mechanic and more. Paid per task.', A('jobs')],
     ['🏅', 'Daily missions', 'New challenges every day and week, with bonus cash.', A('missions')],
     ['😎', 'Rocco’s story', 'A pawn-shop boss in Nerang texts you six jobs, ending with a casino job.', A('rocco')],
-    ['🧢', 'Mick’s story (Brisbane)', 'Six jobs in Brisbane. Catch the train up from any Gold Coast station.', A('mick')],
+    hasBrisbane() && ['🧢', 'Mick’s story (Brisbane)', 'Six jobs in Brisbane. Catch the train up from any Gold Coast station.', A('mick')],
     ['🏦', 'Bank heist', 'Pick a bank, hire a crew, rob the vault and get to the safehouse.', A('heist')],
     ['🏁', 'Street race', 'Get in a car, then phone → Street race. Beat the clock to the finish.', () => { closePhone(); startRace(); }],
     ['⏱', 'Time trials', 'Set routes against the clock, with records to beat.', A('trials')],
@@ -31,10 +31,10 @@ function guideList() { // [icon, name, how, action]
     ['🏡', 'Buy a house', 'Houses and apartments for sale near you. Rent comes in while you play.', () => { PROP.listings = findListings(); phoneApp('realty'); }],
     ['☕', 'Run a business', 'Buy a café or car yard, hire staff and collect the takings.', A('business')],
     ['🐶', 'Get a dog', 'Adopt one at any pet shop. It follows you and plays fetch.', A('pet')],
-    ['🚆', 'Go to Brisbane', 'Catch the train to Roma Street, then ride a CityCat up the river.', A('transit')],
+    hasBrisbane() ? ['🚆', 'Go to Brisbane', 'Catch the train to Roma Street, then ride a CityCat up the river.', A('transit')] : ['🚆', 'Catch a train', 'Trains run Varsity Lakes to Coomera. Wait on a platform and press E when one stops.', A('transit')],
     ['🌐', 'Play with friends', 'Join a public world or make a private one with a code.', A('online')],
     ['🗺️', 'Explore', 'Open the map (M), click anywhere and follow the yellow line. Every street is real.', () => { closePhone(); toggleMap(); }],
-  ];
+  ].filter(Boolean);
 }
 function guideApp(btn, head) {
   btn('🎲 Surprise me', 'pick something for me to do right now', () => { const L = guideList().slice(1), g = pick(L); toast(`${g[0]} ${g[1]}: ${g[2]}`); g[3](); }).classList.add('go');

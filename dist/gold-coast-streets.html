@@ -324,7 +324,7 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
       <div class="pick"><span>Top</span><div class="swatches" id="pick-shirt"></div></div>
       <div class="pick"><span>Shorts</span><div class="swatches" id="pick-shorts"></div></div>
       <div class="pick"><span>Start at</span><select id="pick-spawn" aria-label="Where to start"><option value="">Cavill Mall, Surfers Paradise</option></select></div>
-      <div class="pick"><span>Graphics</span><select id="pick-gfx" aria-label="Graphics quality"><option value="low">Low — fastest, for older laptops (half the crowds)</option><option value="high">High — glow, colour grading, grass, full crowds</option><option value="ultra">Ultra — sharpest, more grass and people, best shadows</option></select></div>
+      <div class="pick"><span>Graphics</span><select id="pick-gfx" aria-label="Graphics quality"><option value="low">Low — fastest, for older laptops (half the crowds)</option><option value="high">High — glow, colour grading, grass, full crowds</option><option value="ultra">Ultra — sharpest, more grass and people, best shadows</option><option value="hyper">Hyper — the best look: soft shading in every corner, punchy colours, extra sharp (needs a strong computer)</option></select></div>
     </div>
     <button id="play" disabled>Loading…</button>
     <div id="load">Building Surfers Paradise…</div>
@@ -1329,10 +1329,11 @@ function buildTrees() {
     const k = 0.88 + 0.24 * (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 0.5 + 0.5);
     ip.setXYZ(i, x * k, y * k, z * k);
   }
-  ico.computeVertexNormals();
+  ico.computeVertexNormals(); ico.setAttribute('color', new THREE.Float32BufferAttribute(new Array(ip.count * 3).fill(1), 3));
   const tr2 = new THREE.CylinderGeometry(0.12, 0.2, 1, 6); tr2.translate(0, 0.5, 0);
   const lt = new THREE.InstancedMesh(tr2, new THREE.MeshStandardMaterial({ color: col('#6b5844') }), leafy.length);
-  const lc = new THREE.InstancedMesh(ico, new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true }), leafy.length);
+  const lc = new THREE.InstancedMesh(ico, new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true, vertexColors: true }), leafy.length);
+  lc.userData.leafy = true; lc.userData.lowGeo = ico; // Hyper swaps in the puffy crown (setTreeStyle in tiles.js)
   const greens = ['#4e7d36', '#5a8a3c', '#3f6e2f', '#6b9046', '#567f3a'].map(col);
   leafy.forEach(([x, z], i) => {
     const H = rr(2.2, 4.5), R = rr(1.8, 3.4);
@@ -1344,6 +1345,7 @@ function buildTrees() {
   });
   lt.castShadow = lc.castShadow = true;
   scene.add(lt, lc);
+  if (GFX.cfg.puffy) setTreeStyle(true);
 }
 function buildStreetLights() {
   const spots = [];
@@ -1397,19 +1399,21 @@ function buildLandmarks() {
 // ============================================================================
 // Gold Coast Streets — the picture. On High and Ultra the scene renders into an HDR buffer, then bright parts
 // bloom (the sun on the water, street lights and windows at night), the colours are graded and tone mapped,
-// and the edges darken a touch. Low draws straight to the screen for older machines.
+// and the edges darken a touch. Hyper adds ambient occlusion (soft shade where things meet: corners, under cars,
+// round the feet of walls and trees), punchy stylised colour and a sharpening pass. Low draws straight to the screen.
 // Graphics settings live on the start screen and are remembered in this browser.
 // ============================================================================
 const GFX_LEVELS = {
   low: { post: false, ratio: 1, shadow: 1024, grass: 0, bloom: 0, crowd: 0.5 },
   high: { post: true, ratio: 1.5, shadow: 2048, grass: 42, bloom: 0.32, crowd: 1 },
   ultra: { post: true, ratio: 2, shadow: 4096, grass: 64, bloom: 0.4, crowd: 1.25 }, // crowd: how many people on the streets and in the shops
+  hyper: { post: true, ratio: 2, shadow: 4096, grass: 84, bloom: 0.44, crowd: 1.35, ao: true, puffy: true }, // puffy: soft rounded tree crowns
 };
 const GFX = { level: 'high', cfg: GFX_LEVELS.high };
 try { const v = localStorage.getItem('gcs-gfx'); if (GFX_LEVELS[v]) GFX.level = v; } catch (e) { /* storage blocked */ }
 GFX.cfg = GFX_LEVELS[GFX.level];
 
-const POST = { ok: renderer.capabilities.isWebGL2 && (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float')), rt: null, half: null, b1: null, b2: null, q1: null, q2: null };
+const POST = { ok: renderer.capabilities.isWebGL2 && (renderer.extensions.has('EXT_color_buffer_float') || renderer.extensions.has('EXT_color_buffer_half_float')), rt: null, half: null, b1: null, b2: null, q1: null, q2: null, ao: null, ao2: null };
 const POST_SCENE = new THREE.Scene(), POST_CAM = new THREE.OrthographicCamera(-1, 1, 1, -1, 0, 1);
 const POST_QUAD = new THREE.Mesh(new THREE.PlaneGeometry(2, 2), null); POST_QUAD.frustumCulled = false; POST_SCENE.add(POST_QUAD);
 const POST_VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }';
@@ -1425,8 +1429,29 @@ const BLUR_MAT = postMat(`uniform sampler2D src; uniform vec2 step; varying vec2
     c += (texture2D(src, vUv + step * 1.385).rgb + texture2D(src, vUv - step * 1.385).rgb) * 0.316;
     c += (texture2D(src, vUv + step * 3.231).rgb + texture2D(src, vUv - step * 3.231).rgb) * 0.07;
     gl_FragColor = vec4(c, 1.0); }`, { src: { value: null }, step: { value: new THREE.Vector2() } });
+// ambient occlusion (Hyper): from the depth of each pixel, how much nearby geometry hems it in. 12 samples in a disc
+// a metre or two across in the world, rotated per pixel; the result is blurred at half size and darkens the picture
+const AO_MAT = postMat(`uniform sampler2D tDepth; uniform mat4 projInv; uniform vec2 texel; uniform float radius; uniform float strength; uniform float projY; uniform float aspect; varying vec2 vUv;
+  vec3 viewPos(vec2 uv) { float d = texture2D(tDepth, uv).x; vec4 p = projInv * vec4(uv * 2.0 - 1.0, d * 2.0 - 1.0, 1.0); return p.xyz / p.w; }
+  void main() {
+    vec2 uv = (floor(vUv / texel - 0.25) + 0.5) * texel; // a half-size pixel sits exactly between two depth pixels: pick one for sure, or rows flip between them and the ground comes out striped
+    float d0 = texture2D(tDepth, uv).x; if (d0 >= 0.99999) { gl_FragColor = vec4(1.0); return; }
+    vec3 p = viewPos(uv);
+    vec3 px1 = viewPos(uv + vec2(texel.x, 0.0)), px0 = viewPos(uv - vec2(texel.x, 0.0)), py1 = viewPos(uv + vec2(0.0, texel.y)), py0 = viewPos(uv - vec2(0.0, texel.y));
+    vec3 dx = abs(px1.z - p.z) < abs(p.z - px0.z) ? px1 - p : p - px0, dy = abs(py1.z - p.z) < abs(p.z - py0.z) ? py1 - p : p - py0; // the flatter side: no false edges
+    vec3 n = normalize(cross(dx, dy)); if (dot(n, p) > 0.0) n = -n;
+    float bias = 0.05 + 4.0 * max(abs(dx.z), abs(dy.z)); // roads and paving are drawn nudged towards the camera, more the more side-on they are: that nudge isn't a wall
+    float rs = min(radius * projY / -p.z * 0.5, 0.06), a0 = fract(52.9829189 * fract(dot(gl_FragCoord.xy, vec2(0.06711056, 0.00583715)))) * 6.2832, occ = 0.0;
+    for (int i = 0; i < 12; i++) {
+      float f = (float(i) + 0.6) / 12.0, a = a0 + float(i) * 2.39996;
+      vec3 v = viewPos(uv + vec2(cos(a) / aspect, sin(a)) * rs * f) - p; float L = length(v);
+      occ += clamp((dot(v, n) - bias) / max(L, 0.1), 0.0, 1.0) * (1.0 - smoothstep(radius * 0.4, radius * 1.6, L)); // only things standing clear of the surface count
+    }
+    float ao = clamp(1.0 - strength * occ / 12.0, 0.0, 1.0);
+    gl_FragColor = vec4(vec3(mix(ao, 1.0, smoothstep(90.0, 220.0, -p.z))), 1.0); }`,
+  { tDepth: { value: null }, projInv: { value: new THREE.Matrix4() }, texel: { value: new THREE.Vector2() }, radius: { value: 2.0 }, strength: { value: 2.4 }, projY: { value: 1 }, aspect: { value: 1 } });
 // HDR + bloom -> exposure -> grade (saturation, contrast) -> filmic curve -> sRGB, plus a soft vignette and fine grain
-const FINAL_MAT = postMat(`uniform sampler2D src; uniform sampler2D bloomA; uniform sampler2D bloomB; uniform float bloom; uniform float exposure; uniform float time; varying vec2 vUv;
+const FINAL_MAT = postMat(`uniform sampler2D src; uniform sampler2D bloomA; uniform sampler2D bloomB; uniform sampler2D aoTex; uniform float hyper; uniform vec2 texel; uniform float bloom; uniform float exposure; uniform float time; varying vec2 vUv;
   vec3 RRTAndODTFit(vec3 v) { vec3 a = v * (v + 0.0245786) - 0.000090537; vec3 b = v * (0.983729 * v + 0.4329510) + 0.238081; return a / b; }
   vec3 aces(vec3 c) {
     const mat3 IN = mat3(vec3(0.59719, 0.07600, 0.02840), vec3(0.35458, 0.90834, 0.13383), vec3(0.04823, 0.01566, 0.83777));
@@ -1434,19 +1459,34 @@ const FINAL_MAT = postMat(`uniform sampler2D src; uniform sampler2D bloomA; unif
     c *= exposure / 0.6; c = IN * c; c = RRTAndODTFit(c); c = OUT * c; return clamp(c, 0.0, 1.0); }
   vec3 toSRGB(vec3 c) { return mix(pow(c, vec3(0.41666)) * 1.055 - vec3(0.055), c * 12.92, vec3(lessThanEqual(c, vec3(0.0031308)))); }
   void main() {
-    vec3 c = texture2D(src, vUv).rgb + (texture2D(bloomA, vUv).rgb * 0.55 + texture2D(bloomB, vUv).rgb * 0.75) * bloom;
+    vec3 c = texture2D(src, vUv).rgb;
+    if (hyper > 0.5) { // sharpen against the four neighbours, then the ambient occlusion
+      vec3 nb = (texture2D(src, vUv + vec2(texel.x, 0.0)).rgb + texture2D(src, vUv - vec2(texel.x, 0.0)).rgb + texture2D(src, vUv + vec2(0.0, texel.y)).rgb + texture2D(src, vUv - vec2(0.0, texel.y)).rgb) * 0.25;
+      vec3 dlt = clamp((c - nb) * 0.35, -0.03, 0.03); // capped, so fine ground grain doesn't turn into stripes
+      c = max(c + dlt, 0.0) * mix(0.12, 1.0, texture2D(aoTex, vUv).r);
+    }
+    c += (texture2D(bloomA, vUv).rgb * 0.55 + texture2D(bloomB, vUv).rgb * 0.75) * bloom;
     float lum = dot(c, vec3(0.2126, 0.7152, 0.0722)); c = max(mix(vec3(lum), c, 1.2), 0.0); c = pow(c, vec3(1.06)) * 1.04;
+    if (hyper > 0.5) { // stylised: dull colours pushed harder than bright ones (vibrance), cool shadows, warm light
+      float mx = max(c.r, max(c.g, c.b)), sat = (mx - min(c.r, min(c.g, c.b))) / max(mx, 1e-4);
+      c = max(mix(vec3(lum), c, 1.12 + 0.9 * (1.0 - sat)), 0.0);
+      c *= mix(vec3(0.93, 0.97, 1.1), vec3(1.07, 1.0, 0.9), smoothstep(0.04, 0.9, lum));
+    }
     c = toSRGB(aces(c));
     vec2 d = vUv - 0.5; c *= 1.0 - dot(d, d) * 0.55;
     c += (fract(sin(dot(vUv * 913.0 + time, vec2(12.9898, 78.233))) * 43758.5453) - 0.5) * 0.012;
-    gl_FragColor = vec4(c, 1.0); }`, { src: { value: null }, bloomA: { value: null }, bloomB: { value: null }, bloom: { value: 0.32 }, exposure: { value: 1 }, time: { value: 0 } });
+    gl_FragColor = vec4(c, 1.0); }`, { src: { value: null }, bloomA: { value: null }, bloomB: { value: null }, aoTex: { value: null }, hyper: { value: 0 }, texel: { value: new THREE.Vector2() }, bloom: { value: 0.32 }, exposure: { value: 1 }, time: { value: 0 } });
 
 function postTargets() {
-  for (const k of ['rt', 'half', 'b1', 'q1', 'q2']) if (POST[k]) { POST[k].dispose(); POST[k] = null; }
+  for (const k of ['rt', 'half', 'b1', 'q1', 'q2', 'ao', 'ao2']) if (POST[k]) { if (POST[k].depthTexture) POST[k].depthTexture.dispose(); POST[k].dispose(); POST[k] = null; }
   if (!POST.ok || !GFX.cfg.post) return;
   const w = Math.round(window.innerWidth * renderer.getPixelRatio()), h = Math.round(window.innerHeight * renderer.getPixelRatio());
   const opt = { type: THREE.HalfFloatType, depthBuffer: false };
   POST.rt = new THREE.WebGLRenderTarget(w, h, { type: THREE.HalfFloatType, samples: 4 }); // MSAA keeps edges smooth
+  if (GFX.cfg.ao) { // Hyper: keep the depth for the ambient occlusion, worked out at half size
+    POST.rt.depthTexture = new THREE.DepthTexture(w, h, THREE.FloatType); // 32-bit: with 16 the flat ground comes out in ribs
+    POST.ao = new THREE.WebGLRenderTarget(w >> 1, h >> 1, { depthBuffer: false }); POST.ao2 = new THREE.WebGLRenderTarget(w >> 1, h >> 1, { depthBuffer: false });
+  }
   POST.half = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opt); POST.b1 = new THREE.WebGLRenderTarget(w >> 1, h >> 1, opt);
   POST.q1 = new THREE.WebGLRenderTarget(w >> 2, h >> 2, opt); POST.q2 = new THREE.WebGLRenderTarget(w >> 2, h >> 2, opt);
 }
@@ -1463,7 +1503,12 @@ function renderFrame() {
   BLUR_MAT.uniforms.src.value = POST.half.texture;
   BLUR_MAT.uniforms.step.value.set(0, 0); postPass(BLUR_MAT, POST.q1); // copy down to quarter size
   blur(POST.q1, POST.q2, POST.q1, 2.0);                      // quarter-size glow, wide
-  const U = FINAL_MAT.uniforms; U.src.value = POST.rt.texture; U.bloomA.value = POST.half.texture; U.bloomB.value = POST.q1.texture;
+  if (POST.ao) {
+    const A = AO_MAT.uniforms; A.tDepth.value = POST.rt.depthTexture; A.projInv.value.copy(camera.projectionMatrixInverse); A.texel.value.set(1 / POST.rt.width, 1 / POST.rt.height);
+    A.projY.value = camera.projectionMatrix.elements[5]; A.aspect.value = POST.rt.width / POST.rt.height; postPass(AO_MAT, POST.ao);
+    blur(POST.ao, POST.ao2, POST.ao, 1.0);
+  }
+  const U = FINAL_MAT.uniforms; U.src.value = POST.rt.texture; U.hyper.value = POST.ao ? 1 : 0; U.aoTex.value = POST.ao ? POST.ao.texture : null; U.texel.value.set(1 / POST.rt.width, 1 / POST.rt.height); U.bloomA.value = POST.half.texture; U.bloomB.value = POST.q1.texture;
   U.bloom.value = GFX.cfg.bloom; U.exposure.value = renderer.toneMappingExposure; U.time.value = (performance.now() % 10000) / 1000;
   postPass(FINAL_MAT, null);
 }
@@ -1489,6 +1534,7 @@ function applyGfx(level) {
   if (sun.shadow.mapSize.x !== GFX.cfg.shadow) { sun.shadow.mapSize.set(GFX.cfg.shadow, GFX.cfg.shadow); if (sun.shadow.map) { sun.shadow.map.dispose(); sun.shadow.map = null; } }
   postTargets();
   GFX.rescatter = true; // grass re-scatters at the new distance
+  setTreeStyle(!!GFX.cfg.puffy); // (nothing to swap yet when this first runs at load)
 }
 applyGfx(GFX.level);
 
@@ -3860,7 +3906,7 @@ function phoneApp(app) {
     tile('🔫', 'Hold-ups', () => phoneApp('holdups'));
     tile('🏁', 'Street race', startRace);
     tile('😎', 'Rocco', () => phoneApp('rocco'), !STORY.M && STORY.done < CHAPTERS.length ? '1' : '');
-    tile('🧢', 'Mick', () => phoneApp('mick'), !MICK.M && MICK.done < MICK_JOBS.length ? '1' : '');
+    if (hasBrisbane()) tile('🧢', 'Mick', () => phoneApp('mick'), !MICK.M && MICK.done < MICK_JOBS.length ? '1' : '');
     head('Money & life'); grid = null;
     tile('📸', 'Tour', startTour);
     tile('⏱', 'Time trials', () => phoneApp('trials'), TRIAL ? '!' : '');
@@ -4397,7 +4443,8 @@ let AIRPORT = null, OVERVIEW_MESH = null;
 function setupAirport() {
   AIRPORT = REGION && REGION.airport;
   if (!AIRPORT || !AIRPORT.runways.length) return;
-  const [x1, z1, x2, z2] = AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
+  const B = (REGION.boxes || [REGION.bounds])[0], inGC = (r) => r[0] > B[0] && r[0] < B[2] && r[1] > B[1] && r[1] < B[3]; // Gold Coast Airport: with Brisbane on the map its airport's longer runways come first
+  const [x1, z1, x2, z2] = AIRPORT.runways.find(inGC) || AIRPORT.runways[0], h = Math.atan2(x2 - x1, z2 - z1), ex = Math.sin(h), ez = Math.cos(h), nx = ez, nz = -ex;
   AIRPORT.rw = { x1, z1, x2, z2, h, ex, ez, nx, nz, len: Math.hypot(x2 - x1, z2 - z1) };
   // parked planes beside the runway near its start: two Cessnas and an airliner
   AIRPORT.parked = [['cessna', 120, 70], ['cessna', 140, 70], ['twin', 165, 72], ['bizjet', 200, 78], ['fighter', 240, 78], ['jet', 310, 95]];
@@ -5070,8 +5117,8 @@ function transitApp(btn, head) {
 
 // ============================================================================
 // Gold Coast Streets — trains and CityCats (tools/build_transit.py works out their routes from OpenStreetMap).
-// Trains run the Gold Coast line, Varsity Lakes to Roma Street (88 km, 33 stations), both ways on their own tracks;
-// the CityCats run the Brisbane River, Northshore Hamilton to UQ St Lucia (20 terminals). Hop on with E while one
+// Trains run the Gold Coast line both ways on their own tracks (Varsity Lakes to Roma Street, 88 km, with Brisbane; Varsity
+// Lakes to Coomera on the Gold Coast-only map); with Brisbane the CityCats run the river, Northshore Hamilton to UQ St Lucia. Hop on with E while one
 // is stopped (like the G:link and the buses) and E at a stop to get off.
 // ============================================================================
 const TRANSIT = { lines: [], vehicles: [], track: new Map(), loaded: false, trackT: 0 };
@@ -8089,6 +8136,7 @@ function updateDrag(dt) {
 // Climb, the Wheel of Brisbane, Lone Pine, a CityCat cruise and the train up from the Gold Coast.
 // ============================================================================
 const SBRIDGE = { pts: [], mesh: null, w: 22 };
+const hasBrisbane = () => !!(REGION && REGION.boxes && REGION.boxes.length > 1); // the map can be published without Brisbane (it lagged the game): then none of this shows
 // the truss's line comes with the map (region.json storyBridge: its two ends, centred where the bridge crosses the river);
 // it goes up once every tile along it has loaded, so the deck heights under it are known
 function storyBridgeTile() {
@@ -8163,6 +8211,8 @@ function updateBrisbaneRides() {
   if (cur.ride === 'train' && /South Brisbane|Roma Street/.test(at) && /Varsity|Robina|Nerang|Helensvale|Coomera|Hope Island|Pimpama/.test(BRIS_RIDE.from)) actComplete('trainup', { msg: `🚆 From ${BRIS_RIDE.from} all the way to ${at}!`, money: 120 });
 }
 brisbaneActivities();
+const BRIS_ACTS = ['storyclimb', 'wheel', 'lonepine', 'citycat', 'trainup'];
+function dropBrisbaneActs() { for (const id of BRIS_ACTS) { const k = ACTS.findIndex((a) => a.id === id); if (k >= 0) ACTS.splice(k, 1); delete ACT_BY[id]; } }
 
 // ============================================================================
 // Gold Coast Streets — a day in the life, and the big events.
@@ -9210,7 +9260,7 @@ function guideList() { // [icon, name, how, action]
     ['💼', 'Jobs', 'Work real shifts: barista, taxi driver, lifeguard, mechanic and more. Paid per task.', A('jobs')],
     ['🏅', 'Daily missions', 'New challenges every day and week, with bonus cash.', A('missions')],
     ['😎', 'Rocco’s story', 'A pawn-shop boss in Nerang texts you six jobs, ending with a casino job.', A('rocco')],
-    ['🧢', 'Mick’s story (Brisbane)', 'Six jobs in Brisbane. Catch the train up from any Gold Coast station.', A('mick')],
+    hasBrisbane() && ['🧢', 'Mick’s story (Brisbane)', 'Six jobs in Brisbane. Catch the train up from any Gold Coast station.', A('mick')],
     ['🏦', 'Bank heist', 'Pick a bank, hire a crew, rob the vault and get to the safehouse.', A('heist')],
     ['🏁', 'Street race', 'Get in a car, then phone → Street race. Beat the clock to the finish.', () => { closePhone(); startRace(); }],
     ['⏱', 'Time trials', 'Set routes against the clock, with records to beat.', A('trials')],
@@ -9222,10 +9272,10 @@ function guideList() { // [icon, name, how, action]
     ['🏡', 'Buy a house', 'Houses and apartments for sale near you. Rent comes in while you play.', () => { PROP.listings = findListings(); phoneApp('realty'); }],
     ['☕', 'Run a business', 'Buy a café or car yard, hire staff and collect the takings.', A('business')],
     ['🐶', 'Get a dog', 'Adopt one at any pet shop. It follows you and plays fetch.', A('pet')],
-    ['🚆', 'Go to Brisbane', 'Catch the train to Roma Street, then ride a CityCat up the river.', A('transit')],
+    hasBrisbane() ? ['🚆', 'Go to Brisbane', 'Catch the train to Roma Street, then ride a CityCat up the river.', A('transit')] : ['🚆', 'Catch a train', 'Trains run Varsity Lakes to Coomera. Wait on a platform and press E when one stops.', A('transit')],
     ['🌐', 'Play with friends', 'Join a public world or make a private one with a code.', A('online')],
     ['🗺️', 'Explore', 'Open the map (M), click anywhere and follow the yellow line. Every street is real.', () => { closePhone(); toggleMap(); }],
-  ];
+  ].filter(Boolean);
 }
 function guideApp(btn, head) {
   btn('🎲 Surprise me', 'pick something for me to do right now', () => { const L = guideList().slice(1), g = pick(L); toast(`${g[0]} ${g[1]}: ${g[2]}`); g[3](); }).classList.add('go');
@@ -9410,8 +9460,8 @@ window.gcsDev = { toggle: () => devToggle(), mallCheck: () => devMallCheck(), sh
 // street shops, petrol stations, collision walls and road network.
 // ============================================================================
 let REGION = null;                 // tiles/region.json: index, overview roads/water, suburbs, landmarks
-// GitHub Pages can't hold the whole map (Brisbane too), so the page there reads its map files from the Cloudflare Pages copy
-const MAP_BASE = location.hostname.endsWith('github.io') ? 'https://gold-coast-streets-3k3.pages.dev/' : '';
+// the page on GitHub Pages reads its map files from the Cloudflare Pages copy; the local test page reads dist/site (MAP_DIR), the map as published
+const MAP_BASE = location.hostname.endsWith('github.io') ? 'https://gold-coast-streets-3k3.pages.dev/' : (window.MAP_DIR || '');
 const WORLD = { x0: MINX, z0: MINZ, x1: MAXX, z1: MAXZ };
 const TILES = new Map();           // "i,j" -> loaded tile
 const TILE_INDEX = new Set();      // tiles that exist on disk
@@ -9430,6 +9480,7 @@ async function loadRegion() {
   for (const [i, j] of REGION.tiles) TILE_INDEX.add(i + ',' + j);
   Object.assign(WORLD, { x0: REGION.bounds[0], z0: REGION.bounds[1], x1: REGION.bounds[2], z1: REGION.bounds[3] });
   buildOverview(); setupAirport();
+  if (!hasBrisbane()) dropBrisbaneActs(); // the published map is the Gold Coast only (tools/bundle.py)
   buildRegionSurf();
 }
 // a band of white water just off every stretch of open coastline (the core has its own)
@@ -10012,11 +10063,33 @@ const LEAFY_GEO = (() => {
   const ico = new THREE.DodecahedronGeometry(1, 0), ip = ico.attributes.position; // 36 triangles a crown: there are thousands
   for (let q = 0; q < ip.count; q++) { const x = ip.getX(q), y = ip.getY(q), z = ip.getZ(q), k = 0.88 + 0.24 * (Math.sin(x * 12.9898 + y * 78.233 + z * 37.719) * 0.5 + 0.5); ip.setXYZ(q, x * k, y * k, z * k); }
   ico.computeVertexNormals();
+  ico.setAttribute('color', new THREE.Float32BufferAttribute(new Array(ip.count * 3).fill(1), 3));
   const tr = new THREE.CylinderGeometry(0.12, 0.2, 1, 6); tr.translate(0, 0.5, 0);
-  return { ico, tr };
+  return { ico, tr, puffy: puffyCrown() };
 })();
+// Hyper's crowns: soft and rounded, four lumps of foliage, lit lighter on top and darker underneath (the cartoon look)
+function puffyCrown() {
+  const pos = [], nor = [], colr = [], lobe = new THREE.IcosahedronGeometry(1, 1), lp = lobe.attributes.position;
+  for (const [cx, cy, cz, r] of [[0, 0.12, 0, 0.82], [0.48, -0.12, 0.22, 0.6], [-0.44, -0.08, -0.26, 0.62], [0.06, -0.14, -0.5, 0.56], [-0.12, -0.2, 0.5, 0.55]])
+    for (let q = 0; q < lp.count; q++) {
+      const x = lp.getX(q), y = lp.getY(q), z = lp.getZ(q), wy = cy + y * r;
+      pos.push(cx + x * r, wy, cz + z * r); nor.push(x, y, z);
+      const k = 0.62 + 0.55 * Math.min(1, Math.max(0, (wy + 0.7) / 1.5)); colr.push(k, k * 1.02, k * 0.9);
+    }
+  lobe.dispose();
+  const g = new THREE.BufferGeometry(); g.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3)); g.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3)); g.setAttribute('color', new THREE.Float32BufferAttribute(colr, 3));
+  g.computeBoundingSphere(); return g;
+}
+// switch every leafy crown on the map between the two shapes (graphics level Hyper or not)
+function setTreeStyle(puffy) {
+  scene.traverse((o) => {
+    if (!o.isInstancedMesh || !o.userData.leafy) return;
+    o.geometry = puffy ? LEAFY_GEO.puffy : o.userData.lowGeo || LEAFY_GEO.ico;
+    if (o.material.flatShading === puffy) { o.material.flatShading = !puffy; o.material.needsUpdate = true; }
+  });
+}
 const TREE_MATS = { trunk: new THREE.MeshStandardMaterial({ color: col('#8b7a62'), roughness: 0.95, envMapIntensity: 0.3 }), crown: new THREE.MeshStandardMaterial({ vertexColors: true, roughness: 0.8, side: THREE.DoubleSide, envMapIntensity: 0.3 }),
-  ltrunk: new THREE.MeshStandardMaterial({ color: col('#6b5844'), envMapIntensity: 0.3 }), leaf: new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: true, envMapIntensity: 0.3 }) };
+  ltrunk: new THREE.MeshStandardMaterial({ color: col('#6b5844'), envMapIntensity: 0.3 }), leaf: new THREE.MeshStandardMaterial({ color: col('#ffffff'), roughness: 0.9, flatShading: !(GFX.cfg && GFX.cfg.puffy), vertexColors: true, envMapIntensity: 0.3 }) };
 // leaves and palm fronds sway in the sea breeze: each instance moves out of step, more at the top
 const TREE_WIND = { value: 0 };
 function addWind(mat, amt) {
@@ -10141,7 +10214,7 @@ function tileTrees(T, data, segs) {
     tm.castShadow = cm.castShadow = true; T.meshes.push(tm, cm); T.disposables.push(tm, cm);
   }
   if (leafy.length) {
-    const lt = new THREE.InstancedMesh(LEAFY_GEO.tr, TREE_MATS.ltrunk, leafy.length), lc = new THREE.InstancedMesh(LEAFY_GEO.ico, TREE_MATS.leaf, leafy.length);
+    const lt = new THREE.InstancedMesh(LEAFY_GEO.tr, TREE_MATS.ltrunk, leafy.length), lc = new THREE.InstancedMesh(GFX.cfg.puffy ? LEAFY_GEO.puffy : LEAFY_GEO.ico, TREE_MATS.leaf, leafy.length); lc.userData.leafy = true;
     leafy.forEach(([x, z, , crown, street], k) => { // crowns measured from the aerial photo carry their radius
       let R, H, tw = 1;
       if (crown) { R = crown * (0.85 + r() * 0.25); H = 1.4 + R * (0.6 + r() * 0.5) + r() * 2.5; }
