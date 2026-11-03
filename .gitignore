@@ -24,3 +24,4 @@ dist/art/
 dist/ground/
 data/*.log
 data/transit_backup.json
+dist/site/
