@@ -955,7 +955,8 @@ window.runRegression = async () => {
     const r = `shown ${shown} · walking finishes step 1 ${walked} · Enter skips ${skipped} · Skip tutorial ends it ${ended}`; home(); expect(shown && walked && skipped && ended, r); return r;
   });
   await test('graphics: Hyper turns on ambient occlusion and puffy trees, renders cleanly, and switching back undoes it', () => {
-    home(); const before = GFX.level, gl = renderer.getContext(); gl.getError();
+    home(); const before = GFX.level, gl = renderer.getContext(); for (let k = 0; k < 8 && gl.getError(); k++); // clear errors left by earlier tests (one is reported per call)
+    renderFrame(); for (let k = 0; k < 8 && gl.getError(); k++);
     applyGfx('hyper'); step(0.1); renderFrame(); const on = !!POST.ao && !!POST.rt.depthTexture, err = gl.getError();
     let puffy = 0, leafy = 0; scene.traverse((o) => { if (o.userData.leafy) { leafy++; if (o.geometry === LEAFY_GEO.puffy) puffy++; } });
     applyGfx('ultra'); step(0.05); renderFrame(); let back = 0; scene.traverse((o) => { if (o.userData.leafy && o.geometry !== LEAFY_GEO.puffy) back++; });
@@ -983,6 +984,16 @@ window.runRegression = async () => {
     const verts = T.meshes.filter((m) => m.userData.yard && m.material === buildingMats.plain).reduce((a, m) => a + m.geometry.attributes.position.count, 0), pools = (TILES.get('-2,7').houses.length, water ? water.geometry.attributes.position.count / 3 : 0); home();
     const r = `${sigs.size}/${built} interiors different · yard props ${verts} vertices · ${T.fences.length} fences · pool water ${pools} triangles`;
     expect(built >= 6 && sigs.size === built && verts > 5000 && T.fences.length > 200, r); return r;
+  });
+  await test('everyone starts with a pistol in slot 2 (30 rounds), and gets one back after hospital or the cells', async () => {
+    quiet(); const w0 = JSON.stringify(player.weapons), sel0 = player.weapon, m0 = player.money;
+    player.weapons = {}; player.weapon = 'fist'; givePistol(); selectWeapon(WEAPON_ORDER[1]); const start = player.weapons.pistol === 30 && player.weapon === 'pistol';
+    player.weapons = { pistol: 80, smg: 40 }; givePistol(); const keeps = player.weapons.pistol === 80; // more than 30 isn't taken away
+    player.weapons = { pistol: 2 }; endLife('wasted'); await respawn(); const hosp = player.weapons.pistol === 30;
+    player.weapons = { pistol: 80, smg: 40 }; endLife('busted'); await respawn(); const cells = JSON.stringify(player.weapons) === '{"pistol":30}';
+    player.weapons = JSON.parse(w0); player.weapon = sel0; attachGun(); player.money = m0; home();
+    const r = `start: pistol 30 in slot 2 ${start} · a bigger stash kept ${keeps} · topped up after hospital ${hosp} · after the cells only the pistol, 30 rounds ${cells}`;
+    expect(start && keeps && hosp && cells, r); return r;
   });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 

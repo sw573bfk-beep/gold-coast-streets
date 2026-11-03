@@ -1278,12 +1278,13 @@ async function respawn() {
   player.x = D.x; player.z = D.z; player.y = 0; player.h = D.h; camYaw = D.h;
   player.health = 100; player.stars = 0; player.deadT = 0; player.state = 'foot'; player.mode = 'foot'; player.car = null; player.seq = null;
   const fee = Math.min(player.money, 100); player.money -= fee;
-  if (kind === 'busted' && Object.keys(player.weapons).length) { player.weapons = {}; player.weapon = 'fist'; attachGun(); }
-  saveGame();
+  const confiscated = kind === 'busted' && Object.keys(player.weapons).some((w) => w !== 'pistol' || player.weapons[w] > START_AMMO);
+  if (kind === 'busted') { player.weapons = {}; player.weapon = 'fist'; attachGun(); }
+  givePistol(); saveGame();
   player.model.root.rotation.set(0, player.h, 0); player.model.root.visible = true;
   $('big').style.opacity = 0;
   player.exitWalk = 1.4; // a few steps out through the doors
-  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${player.weapon === 'fist' ? ' · weapons confiscated' : ''}` : `Discharged from ${P.name} · hospital bill -$${fee}`);
+  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${confiscated ? ' · weapons confiscated (you get a pistol back)' : ''}` : `Discharged from ${P.name} · hospital bill -$${fee}`);
   for (const c of cars.slice()) if (c.kind === 'police') c.remove();
   for (const p of peds.slice()) if (p.cop) p.remove();
   player.respawning = false;
@@ -2083,7 +2084,7 @@ function setPaused(p) {
 }
 $('play').addEventListener('click', async () => {
   initAudio(); if (AU.ctx && AU.ctx.state === 'suspended') AU.ctx.resume();
-  const first = !started; if (first) await goToSpawn($('pick-spawn').value);
+  const first = !started; if (first) { await goToSpawn($('pick-spawn').value); givePistol(); saveGame(); }
   started = true; setPaused(false);
   if (first) tutMaybeStart(); // a short tutorial the very first time (guide.js)
   if (first && MODE === 'multi') netQuick(); // straight into a public world (phone → Online for friends and codes)

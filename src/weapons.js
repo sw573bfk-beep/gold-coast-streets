@@ -9,6 +9,9 @@ const WEAPONS = {
   shotgun: { name: 'Shotgun', dmg: 1, rate: 0.85, spread: 0.085, range: 32, pellets: 8, sound: [0.3, 900, 0.5] },
 };
 const WEAPON_ORDER = ['fist', 'pistol', 'smg', 'shotgun'];
+// everyone starts (and comes back from hospital or the cells) with a pistol in slot 2 and at least 30 rounds
+const START_AMMO = 30;
+function givePistol() { if ((player.weapons.pistol || 0) < START_AMMO) player.weapons.pistol = START_AMMO; }
 let fireCool = 0, aiming = false;
 
 // tracers (short-lived lines from the muzzle to whatever got hit)
