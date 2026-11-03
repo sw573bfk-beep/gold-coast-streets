@@ -995,6 +995,21 @@ window.runRegression = async () => {
     const r = `start: pistol 30 in slot 2 ${start} · a bigger stash kept ${keeps} · topped up after hospital ${hosp} · after the cells only the pistol, 30 rounds ${cells}`;
     expect(start && keeps && hosp && cells, r); return r;
   });
+  await test('wasted costs 75% of the cash on you, the bank and your house safe keep theirs; aircraft float over your home and come down when called', async () => {
+    quiet(); const keep = { props: ECON.props, home: ECON.home, air: ECON.aircraft, bank: ECON.bank, money: player.money };
+    player.x = -1939; player.z = 7704; for (let k = 0; k < 400 && (tileBusy || !TILES.has('-2,7')); k++) { step(0.05); await new Promise((r) => setTimeout(r, 5)); }
+    const H = TILES.get('-2,7').houses.find((h) => h.top < 4.5), fd = H.doors.find((d) => d.type === 'front') || H.doors[0];
+    ECON.props = [{ id: H.id, kind: 'house', name: 'Test house', x: fd.x, z: fd.z, price: 100000, rent: 400, safe: 0 }]; ECON.home = { x: fd.x, z: fd.z, name: 'Test house' }; ECON.aircraft = [];
+    player.money = 5000; ECON.bank = 2000; safeMove(ECON.props[0], 1000);
+    endLife('wasted'); await respawn(); const afterDeath = { money: player.money, bank: ECON.bank, safe: ECON.props[0].safe };
+    const deathOK = afterDeath.money === 1000 && afterDeath.bank === 2000 && afterDeath.safe === 1000;
+    player.money = 100000; buyAircraft(AIR_BY.heli); player.x = fd.x + 20; player.z = fd.z + 20; step(0.1);
+    const shown = AIRCRAFT.shown.length; callAircraft(0); const out = AIRCRAFT.out.get(0), down = !!out && CHOPPERS.includes(out) && out.owned; step(0.1);
+    const hidden = AIRCRAFT.shown.length === 0; sendHome(0); step(0.1); const back = !CHOPPERS.includes(out) && AIRCRAFT.shown.length === 1;
+    Object.assign(ECON, { props: keep.props, home: keep.home, aircraft: keep.air, bank: keep.bank }); player.money = keep.money; AIRCRAFT.showKey = ''; step(0.1); home();
+    const r = `wasted with $4,000: $${afterDeath.money} left, savings $${afterDeath.bank}, safe $${afterDeath.safe} · helicopter over the roof ${shown === 1}, called down ${down}, gone from the roof ${hidden}, sent home ${back}`;
+    expect(deathOK && shown === 1 && down && hidden && back, r); return r;
+  });
   await test('no console errors raised by the game during the run', () => { expect(!window.__gcsErrors || window.__gcsErrors.length === 0, (window.__gcsErrors || []).join('; ')); return 'none'; });
 
   if (savedBefore !== null) localStorage.setItem('gcs-save', savedBefore); else localStorage.removeItem('gcs-save');

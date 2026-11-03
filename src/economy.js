@@ -1,7 +1,7 @@
 // Gold Coast Streets — the city economy: jobs with real tasks, car dealerships and owned cars, a bank account,
 // hotel rooms as a home, and gym training. Everything uses the one player balance and the one save.
 
-const ECON = { bank: 0, garage: [], props: [], gear: {}, aim: 0, rangeBest: 0, jobs: {}, home: null, fitness: 0, gymDay: -1, shift: null, called: null, testDrive: null, lastBuy: 0 };
+const ECON = { bank: 0, garage: [], props: [], aircraft: [], gear: {}, aim: 0, rangeBest: 0, jobs: {}, home: null, fitness: 0, gymDay: -1, shift: null, called: null, testDrive: null, lastBuy: 0 };
 // one purchase at a time: a second click within a quarter second is ignored (no double charges)
 function purchaseGuard(key) { const t = performance.now(); if (t - ECON.lastBuy < 250 && ECON.lastKey === key) return false; ECON.lastBuy = t; ECON.lastKey = key; return true; } // the same thing twice within 250 ms is a double click
 function pay(amount, what) { if (player.money < amount) { toast(`Not enough money for ${what} ($${amount})`); return false; } player.money -= amount; return true; }
@@ -219,7 +219,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), mick: MICK.done, act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, air: ECON.aircraft, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), mick: MICK.done, act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -237,4 +237,5 @@ function economyLoad(s) {
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);
   if (typeof s.gymDay === 'number') ECON.gymDay = s.gymDay;
+  if (Array.isArray(s.air)) ECON.aircraft = s.air.filter((A) => A && AIR_BY[A.type]); // aircraft you own (shared.js)
 }

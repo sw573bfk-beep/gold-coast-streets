@@ -1,11 +1,11 @@
 // ============================================================================
-// Gold Coast Streets — single player or multiplayer. Single player saves on this device, like always. Multiplayer
+// Gold Coast Streets — online (the default) or offline. Offline saves on this device, like always. Online
 // needs an account (a name and a password, nothing else): your multiplayer money, cars, houses and look are saved
 // to the account so you can carry on anywhere, and kept apart from single player (no bringing offline money online).
 // Records set in public worlds go on the leaderboards: the richest, the fastest time trials, the biggest fish and the
 // best wave (phone → Records).
 // ============================================================================
-const MODE = (() => { try { return sessionStorage.getItem('gcs-mode') === 'multi' ? 'multi' : 'single'; } catch (e) { return 'single'; } })();
+const MODE = (() => { try { if (new URLSearchParams(location.search).get('mode') === 'single') return 'single'; return sessionStorage.getItem('gcs-mode') === 'single' ? 'single' : 'multi'; } catch (e) { return 'single'; } })(); // online unless you chose offline (or ?mode=single)
 const ACCT = { token: null, name: null, loaded: false, saveT: 0, dirty: false, lastSave: 0 };
 try { ACCT.token = localStorage.getItem('gcs-token'); ACCT.name = localStorage.getItem('gcs-acct'); } catch (e) { /* storage blocked */ }
 function api(path, body, method) {
@@ -13,27 +13,30 @@ function api(path, body, method) {
   return fetch(ONLINE_URL + path, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined })
     .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Server error'); return d; });
 }
-function setMode(m) { try { if (m === 'multi') sessionStorage.setItem('gcs-mode', 'multi'); else sessionStorage.removeItem('gcs-mode'); } catch (e) { /* storage blocked */ } location.reload(); }
+function setMode(m) { try { sessionStorage.setItem('gcs-mode', m === 'single' ? 'single' : 'multi'); } catch (e) { /* storage blocked */ } location.reload(); }
 function signedIn(d) { ACCT.token = d.token; ACCT.name = d.name; try { localStorage.setItem('gcs-token', d.token); localStorage.setItem('gcs-acct', d.name); } catch (e) { /* storage blocked */ } }
 function signOut() {
   if (ACCT.token) api('/logout', {}).catch(() => {});
   try { localStorage.removeItem('gcs-token'); localStorage.removeItem('gcs-acct'); } catch (e) { /* storage blocked */ }
-  setMode('single');
+  setMode('multi'); // back to the log-in screen
 }
 // ---------------------------------------------------------------- the start screen
 function initModeMenu() {
   const play = $('play'), box = document.createElement('div'); box.id = 'modes';
   play.parentNode.insertBefore(box, play);
-  if (MODE === 'single') {
-    play.dataset.label = '▶ Single player';
-    const mp = document.createElement('button'); mp.type = 'button'; mp.id = 'play-mp'; mp.textContent = '🌐 Multiplayer';
+  const offline = () => { const b = document.createElement('button'); b.type = 'button'; b.className = 'acct-offline'; b.textContent = 'Play offline instead (saved on this device)'; b.addEventListener('click', () => setMode('single')); return b; };
+  if (MODE === 'multi' && !ACCT.token) { // online is the default: log in (or make an account) first
+    play.dataset.label = '🌐 Log in to play online'; accountForm(box); box.appendChild(offline());
+  } else if (MODE === 'single') {
+    play.dataset.label = '▶ Play offline';
+    const mp = document.createElement('button'); mp.type = 'button'; mp.id = 'play-mp'; mp.textContent = '🌐 Play online';
     mp.addEventListener('click', () => { if (ACCT.token) api('/me').then(() => setMode('multi')).catch(() => accountForm(box)); else accountForm(box); });
     play.after(mp);
   } else {
     play.dataset.label = '▶ Play online';
     box.innerHTML = '<div class="acct-who"></div>'; box.firstChild.textContent = `🌐 Multiplayer · signed in as ${ACCT.name || '…'}`;
     const row = document.createElement('div'); row.className = 'acct-row';
-    const sp = document.createElement('button'); sp.type = 'button'; sp.textContent = 'Back to single player'; sp.addEventListener('click', () => setMode('single'));
+    const sp = document.createElement('button'); sp.type = 'button'; sp.textContent = 'Play offline'; sp.addEventListener('click', () => setMode('single'));
     const out = document.createElement('button'); out.type = 'button'; out.textContent = 'Log out'; out.addEventListener('click', signOut);
     row.append(sp, out); box.appendChild(row);
   }
@@ -60,18 +63,21 @@ function accountForm(box) {
 // multiplayer progress comes from the account, not this device
 function loadAccount() {
   if (MODE !== 'multi') return;
+  if (!ACCT.token) { $('play').disabled = true; return; } // the log-in form is showing
   $('play').disabled = true; $('play').textContent = 'Loading your account…';
   api('/save').then((d) => {
     if (d.data) applySave(d.data);
-    rebuildPlayer(); ACCT.loaded = true; applyGifts(d.gifts); $('play').disabled = false; $('play').textContent = $('play').dataset.label;
-  }).catch((e) => { $('play').textContent = e.message === 'log in first' ? 'Signed out — log in again' : 'Couldn’t reach the server'; if (e.message === 'log in first') signOut(); });
+    rebuildPlayer(); ACCT.loaded = true; applyGifts(d.gifts); sharedLogin(d); $('play').disabled = false; $('play').textContent = $('play').dataset.label; // houses, safes and robbery news (shared.js)
+  }).catch((e) => { $('play').textContent = e.message === 'log in first' ? 'Signed out — log in again' : 'Couldn’t reach the server — play offline for now'; if (e.message === 'log in first') signOut(); });
 }
 function cloudSave(obj) { // called by saveGame in multiplayer: sent at most every 15 s
   ACCT.pending = obj; if (ACCT.saveT > 0) return;
   const wait = Math.max(0, 15000 - (Date.now() - ACCT.lastSave)); ACCT.saveT = 1;
   setTimeout(() => {
     ACCT.saveT = 0; ACCT.lastSave = Date.now(); const data = ACCT.pending; ACCT.pending = null; if (!data || !ACCT.loaded) return;
-    api('/save', { data, world: NET.world && NET.world.public ? NET.world.code : null }).catch(() => {});
+    api('/save', { data, world: NET.world && NET.world.public ? NET.world.code : null }).then((r) => {
+      if (r && r.cut) { player.money = r.money; ECON.bank = r.bank; toast(`Server check: $${r.cut.toLocaleString()} that couldn’t have been earned was taken off`); } // the server's money check (server/src/index.js)
+    }).catch(() => {});
   }, wait);
 }
 // ---------------------------------------------------------------- records (public worlds only)

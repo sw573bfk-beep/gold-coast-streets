@@ -15,11 +15,24 @@
 //   GET  /online                                 how many are playing online right now (all worlds)
 //   POST /ping  ·  GET /gifts                    time played (once a minute)  ·  money the admin sent you
 //   GET  /chat?after=ID  ·  POST /chat {text}    the global chat (filtered on the way in: filter.js)
+//   GET  /houses                                 every owned house (yours with its safe; others: robbable or not)
+//   POST /house/buy {id, kind, name, x, z, price}  ·  POST /house/sell {id}  ·  POST /house/claim {props}
+//   POST /house/safe {id, amount}                put cash in (or, negative, take it out of) your safe
+//   POST /house/rob {id}                         crack an offline player's safe: up to half of it, once a day
+// The quick-join world is the one shared Gold Coast (GC01, then GC02 when that's full, and so on); progress lives on
+// the account, and the server checks every save: a wallet can't grow faster than play could fill it.
 //   /admin/...                                   the admin panel (only the accounts named in ADMINS)
 import { DurableObject } from 'cloudflare:workers';
 import { check as chatCheck, cleanName } from './filter.js';
 
 const SHOWN_MAX = 16, MAX_PLAYERS = 20; // public worlds fill to 16; friends with the code can still get in up to 20
+// the shared world's rules
+const OFFLINE_MS = 150000;            // no ping for this long: offline (the game pings once a minute)
+const ROB_EVERY = 24 * 3600000;       // a house can be robbed once a day
+const ROB_MIN = 0.3, ROB_MAX = 0.5;   // a robbery takes 30-50% of the safe
+const NEW_PLAYER_MS = 2 * 3600000;    // players with less than two hours played can't be robbed yet
+const MAX_HOUSES = 12;
+const EARN_PER_MIN = 8000, BUDGET_CAP = 150000; // what play can earn: up to $8,000 a minute, $150,000 saved up at most
 const CORS = { 'Access-Control-Allow-Origin': '*', 'Access-Control-Allow-Methods': 'GET, POST, OPTIONS', 'Access-Control-Allow-Headers': 'Content-Type, Authorization' };
 const BAD = /fuck|shit|cunt|bitch|nigg|fag|slut|whore|rape|nazi|porn|dick|cock|pussy|wank/i;
 // names and world titles: letters, numbers and spaces only, nothing rude
@@ -73,7 +86,82 @@ async function toWorlds(env, path, body) { // tell every live world something (a
 }
 async function claimGifts(env, userId) { // money the admin sent: handed over once, then gone from the table
   const r = await env.DB.prepare('DELETE FROM gifts WHERE user_id = ? RETURNING amount, note').bind(userId).all();
+  const sum = (r.results || []).reduce((a, g) => a + (Number(g.amount) || 0), 0);
+  if (sum) await addCredit(env, userId, sum); // the next save may show it
   return r.results || [];
+}
+const addCredit = (env, userId, n) => env.DB.prepare('UPDATE users SET credit = credit + ? WHERE id = ?').bind(Math.round(n), userId).run();
+// ---------------------------------------------------------------- the shared world: houses, safes and robberies
+const worthOf = (d) => (Number(d && d.money) || 0) + (Number(d && d.bank) || 0);
+async function houseList(env, u) {
+  const now = Date.now();
+  const r = await env.DB.prepare('SELECT houses.*, users.name AS owner_name, users.last_seen, users.play_ms FROM houses JOIN users ON users.id = houses.owner').all();
+  return (r.results || []).map((h) => {
+    const mine = h.owner === u.id, online = h.last_seen && now - h.last_seen < OFFLINE_MS;
+    const robbable = !mine && !online && now - h.robbed_at > ROB_EVERY && h.safe >= 100 && h.play_ms >= NEW_PLAYER_MS;
+    return { id: h.prop_id, kind: h.kind, name: h.name, x: h.x, z: h.z, price: h.price, owner: h.owner_name, mine, online: !!online, robbable, ...(mine ? { safe: h.safe } : { hasSafe: h.safe >= 100 }) };
+  });
+}
+function propIn(b) { // a property as the game describes it, checked
+  const id = String(b.id || '').slice(0, 40), kind = b.kind === 'apt' ? 'apt' : 'house', x = Number(b.x), z = Number(b.z), price = Math.round(Number(b.price));
+  if (!/^(apt:)?-?\d+[,:]-?\d+(:\d+)?$/.test(id) || !Number.isFinite(x) || !Number.isFinite(z) || !(price >= 1000 && price <= 50000000)) return null;
+  return { id, kind, name: clean(b.name, 60, kind === 'apt' ? 'An apartment' : 'A house'), x, z, price };
+}
+async function housesRoute(req, env, url, u) {
+  const now = Date.now();
+  if (url.pathname === '/houses') return json({ houses: await houseList(env, u) });
+  const b = await readJson(req); if (!b) return json({ error: 'bad request' }, 400);
+  if (url.pathname === '/house/buy') {
+    const p = propIn(b); if (!p) return json({ error: 'bad property' }, 400);
+    const n = await env.DB.prepare('SELECT COUNT(*) AS n FROM houses WHERE owner = ?').bind(u.id).first();
+    if (n.n >= MAX_HOUSES) return json({ error: `You can own ${MAX_HOUSES} places at most` }, 400);
+    const r = await env.DB.prepare('INSERT INTO houses (prop_id, owner, kind, name, x, z, price, bought) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(prop_id) DO NOTHING').bind(p.id, u.id, p.kind, p.name, p.x, p.z, p.price, now).run();
+    if (!r.meta.changes) return json({ error: 'Someone already owns this place' }, 409);
+    await addCredit(env, u.id, -p.price); // the save that follows has to show the money gone
+    return json({ ok: true });
+  }
+  if (url.pathname === '/house/claim') { // places bought before the shared world: the first owner keeps it, anyone else gets their money back
+    const mine = [], refunded = [];
+    for (const raw of (Array.isArray(b.props) ? b.props : []).slice(0, MAX_HOUSES)) {
+      const p = propIn(raw || {}); if (!p) continue;
+      await env.DB.prepare('INSERT INTO houses (prop_id, owner, kind, name, x, z, price, bought) VALUES (?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT(prop_id) DO NOTHING').bind(p.id, u.id, p.kind, p.name, p.x, p.z, p.price, now).run();
+      const h = await env.DB.prepare('SELECT owner FROM houses WHERE prop_id = ?').bind(p.id).first();
+      if (h && h.owner === u.id) mine.push(p.id); else { refunded.push({ id: p.id, price: p.price }); await addCredit(env, u.id, p.price); }
+    }
+    return json({ mine, refunded });
+  }
+  const h = await env.DB.prepare('SELECT * FROM houses WHERE prop_id = ?').bind(String(b.id || '')).first();
+  if (!h) return json({ error: 'No one owns that place' }, 404);
+  if (url.pathname === '/house/sell') {
+    if (h.owner !== u.id) return json({ error: 'Not your place' }, 403);
+    const back = Math.round(h.price * 0.8 / 100) * 100;
+    await env.DB.prepare('DELETE FROM houses WHERE prop_id = ?').bind(h.prop_id).run();
+    await addCredit(env, u.id, back + h.safe);
+    return json({ ok: true, back, safe: h.safe });
+  }
+  if (url.pathname === '/house/safe') {
+    if (h.owner !== u.id) return json({ error: 'Not your safe' }, 403);
+    const amount = Math.round(Number(b.amount) || 0);
+    if (!amount || amount > 50000000 || -amount > h.safe) return json({ error: amount < 0 ? 'There isn’t that much in the safe' : 'bad amount' }, 400);
+    await env.DB.prepare('UPDATE houses SET safe = safe + ? WHERE prop_id = ?').bind(amount, h.prop_id).run();
+    await addCredit(env, u.id, -amount);
+    return json({ safe: h.safe + amount });
+  }
+  if (url.pathname === '/house/rob') {
+    if (h.owner === u.id) return json({ error: 'That’s your own safe' }, 400);
+    const o = await env.DB.prepare('SELECT name, last_seen, play_ms FROM users WHERE id = ?').bind(h.owner).first();
+    if (o.last_seen && now - o.last_seen < OFFLINE_MS) return json({ error: `${o.name} is online — you can only rob them while they’re offline` }, 403);
+    if (o.play_ms < NEW_PLAYER_MS) return json({ error: `${o.name} is new here — new players can’t be robbed yet` }, 403);
+    if (now - h.robbed_at < ROB_EVERY) return json({ error: 'Someone already cleaned this safe out today' }, 403);
+    if (h.safe < 100) return json({ error: 'The safe is empty' }, 403);
+    const amount = Math.floor(h.safe * (ROB_MIN + Math.random() * (ROB_MAX - ROB_MIN)));
+    const r = await env.DB.prepare('UPDATE houses SET safe = safe - ?, robbed_at = ? WHERE prop_id = ? AND robbed_at = ? AND safe >= ?').bind(amount, now, h.prop_id, h.robbed_at, amount).run();
+    if (!r.meta.changes) return json({ error: 'Someone beat you to it' }, 409);
+    await env.DB.prepare('INSERT INTO robberies (prop_id, owner, robber, amount, at) VALUES (?, ?, ?, ?, ?)').bind(h.prop_id, h.owner, u.id, amount, now).run();
+    await addCredit(env, u.id, amount);
+    return json({ amount, owner: o.name });
+  }
+  return json({ error: 'not found' }, 404);
 }
 async function adminLog(env, action, target, detail) { await env.DB.prepare('INSERT INTO admin_log (at, action, target, detail) VALUES (?, ?, ?, ?)').bind(Date.now(), action, String(target || ''), String(detail || '').slice(0, 200)).run(); }
 function saveSummary(raw) { // the bits of a player's save the admin panel shows
@@ -283,13 +371,31 @@ async function api(req, env, url) {
     return json({ ok: true });
   }
   if (url.pathname === '/logout' && req.method === 'POST') { await env.DB.prepare('DELETE FROM sessions WHERE token = ?').bind((req.headers.get('Authorization') || '').replace(/^Bearer /, '')).run(); return json({ ok: true }); }
-  if (url.pathname === '/save' && req.method === 'GET') { const r = await env.DB.prepare('SELECT data FROM saves WHERE user_id = ?').bind(u.id).first(); return json({ data: r ? JSON.parse(r.data) : null, gifts: await claimGifts(env, u.id) }); }
+  if (url.pathname === '/save' && req.method === 'GET') {
+    const r = await env.DB.prepare('SELECT data FROM saves WHERE user_id = ?').bind(u.id).first();
+    const robbed = (await env.DB.prepare('UPDATE robberies SET seen = 1 WHERE owner = ? AND seen = 0 RETURNING prop_id, robber, amount, at').bind(u.id).all()).results || [];
+    for (const x of robbed) { const w = await env.DB.prepare('SELECT users.name AS robber, houses.name AS house FROM users LEFT JOIN houses ON houses.prop_id = ? WHERE users.id = ?').bind(x.prop_id, x.robber).first(); Object.assign(x, w || {}); }
+    return json({ data: r ? JSON.parse(r.data) : null, gifts: await claimGifts(env, u.id), houses: await houseList(env, u), robbed });
+  }
+  if (url.pathname === '/houses' || url.pathname.startsWith('/house/')) return housesRoute(req, env, url, u);
   if (url.pathname === '/save' && req.method === 'POST') {
     const b = await readJson(req); if (!b || !b.data || typeof b.data !== 'object') return json({ error: 'bad save' }, 400);
+    // the money check: the wallet and savings may grow by what the server itself handed over (credit) plus what play
+    // could have earned since (the budget, refilling at $8,000 a minute up to $150,000); anything past that is taken off
+    const now = Date.now(), prev = await env.DB.prepare('SELECT data FROM saves WHERE user_id = ?').bind(u.id).first(), U = await env.DB.prepare('SELECT credit, budget, budget_at FROM users WHERE id = ?').bind(u.id).first();
+    let budget = Math.min(BUDGET_CAP, U.budget + (U.budget_at ? Math.max(0, now - U.budget_at) / 60000 * EARN_PER_MIN : 0)), cut = 0;
+    const before = prev ? worthOf(JSON.parse(prev.data)) : 250, gain = worthOf(b.data) - before - U.credit;
+    if (gain > budget) {
+      cut = Math.round(gain - budget); let left = cut;
+      const fromWallet = Math.min(left, Math.max(0, Number(b.data.money) || 0)); b.data.money = (Number(b.data.money) || 0) - fromWallet; left -= fromWallet;
+      if (left > 0) b.data.bank = Math.max(0, (Number(b.data.bank) || 0) - left);
+    }
+    budget = Math.max(0, budget - Math.max(0, Math.min(gain, budget)));
+    await env.DB.prepare('UPDATE users SET credit = 0, budget = ?, budget_at = ? WHERE id = ?').bind(Math.round(budget), now, u.id).run();
     await env.DB.prepare('INSERT INTO saves (user_id, data, updated) VALUES (?, ?, ?) ON CONFLICT(user_id) DO UPDATE SET data = excluded.data, updated = excluded.updated').bind(u.id, JSON.stringify(b.data), Date.now()).run();
     const worth = (Number(b.data.money) || 0) + (Number(b.data.bank) || 0); // the richest board: wallet plus savings
     if (worth > 0 && await publicWorld(env, b.world)) await putRecord(env, 'money', u.id, Math.round(worth), '');
-    return json({ ok: true });
+    return json(cut ? { ok: true, cut, money: b.data.money, bank: b.data.bank } : { ok: true });
   }
   if (url.pathname === '/record' && req.method === 'POST') {
     const b = await readJson(req); if (!b) return json({ error: 'bad request' }, 400);
@@ -315,7 +421,7 @@ export default {
       const c = await crewOf(env, u.id); q.searchParams.set('crew', c ? c.tag : ''); // the crew tag comes from the database too
       return env.WORLD.get(env.WORLD.idFromName(code)).fetch(new Request(q, req));
     }
-    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews', '/online', '/ping', '/gifts', '/chat'].includes(url.pathname) || url.pathname.startsWith('/admin/')) return api(req, env, url);
+    if (['/signup', '/login', '/leaders', '/me', '/logout', '/save', '/record', '/crew', '/crew/create', '/crew/join', '/crew/leave', '/crews', '/online', '/ping', '/gifts', '/chat', '/houses'].includes(url.pathname) || url.pathname.startsWith('/house/') || url.pathname.startsWith('/admin/')) return api(req, env, url);
     return json({ ok: true, game: 'Gold Coast Streets online' });
   },
 };
@@ -410,9 +516,9 @@ export class Lobby extends DurableObject {
     if (url.pathname === '/all') return json({ worlds: Object.values(worlds).map(({ code, title, public: pub, players }) => ({ code, title, public: pub, players })) });
     if (url.pathname === '/has') { const w = worlds[url.searchParams.get('code')]; return json({ public: !!(w && w.public) }); }
     if (url.pathname === '/newcode') return json({ code: freeCode() });
-    if (url.pathname === '/match') { // the busiest public world that still has room, or a fresh one
-      const w = Object.values(worlds).filter((q) => q.public && q.players < SHOWN_MAX).sort((a, b) => b.players - a.players)[0];
-      return json(w ? { code: w.code, fresh: false } : { code: freeCode(), fresh: true });
+    if (url.pathname === '/match') { // the one shared Gold Coast: GC01, or the next copy when that one's full
+      for (let n = 1; n < 100; n++) { const code = 'GC' + String(n).padStart(2, '0'), w = worlds[code]; if (!w || w.players < SHOWN_MAX) return json({ code, title: 'Gold Coast' + (n > 1 ? ' ' + n : ''), fresh: !w }); }
+      return json({ code: freeCode(), fresh: true });
     }
     if (url.pathname === '/report') {
       const w = await req.json();

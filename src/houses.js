@@ -354,6 +354,9 @@ function buildHouseInterior(H) {
       const loo = place(um + 0.4, R.va + 0.35, 0.4, 0.42, 0.6, FURN.white); on(loo, 0, -0.25, 0.45, 0.45, 0.18, FURN.white, 0.42); // toilet and cistern
     }
   }
+  // an owned place has a safe in a bedroom (yours, or online someone else's to crack while they're offline: shared.js)
+  H.safeSpot = null;
+  if (houseHasSafe(H)) { const R = rooms.find((q) => q.kind === 'bed') || rooms[0], sp = place(R.ub - 0.45, R.vb - 0.45, 0.6, 0.85, 0.55, col('#2b2f33')); if (sp) { on(sp, 0, -0.29, 0.18, 0.18, 0.03, col('#c9a13a'), 0.45); H.safeSpot = { x: sp.x, z: sp.z }; } }
   if (LOOTED.has(H.id)) loot.length = 0;
   // indoors the sun can't reach: lit evenly like the shop rooms, with soft shading baked in per face direction
   for (let k = 0; k < B.col.length; k += 3) {

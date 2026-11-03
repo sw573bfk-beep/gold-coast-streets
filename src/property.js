@@ -13,7 +13,7 @@ function findListings() {
   const out = [], seen = new Set();
   const houses = [];
   for (const T of TILES.values()) for (const H of T.houses || []) {
-    const fd = H.doors.find((d) => d.type === 'front'); if (!fd || ownsProp(H.id)) continue;
+    const fd = H.doors.find((d) => d.type === 'front'); if (!fd || ownsProp(H.id) || ownedByOther(H.id)) continue; // online: someone else's already
     const d = Math.hypot(fd.x - player.x, fd.z - player.z); if (d < 60 || d > 1000) continue;
     houses.push({ H, fd, d });
   }
@@ -29,7 +29,7 @@ function findListings() {
     .filter((t) => t.d < 1000).sort((a, b) => a.d - b.d);
   const used = new Set();
   for (const t of towers) {
-    const id = `apt:${Math.round(t.cx)},${Math.round(t.cz)}`; if (used.has(id) || ownsProp(id)) continue; used.add(id);
+    const id = `apt:${Math.round(t.cx)},${Math.round(t.cz)}`; if (used.has(id) || ownsProp(id) || ownedByOther(id)) continue; used.add(id);
     const hash = ((Math.round(t.cx) * 73856093) ^ (Math.round(t.cz) * 19349663)) >>> 0; // the same listing each time you look
     const floor = clamp(Math.round(t.B.b[0] / 3 * (0.4 + (hash % 1000) / 2000)), 2, 80), st = streetName(t.cx, t.cz);
     const s = sidewalkNear(t.cx, t.cz), price = roundTo(38000 + t.B.b[0] * 650 + floor * 400, 1000);
@@ -42,15 +42,17 @@ function findListings() {
 function buyProperty(L) {
   if (ownsProp(L.id)) return;
   if (player.money + ECON.bank < L.price) { toast(`Not enough money: you need $${L.price.toLocaleString()} (wallet plus savings)`); return; }
+  if (sharedOn() && !L.confirmed) { api('/house/buy', L).then(() => { buyProperty(Object.assign({}, L, { confirmed: true })); refreshHouses(); if (PHONE.open) phoneApp('realty'); }).catch((e) => toast(e.message)); return; } // online: the server says it's still for sale
   const fromWallet = Math.min(player.money, L.price); player.money -= fromWallet; ECON.bank -= L.price - fromWallet;
-  ECON.props.push({ id: L.id, kind: L.kind, name: L.name, x: L.x, z: L.z, price: L.price, rent: L.rent });
+  ECON.props.push({ id: L.id, kind: L.kind, name: L.name, x: L.x, z: L.z, price: L.price, rent: L.rent, safe: 0 });
   ECON.home = { x: L.x, z: L.z, name: L.name }; playerSpot = { x: L.x, z: L.z }; saveGame();
   sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle');
   toast(`Sold! ${L.name} is yours — it's home now. Rent: $${L.rent} every 5 minutes into your savings.`);
 }
-function sellProperty(P) {
+function sellProperty(P, confirmed) {
   const i = ECON.props.indexOf(P); if (i < 0) return;
-  const back = roundTo(P.price * 0.8, 100); ECON.props.splice(i, 1); ECON.bank += back;
+  if (sharedOn() && !confirmed) { api('/house/sell', { id: P.id }).then(() => { sellProperty(P, true); refreshHouses(); }).catch((e) => toast(e.message)); return; }
+  const back = roundTo(P.price * 0.8, 100); ECON.props.splice(i, 1); ECON.bank += back; player.money += P.safe || 0; // what was in the safe comes with you
   if (ECON.home && ECON.home.name === P.name) { ECON.home = null; playerSpot = startSpot; }
   saveGame(); toast(`Sold ${P.name} for $${back.toLocaleString()} (into your savings)`);
 }
@@ -95,6 +97,7 @@ function openPlace(P) {
   for (const c of garageCandidates(P)) rows.push([`Put the ${CAR_LABEL[c.type]} out the front in your garage (keep it for good)`, 'Garage it', true, () => {
     ECON.garage.push({ type: c.type, color: c.color, bought: Date.now() }); c.remove(); saveGame(); toast(`Your ${CAR_LABEL[c.type]} is in the garage — call it any time from My cars`); openPlace(P);
   }]);
+  rows.push(...safeRows(P)); // the safe (shared.js)
   rows.push([`Rent: $${P.rent} every 5 minutes into your savings · next in ${Math.ceil((RENT_EVERY - PROP.rentT) / 60)} min`, null, false, null]);
   rows.push([`Sell (80%: $${roundTo(P.price * 0.8, 100).toLocaleString()})`, 'Sell', true, () => { sellProperty(P); closeShop(); }]);
   econPanel(P.name, `Your ${P.kind === 'house' ? 'house' : 'apartment'} · savings $${ECON.bank.toLocaleString()} · ${ECON.garage.length} cars in the garage`, rows);
@@ -108,5 +111,5 @@ function updateProperty(dt) {
     }
   }
   PROP.hintT -= dt;
-  if (player.state === 'foot' && PROP.hintT <= 0 && propHere()) { toast('E: your place — sleep, garage, rent'); PROP.hintT = 10; }
+  if (player.state === 'foot' && PROP.hintT <= 0 && propHere()) { toast('E: your place — safe, sleep, garage, rent'); PROP.hintT = 10; }
 }

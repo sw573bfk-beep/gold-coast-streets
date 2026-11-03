@@ -11,6 +11,8 @@ function nearestTower() { const T = bigBuildingsNear(player.x, player.z, 1500).f
 function guideList() { // [icon, name, how, action]
   const heli = nearest(CHOPPERS.filter((c) => !c.dead)), A = (n) => () => phoneApp(n);
   return [
+    ['💰', 'Keep your money safe', `Wasted? You lose ${Math.round(DEATH_LOSS * 100)}% of the cash on you. Bank it at any bank, or put it in the safe at your house.`, () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); }],
+    ['🗂️', 'Assets', 'Your money, places, cars and aircraft. Buy a helicopter or a plane: it floats over your home until you call it down.', A('assets')],
     ['📋', 'Contracts', 'Paid jobs from Tash, one after another, forever. The best way to make money.', A('contracts')],
     ['🪂', 'Base jumping', 'Go into any tall tower (E at its doors), take the lift to Roof, Space at the edge, Space again for your parachute.', goTo(nearestTower(), 'No tall towers near here — try Surfers Paradise')],
     ['🚁', 'Skydive from a helicopter', 'Fly a helicopter up high (Space), then press E to jump out and parachute down.', heli ? goTo({ name: heli.name || 'Helicopter', x: heli.x, z: heli.z }) : goTo(placeNamed(/^Sea World$/i))],

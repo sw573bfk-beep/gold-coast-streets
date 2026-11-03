@@ -199,6 +199,7 @@ body.touch #radio { bottom: auto; top: 200px; } body.touch #prompt { bottom: 200
 .acct { background: rgba(8,14,18,.85); border: 2px solid var(--gold); border-radius: 12px; padding: 12px; max-width: 360px; }
 .acct-tabs { display: flex; gap: 6px; margin-bottom: 8px; } .acct-tabs button { flex: 1; padding: 8px; border-radius: 8px; border: 0; background: #26343d; color: #fff; font: 600 15px var(--hud); cursor: pointer; } .acct-tabs button.on { background: var(--gold); color: #111; }
 .acct input { display: block; width: 100%; box-sizing: border-box; margin: 0 0 8px; padding: 10px; border-radius: 8px; border: 2px solid #33444d; background: #0f171c; color: #fff; font: 600 16px var(--hud); }
+.acct-offline { display: block; margin: 8px 0 0; background: none; border: 0; color: #9fb0b8; font: 600 14px var(--hud); text-decoration: underline; cursor: pointer; padding: 4px 0; }
 #acct-go { width: 100%; } #acct-msg { color: #ff8a7a; font: 600 14px var(--hud); min-height: 18px; margin-top: 6px; } .acct-note { color: #9fb0b8; font: 500 13px var(--hud); }
 .online-now { font: 700 16px var(--hud); color: #dfe7ea; margin: 4px 0 10px; text-shadow: 0 1px 3px rgba(0,0,0,.9); } .online-now.live { color: #5ee0c8; }
 .admin-btn { margin-top: 8px; padding: 6px 12px; border-radius: 8px; border: 2px solid var(--gold); background: transparent; color: var(--gold); font: 700 14px var(--hud); cursor: pointer; }
@@ -3549,7 +3550,7 @@ function updateShoppers(dt) {
 // Gold Coast Streets — the city economy: jobs with real tasks, car dealerships and owned cars, a bank account,
 // hotel rooms as a home, and gym training. Everything uses the one player balance and the one save.
 
-const ECON = { bank: 0, garage: [], props: [], gear: {}, aim: 0, rangeBest: 0, jobs: {}, home: null, fitness: 0, gymDay: -1, shift: null, called: null, testDrive: null, lastBuy: 0 };
+const ECON = { bank: 0, garage: [], props: [], aircraft: [], gear: {}, aim: 0, rangeBest: 0, jobs: {}, home: null, fitness: 0, gymDay: -1, shift: null, called: null, testDrive: null, lastBuy: 0 };
 // one purchase at a time: a second click within a quarter second is ignored (no double charges)
 function purchaseGuard(key) { const t = performance.now(); if (t - ECON.lastBuy < 250 && ECON.lastKey === key) return false; ECON.lastBuy = t; ECON.lastKey = key; return true; } // the same thing twice within 250 ms is a double click
 function pay(amount, what) { if (player.money < amount) { toast(`Not enough money for ${what} ($${amount})`); return false; } player.money -= amount; return true; }
@@ -3767,7 +3768,7 @@ function updateEconomy(dt) {
     }
   }
 }
-function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), mick: MICK.done, act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
+function economySave() { return { bank: ECON.bank, garage: ECON.garage, props: ECON.props, air: ECON.aircraft, gear: ECON.gear, aim: ECON.aim, rangeBest: ECON.rangeBest, story: storySave(), mick: MICK.done, act: ECON.act, pet: ECON.pet, biz: ECON.biz, jobs: ECON.jobs, home: ECON.home, fitness: ECON.fitness, gymDay: ECON.gymDay }; }
 function economyLoad(s) {
   if (!s) return;
   if (typeof s.bank === 'number') ECON.bank = s.bank;
@@ -3785,6 +3786,7 @@ function economyLoad(s) {
   if (s.home) ECON.home = s.home;
   if (typeof s.fitness === 'number') ECON.fitness = clamp(s.fitness, 0, 10);
   if (typeof s.gymDay === 'number') ECON.gymDay = s.gymDay;
+  if (Array.isArray(s.air)) ECON.aircraft = s.air.filter((A) => A && AIR_BY[A.type]); // aircraft you own (shared.js)
 }
 
 // Gold Coast Streets — GPS: a yellow line along the roads to your waypoint (on the road, the minimap and the big map).
@@ -3876,7 +3878,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', contracts: 'Contracts', guide: 'What to do?', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', assets: 'Assets', contracts: 'Contracts', guide: 'What to do?', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -3900,6 +3902,7 @@ function phoneApp(app) {
     tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
     tile('🗺️', 'Map', () => { closePhone(); toggleMap(); });
     tile('🚕', 'Taxi', () => phoneApp('travel'));
+    tile('🗂️', 'Assets', () => phoneApp('assets'), ECON.aircraft.length ? String(ECON.aircraft.length) : '');
     tile('🚗', 'My cars', () => phoneApp('cars'), ECON.garage.length ? String(ECON.garage.length) : '');
     tile('🔧', 'Mechanic', mechanic);
     head('Crime'); grid = null;
@@ -3916,7 +3919,7 @@ function phoneApp(app) {
     tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
     tile('📱', 'TikTak', () => phoneApp('clips'));
-    const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}`; body.appendChild(foot);
+    const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}${safesTotal() ? ` · safes $${safesTotal().toLocaleString()}` : ''}`; body.appendChild(foot);
   } else if (app === 'travel') {
     back();
     if (WAYPOINT) btn(`🚕 Taxi to ${WAYPOINT.name}`, `${km(WAYPOINT.x, WAYPOINT.z)} · $${taxiFare()}${player.state !== 'foot' ? ' · get out of the car first' : ''}`, taxi, player.state === 'foot' && player.money >= taxiFare());
@@ -3951,6 +3954,7 @@ function phoneApp(app) {
   else if (app === 'swell') { back(); swellApp(btn, head); }
   else if (app === 'acts') { back(); actsApp(btn, head); }
   else if (app === 'contracts') { back(); contractsApp(btn, head); }
+  else if (app === 'assets') { back(); assetsApp(btn, head); }
   else if (app === 'guide') { back(); guideApp(btn, head); }
   else if (app === 'act') { actApp(btn, head); }
   else if (app === 'missions') { back(); missionsApp(btn, head); }
@@ -4462,7 +4466,7 @@ function updatePlanes(dt) {
       AIRPORT.nextAI -= dt;
       if (AIRPORT.nextAI <= 0 && !PLANES.some((p) => p.ai)) { AIRPORT.nextAI = 120; const p = new Plane('jet', R.x1 + R.ex * 40, R.z1 + R.ez * 40, R.h, { phase: 'roll' }); p.throttle = 1; }
     }
-    if (!near && AIRPORT.spawned && !player.plane) { for (const p of PLANES.slice()) if (!p.ai || Math.hypot(p.x - player.x, p.z - player.z) > 3000) p.remove(); AIRPORT.spawned = false; }
+    if (!near && AIRPORT.spawned && !player.plane) { for (const p of PLANES.slice()) if (!p.owned && (!p.ai || Math.hypot(p.x - player.x, p.z - player.z) > 3000)) p.remove(); AIRPORT.spawned = false; } // planes you own (shared.js) stay
   }
   for (const p of PLANES.slice()) {
     if (p.ai) { // the scripted airliner: full power, rotate, climb out and leave
@@ -5258,7 +5262,7 @@ function findListings() {
   const out = [], seen = new Set();
   const houses = [];
   for (const T of TILES.values()) for (const H of T.houses || []) {
-    const fd = H.doors.find((d) => d.type === 'front'); if (!fd || ownsProp(H.id)) continue;
+    const fd = H.doors.find((d) => d.type === 'front'); if (!fd || ownsProp(H.id) || ownedByOther(H.id)) continue; // online: someone else's already
     const d = Math.hypot(fd.x - player.x, fd.z - player.z); if (d < 60 || d > 1000) continue;
     houses.push({ H, fd, d });
   }
@@ -5274,7 +5278,7 @@ function findListings() {
     .filter((t) => t.d < 1000).sort((a, b) => a.d - b.d);
   const used = new Set();
   for (const t of towers) {
-    const id = `apt:${Math.round(t.cx)},${Math.round(t.cz)}`; if (used.has(id) || ownsProp(id)) continue; used.add(id);
+    const id = `apt:${Math.round(t.cx)},${Math.round(t.cz)}`; if (used.has(id) || ownsProp(id) || ownedByOther(id)) continue; used.add(id);
     const hash = ((Math.round(t.cx) * 73856093) ^ (Math.round(t.cz) * 19349663)) >>> 0; // the same listing each time you look
     const floor = clamp(Math.round(t.B.b[0] / 3 * (0.4 + (hash % 1000) / 2000)), 2, 80), st = streetName(t.cx, t.cz);
     const s = sidewalkNear(t.cx, t.cz), price = roundTo(38000 + t.B.b[0] * 650 + floor * 400, 1000);
@@ -5287,15 +5291,17 @@ function findListings() {
 function buyProperty(L) {
   if (ownsProp(L.id)) return;
   if (player.money + ECON.bank < L.price) { toast(`Not enough money: you need $${L.price.toLocaleString()} (wallet plus savings)`); return; }
+  if (sharedOn() && !L.confirmed) { api('/house/buy', L).then(() => { buyProperty(Object.assign({}, L, { confirmed: true })); refreshHouses(); if (PHONE.open) phoneApp('realty'); }).catch((e) => toast(e.message)); return; } // online: the server says it's still for sale
   const fromWallet = Math.min(player.money, L.price); player.money -= fromWallet; ECON.bank -= L.price - fromWallet;
-  ECON.props.push({ id: L.id, kind: L.kind, name: L.name, x: L.x, z: L.z, price: L.price, rent: L.rent });
+  ECON.props.push({ id: L.id, kind: L.kind, name: L.name, x: L.x, z: L.z, price: L.price, rent: L.rent, safe: 0 });
   ECON.home = { x: L.x, z: L.z, name: L.name }; playerSpot = { x: L.x, z: L.z }; saveGame();
   sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle');
   toast(`Sold! ${L.name} is yours — it's home now. Rent: $${L.rent} every 5 minutes into your savings.`);
 }
-function sellProperty(P) {
+function sellProperty(P, confirmed) {
   const i = ECON.props.indexOf(P); if (i < 0) return;
-  const back = roundTo(P.price * 0.8, 100); ECON.props.splice(i, 1); ECON.bank += back;
+  if (sharedOn() && !confirmed) { api('/house/sell', { id: P.id }).then(() => { sellProperty(P, true); refreshHouses(); }).catch((e) => toast(e.message)); return; }
+  const back = roundTo(P.price * 0.8, 100); ECON.props.splice(i, 1); ECON.bank += back; player.money += P.safe || 0; // what was in the safe comes with you
   if (ECON.home && ECON.home.name === P.name) { ECON.home = null; playerSpot = startSpot; }
   saveGame(); toast(`Sold ${P.name} for $${back.toLocaleString()} (into your savings)`);
 }
@@ -5340,6 +5346,7 @@ function openPlace(P) {
   for (const c of garageCandidates(P)) rows.push([`Put the ${CAR_LABEL[c.type]} out the front in your garage (keep it for good)`, 'Garage it', true, () => {
     ECON.garage.push({ type: c.type, color: c.color, bought: Date.now() }); c.remove(); saveGame(); toast(`Your ${CAR_LABEL[c.type]} is in the garage — call it any time from My cars`); openPlace(P);
   }]);
+  rows.push(...safeRows(P)); // the safe (shared.js)
   rows.push([`Rent: $${P.rent} every 5 minutes into your savings · next in ${Math.ceil((RENT_EVERY - PROP.rentT) / 60)} min`, null, false, null]);
   rows.push([`Sell (80%: $${roundTo(P.price * 0.8, 100).toLocaleString()})`, 'Sell', true, () => { sellProperty(P); closeShop(); }]);
   econPanel(P.name, `Your ${P.kind === 'house' ? 'house' : 'apartment'} · savings $${ECON.bank.toLocaleString()} · ${ECON.garage.length} cars in the garage`, rows);
@@ -5353,7 +5360,7 @@ function updateProperty(dt) {
     }
   }
   PROP.hintT -= dt;
-  if (player.state === 'foot' && PROP.hintT <= 0 && propHere()) { toast('E: your place — sleep, garage, rent'); PROP.hintT = 10; }
+  if (player.state === 'foot' && PROP.hintT <= 0 && propHere()) { toast('E: your place — safe, sleep, garage, rent'); PROP.hintT = 10; }
 }
 
 // ============================================================================
@@ -5878,7 +5885,7 @@ function safeLook(L) { // other players' looks are data: only known keys and pla
 function netQuick() {
   if (NET.status !== 'off') return;
   NET.status = 'connecting'; netHud(); toast('Finding a world…');
-  fetch(ONLINE_URL + '/match').then((r) => r.json()).then((d) => { NET.status = 'off'; netJoin(d.code, { public: true, title: 'Gold Coast ' + d.code }); })
+  fetch(ONLINE_URL + '/match').then((r) => r.json()).then((d) => { NET.status = 'off'; netJoin(d.code, { public: true, title: d.title || 'Gold Coast' }); }) // the one shared Gold Coast (a second copy only when it's full)
     .catch(() => { NET.status = 'off'; netHud(); toast('Couldn’t reach the online server — check your internet'); });
 }
 function netFriends() { // a world only people with the code can join
@@ -6078,13 +6085,13 @@ function onlineApp(btn, head) {
 }
 
 // ============================================================================
-// Gold Coast Streets — single player or multiplayer. Single player saves on this device, like always. Multiplayer
+// Gold Coast Streets — online (the default) or offline. Offline saves on this device, like always. Online
 // needs an account (a name and a password, nothing else): your multiplayer money, cars, houses and look are saved
 // to the account so you can carry on anywhere, and kept apart from single player (no bringing offline money online).
 // Records set in public worlds go on the leaderboards: the richest, the fastest time trials, the biggest fish and the
 // best wave (phone → Records).
 // ============================================================================
-const MODE = (() => { try { return sessionStorage.getItem('gcs-mode') === 'multi' ? 'multi' : 'single'; } catch (e) { return 'single'; } })();
+const MODE = (() => { try { if (new URLSearchParams(location.search).get('mode') === 'single') return 'single'; return sessionStorage.getItem('gcs-mode') === 'single' ? 'single' : 'multi'; } catch (e) { return 'single'; } })(); // online unless you chose offline (or ?mode=single)
 const ACCT = { token: null, name: null, loaded: false, saveT: 0, dirty: false, lastSave: 0 };
 try { ACCT.token = localStorage.getItem('gcs-token'); ACCT.name = localStorage.getItem('gcs-acct'); } catch (e) { /* storage blocked */ }
 function api(path, body, method) {
@@ -6092,27 +6099,30 @@ function api(path, body, method) {
   return fetch(ONLINE_URL + path, { method: method || (body ? 'POST' : 'GET'), headers, body: body ? JSON.stringify(body) : undefined })
     .then(async (r) => { const d = await r.json().catch(() => ({})); if (!r.ok) throw new Error(d.error || 'Server error'); return d; });
 }
-function setMode(m) { try { if (m === 'multi') sessionStorage.setItem('gcs-mode', 'multi'); else sessionStorage.removeItem('gcs-mode'); } catch (e) { /* storage blocked */ } location.reload(); }
+function setMode(m) { try { sessionStorage.setItem('gcs-mode', m === 'single' ? 'single' : 'multi'); } catch (e) { /* storage blocked */ } location.reload(); }
 function signedIn(d) { ACCT.token = d.token; ACCT.name = d.name; try { localStorage.setItem('gcs-token', d.token); localStorage.setItem('gcs-acct', d.name); } catch (e) { /* storage blocked */ } }
 function signOut() {
   if (ACCT.token) api('/logout', {}).catch(() => {});
   try { localStorage.removeItem('gcs-token'); localStorage.removeItem('gcs-acct'); } catch (e) { /* storage blocked */ }
-  setMode('single');
+  setMode('multi'); // back to the log-in screen
 }
 // ---------------------------------------------------------------- the start screen
 function initModeMenu() {
   const play = $('play'), box = document.createElement('div'); box.id = 'modes';
   play.parentNode.insertBefore(box, play);
-  if (MODE === 'single') {
-    play.dataset.label = '▶ Single player';
-    const mp = document.createElement('button'); mp.type = 'button'; mp.id = 'play-mp'; mp.textContent = '🌐 Multiplayer';
+  const offline = () => { const b = document.createElement('button'); b.type = 'button'; b.className = 'acct-offline'; b.textContent = 'Play offline instead (saved on this device)'; b.addEventListener('click', () => setMode('single')); return b; };
+  if (MODE === 'multi' && !ACCT.token) { // online is the default: log in (or make an account) first
+    play.dataset.label = '🌐 Log in to play online'; accountForm(box); box.appendChild(offline());
+  } else if (MODE === 'single') {
+    play.dataset.label = '▶ Play offline';
+    const mp = document.createElement('button'); mp.type = 'button'; mp.id = 'play-mp'; mp.textContent = '🌐 Play online';
     mp.addEventListener('click', () => { if (ACCT.token) api('/me').then(() => setMode('multi')).catch(() => accountForm(box)); else accountForm(box); });
     play.after(mp);
   } else {
     play.dataset.label = '▶ Play online';
     box.innerHTML = '<div class="acct-who"></div>'; box.firstChild.textContent = `🌐 Multiplayer · signed in as ${ACCT.name || '…'}`;
     const row = document.createElement('div'); row.className = 'acct-row';
-    const sp = document.createElement('button'); sp.type = 'button'; sp.textContent = 'Back to single player'; sp.addEventListener('click', () => setMode('single'));
+    const sp = document.createElement('button'); sp.type = 'button'; sp.textContent = 'Play offline'; sp.addEventListener('click', () => setMode('single'));
     const out = document.createElement('button'); out.type = 'button'; out.textContent = 'Log out'; out.addEventListener('click', signOut);
     row.append(sp, out); box.appendChild(row);
   }
@@ -6139,18 +6149,21 @@ function accountForm(box) {
 // multiplayer progress comes from the account, not this device
 function loadAccount() {
   if (MODE !== 'multi') return;
+  if (!ACCT.token) { $('play').disabled = true; return; } // the log-in form is showing
   $('play').disabled = true; $('play').textContent = 'Loading your account…';
   api('/save').then((d) => {
     if (d.data) applySave(d.data);
-    rebuildPlayer(); ACCT.loaded = true; applyGifts(d.gifts); $('play').disabled = false; $('play').textContent = $('play').dataset.label;
-  }).catch((e) => { $('play').textContent = e.message === 'log in first' ? 'Signed out — log in again' : 'Couldn’t reach the server'; if (e.message === 'log in first') signOut(); });
+    rebuildPlayer(); ACCT.loaded = true; applyGifts(d.gifts); sharedLogin(d); $('play').disabled = false; $('play').textContent = $('play').dataset.label; // houses, safes and robbery news (shared.js)
+  }).catch((e) => { $('play').textContent = e.message === 'log in first' ? 'Signed out — log in again' : 'Couldn’t reach the server — play offline for now'; if (e.message === 'log in first') signOut(); });
 }
 function cloudSave(obj) { // called by saveGame in multiplayer: sent at most every 15 s
   ACCT.pending = obj; if (ACCT.saveT > 0) return;
   const wait = Math.max(0, 15000 - (Date.now() - ACCT.lastSave)); ACCT.saveT = 1;
   setTimeout(() => {
     ACCT.saveT = 0; ACCT.lastSave = Date.now(); const data = ACCT.pending; ACCT.pending = null; if (!data || !ACCT.loaded) return;
-    api('/save', { data, world: NET.world && NET.world.public ? NET.world.code : null }).catch(() => {});
+    api('/save', { data, world: NET.world && NET.world.public ? NET.world.code : null }).then((r) => {
+      if (r && r.cut) { player.money = r.money; ECON.bank = r.bank; toast(`Server check: $${r.cut.toLocaleString()} that couldn’t have been earned was taken off`); } // the server's money check (server/src/index.js)
+    }).catch(() => {});
   }, wait);
 }
 // ---------------------------------------------------------------- records (public worlds only)
@@ -7844,8 +7857,8 @@ function makeChopper(colA, colB) {
   scene.add(g); return { g, rotor, rotor2, tail };
 }
 class Chopper {
-  constructor(x, z, h, name) {
-    this.name = name; this.M = makeChopper(pick(['#f4f4f2', '#d6302a', '#1d3b6b', '#f2c230']), '#2b2e33');
+  constructor(x, z, h, name, colr) {
+    this.name = name; this.M = makeChopper(colr || pick(['#f4f4f2', '#d6302a', '#1d3b6b', '#f2c230']), '#2b2e33');
     this.x = x; this.z = z; this.y = groundAt(x, z); this.h = h; this.vx = 0; this.vy = 0; this.vz = 0; this.pitch = 0; this.roll = 0; this.col = 0.42; this.spin = 0; this.ground = true; this.dead = false;
     this.input = { c: 0, p: 0, r: 0, y: 0 }; CHOPPERS.push(this); this.sync(0);
   }
@@ -9256,6 +9269,8 @@ function nearestTower() { const T = bigBuildingsNear(player.x, player.z, 1500).f
 function guideList() { // [icon, name, how, action]
   const heli = nearest(CHOPPERS.filter((c) => !c.dead)), A = (n) => () => phoneApp(n);
   return [
+    ['💰', 'Keep your money safe', `Wasted? You lose ${Math.round(DEATH_LOSS * 100)}% of the cash on you. Bank it at any bank, or put it in the safe at your house.`, () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); }],
+    ['🗂️', 'Assets', 'Your money, places, cars and aircraft. Buy a helicopter or a plane: it floats over your home until you call it down.', A('assets')],
     ['📋', 'Contracts', 'Paid jobs from Tash, one after another, forever. The best way to make money.', A('contracts')],
     ['🪂', 'Base jumping', 'Go into any tall tower (E at its doors), take the lift to Roof, Space at the edge, Space again for your parachute.', goTo(nearestTower(), 'No tall towers near here — try Surfers Paradise')],
     ['🚁', 'Skydive from a helicopter', 'Fly a helicopter up high (Space), then press E to jump out and parachute down.', heli ? goTo({ name: heli.name || 'Helicopter', x: heli.x, z: heli.z }) : goTo(placeNamed(/^Sea World$/i))],
@@ -9333,6 +9348,177 @@ function tutKey(code) { if (!TUT.on) return false; if (code === 'Enter') { tutNe
 function updateTutorial(dt) {
   if (!TUT.on) return; TUT.t += dt;
   if (TUT.t > 0.6 && TUT_STEPS[TUT.i].done(TUT.base, TUT.state)) tutNext();
+}
+
+// Gold Coast Streets — the shared online Gold Coast, your safes and your assets.
+// Online, every house belongs to one player across the whole server (server/src/index.js keeps the list). Your places
+// have a safe: cash in it (or in the bank) is safe when you're wasted, which costs you 75% of the cash on you. While
+// you're offline other players can break in and crack your safe for 30-50% of it, once a day; you hear who did it next
+// time you play. Single player has the safes too, just no robbers.
+// Phone → Assets: your money, places, cars and aircraft. Aircraft you buy float over your home until you call one
+// down, and go back up when you send it home (or leave it far behind).
+
+const SHARED = { houses: new Map(), t: 0, hintT: 0, crack: null, claimed: false };
+const sharedOn = () => MODE === 'multi' && !!ACCT.token;
+const DEATH_LOSS = 0.75; // the share of the cash on you that's gone when you're wasted
+// ---------------------------------------------------------------- who owns what (online)
+function loadHouses(list) {
+  SHARED.houses = new Map((list || []).map((h) => [h.id, h]));
+  for (const P of ECON.props) { const h = SHARED.houses.get(P.id); if (h && h.mine) P.safe = h.safe; } // the server's safe totals win
+}
+function refreshHouses() { if (sharedOn()) api('/houses').then((d) => loadHouses(d.houses)).catch(() => {}); }
+const ownedByOther = (id) => { const h = SHARED.houses.get(id); return h && !h.mine ? h : null; };
+// after logging in: robbery news, and places bought before the shared world are claimed (the first owner keeps each)
+function sharedLogin(d) {
+  loadHouses(d.houses);
+  for (const r of d.robbed || []) actNote(`🚨 ${r.robber || 'Someone'} cracked your safe at ${r.house || 'your place'} while you were offline: -$${Number(r.amount).toLocaleString()}`);
+  if ((d.robbed || []).length) setTimeout(() => toast(`🚨 You were robbed while you were away — phone → Alerts`), 4000);
+  if (SHARED.claimed) return; SHARED.claimed = true;
+  const unclaimed = ECON.props.filter((P) => !(SHARED.houses.get(P.id) || {}).mine);
+  if (!unclaimed.length) return;
+  api('/house/claim', { props: unclaimed.map(({ id, kind, name, x, z, price }) => ({ id, kind, name, x, z, price })) }).then((r) => {
+    for (const f of r.refunded || []) {
+      const i = ECON.props.findIndex((P) => P.id === f.id); if (i < 0) continue;
+      const P = ECON.props[i]; ECON.props.splice(i, 1); ECON.bank += f.price;
+      if (ECON.home && ECON.home.name === P.name) { ECON.home = null; playerSpot = startSpot; }
+      actNote(`🏠 Someone else owned ${P.name} first in the shared world — your $${f.price.toLocaleString()} is back in your savings`);
+    }
+    saveGame(); refreshHouses();
+  }).catch(() => { SHARED.claimed = false; });
+}
+// ---------------------------------------------------------------- your safe
+function safeMove(P, amount) { // + puts cash in, - takes it out
+  amount = Math.round(amount); if (!amount) return;
+  if (amount > 0 && amount > player.money) { toast('You don’t have that much cash on you'); return; }
+  if (amount < 0 && -amount > (P.safe || 0)) { toast('There isn’t that much in the safe'); return; }
+  const done = (safe) => { P.safe = safe; player.money -= amount; saveGame(); sfxTone(amount > 0 ? [523, 392] : [392, 523], 0.15, 0.05); toast(amount > 0 ? `Put $${amount.toLocaleString()} in the safe` : `Took $${(-amount).toLocaleString()} out of the safe`); if (!$('shop').hidden) openPlace(P); };
+  if (!sharedOn()) return done((P.safe || 0) + amount);
+  api('/house/safe', { id: P.id, amount }).then((d) => done(d.safe)).catch((e) => toast(e.message));
+}
+function safeRows(P) {
+  const s = P.safe || 0, rows = [[`🔒 Safe: $${s.toLocaleString()} — kept when you’re wasted${sharedOn() ? ' · while you’re offline a robber can crack it for up to half, once a day' : ''}`, null, false, null]];
+  rows.push(['Put all your cash in the safe', 'All in', player.money > 0, () => safeMove(P, player.money)]);
+  if (player.money >= 1000) rows.push(['Put $1,000 in', '$1,000', true, () => safeMove(P, 1000)]);
+  if (s >= 1000) rows.push(['Take $1,000 out', '$1,000', true, () => safeMove(P, -1000)]);
+  rows.push(['Take it all out', 'All out', s > 0, () => safeMove(P, -s)]);
+  return rows;
+}
+const safesTotal = () => ECON.props.reduce((a, P) => a + (P.safe || 0), 0);
+// ---------------------------------------------------------------- breaking into someone else's place (online)
+function houseHasSafe(H) { return ownsProp(H.id) || !!ownedByOther(H.id); } // the safe sits in a bedroom (houses.js)
+function sharedUse() {
+  if (!sharedOn() || player.state !== 'foot' || SHARED.crack) return false;
+  const H = houseAt(player.x, player.z); if (!H || !H.safeSpot || Math.hypot(H.safeSpot.x - player.x, H.safeSpot.z - player.z) > 1.7) return false;
+  const h = ownedByOther(H.id); if (!h) return false;
+  if (!h.robbable) { toast(h.online ? `${h.owner} is online — you can only crack their safe while they’re offline` : !h.hasSafe ? `${h.owner}’s safe is empty` : `${h.owner}’s safe has already been hit today (or they’re too new to rob)`); return true; }
+  SHARED.crack = { H, h, t: 0, need: 12 }; toast(`Cracking ${h.owner}’s safe… stay close (12 s)`); sfxNoise(0.2, 1400, 0.1);
+  return true;
+}
+function updateCrack(dt) {
+  const C = SHARED.crack; if (!C) return;
+  const near = player.state === 'foot' && Math.hypot(C.H.safeSpot.x - player.x, C.H.safeSpot.z - player.z) < 2.2;
+  if (!near || player.deadT > 0) { SHARED.crack = null; $('jobhud').hidden = true; toast('You left the safe — it locked again'); return; }
+  C.t += dt; $('jobhud').hidden = false; $('jobhud').textContent = `🔓 Cracking ${C.h.owner}’s safe · ${Math.max(0, Math.ceil(C.need - C.t))}s`;
+  if (Math.floor(C.t * 2) !== Math.floor((C.t - dt) * 2)) sfxTone([1800 + Math.random() * 400], 0.03, 0.03);
+  if (C.t < C.need) return;
+  SHARED.crack = null; $('jobhud').hidden = true;
+  api('/house/rob', { id: C.H.id }).then((d) => {
+    player.money += d.amount; saveGame(); sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); stat('robbed');
+    toast(`Cracked it! +$${d.amount.toLocaleString()} from ${d.owner}’s safe — the alarm’s going off`);
+    CRIME_TEXT.alarm = 'a house alarm went off'; raiseWanted(2, 'alarm'); refreshHouses();
+  }).catch((e) => toast(e.message));
+}
+function updateShared(dt) {
+  updateCrack(dt);
+  if (!sharedOn()) return;
+  SHARED.t -= dt; if (SHARED.t <= 0) { SHARED.t = 60; refreshHouses(); }
+  SHARED.hintT -= dt;
+  if (SHARED.hintT <= 0 && player.state === 'foot') { // walking up to (or into) someone else's place
+    const H = houseAt(player.x, player.z) || (nearestDoor(player.x, player.z, 4) || {}).house, h = H && ownedByOther(H.id);
+    if (h) { SHARED.hintT = 12; toast(h.online ? `🏠 ${h.owner}’s place — they’re online right now` : h.robbable ? `🏠 ${h.owner}’s place — they’re offline: find the safe in a bedroom and crack it (E)` : `🏠 ${h.owner}’s place`); }
+  }
+}
+// ---------------------------------------------------------------- aircraft: bought, kept over your home, called down
+const AIR_SHOP = [
+  { type: 'heli', name: 'Helicopter', price: 85000 }, { type: 'cessna', name: 'Cessna 172', price: 45000 }, { type: 'twin', name: 'Twin-prop King Air', price: 120000 },
+  { type: 'bizjet', name: 'Private jet', price: 450000 }, { type: 'fighter', name: 'Fighter jet', price: 900000 }, { type: 'jet', name: 'Airliner', price: 2500000 },
+];
+const AIR_BY = Object.fromEntries(AIR_SHOP.map((a) => [a.type, a]));
+const HELI_COLS = ['#f4f4f2', '#d6302a', '#1d3b6b', '#f2c230', '#1d2125', '#2f7a4a'];
+const AIRCRAFT = { shown: [], showKey: '', out: new Map() }; // the models over your roof, and the ones you've called down
+function homeProp() { return ECON.props.find((P) => ECON.home && P.name === ECON.home.name) || ECON.props[0] || null; }
+function roofTop(P) { // the top of your home's roof (or a height over an apartment tower)
+  for (const T of TILES.values()) for (const H of T.houses || []) if (H.id === P.id) return H.base + H.top + 2.6;
+  return groundAt(P.x, P.z) + (P.kind === 'apt' ? 60 : 9);
+}
+function buyAircraft(a) {
+  if (!homeProp()) { toast('Buy a house first — your aircraft are kept at your home'); return; }
+  if (player.money + ECON.bank < a.price) { toast(`You need $${a.price.toLocaleString()} (wallet plus savings)`); return; }
+  const w = Math.min(player.money, a.price); player.money -= w; ECON.bank -= a.price - w;
+  ECON.aircraft.push({ type: a.type, color: a.type === 'heli' ? pick(HELI_COLS) : null, bought: Date.now() }); saveGame();
+  sfxTone([523, 659, 784, 1046], 0.5, 0.07, 'triangle'); toast(`Your ${a.name} is waiting over your home — phone → Assets to bring it down`); AIRCRAFT.showKey = '';
+}
+function callAircraft(i) {
+  const A = ECON.aircraft[i]; if (!A || AIRCRAFT.out.has(i)) return;
+  if (player.state !== 'foot') { toast('Get out first'); return; }
+  let v;
+  if (A.type === 'heli') {
+    const s = freeSpotNear(player.x + Math.sin(player.h) * 12, player.z + Math.cos(player.h) * 12, 40); if (!s) { toast('No clear spot for a helicopter here'); return; }
+    v = new Chopper(s[0], s[1], player.h, 'Your helicopter', A.color);
+  } else { // planes come down on the nearest road, pointing along it
+    const P = curbNear(player.x, player.z); if (!P) { toast('A plane needs a road to land on — find one'); return; }
+    v = new Plane(A.type, P.x, P.z, P.h);
+  }
+  v.owned = true; AIRCRAFT.out.set(i, v); AIRCRAFT.showKey = '';
+  WAYPOINT = { name: 'Your ' + AIR_BY[A.type].name, x: v.x, z: v.z }; GPS.t = 0;
+  closePhone(); toast(`Your ${AIR_BY[A.type].name} is down — E to get in`); sfxNoise(0.6, 300, 0.25);
+}
+function sendHome(i, quiet) {
+  const v = AIRCRAFT.out.get(i); if (!v) return;
+  if (player.chopper === v || player.plane === v) { if (!quiet) toast('Get out of it first'); return; }
+  if (!v.dead) v.remove(); AIRCRAFT.out.delete(i); AIRCRAFT.showKey = '';
+  if (!quiet) toast(`Your ${AIR_BY[ECON.aircraft[i].type].name} flew home`);
+}
+function updateAircraft(dt) {
+  for (const [i, v] of AIRCRAFT.out) { // wrecked or left far behind: back over your home
+    const far = Math.hypot(v.x - player.x, v.z - player.z) > 700 && player.chopper !== v && player.plane !== v;
+    if (v.dead || far || (!CHOPPERS.includes(v) && !PLANES.includes(v))) { if (v.dead) toast(`Your ${AIR_BY[ECON.aircraft[i].type].name} was towed home for repairs`); sendHome(i, true); }
+  }
+  // the ones at home float over the roof (only drawn when you're nearby)
+  const P = homeProp(), near = P && Math.hypot(P.x - player.x, P.z - player.z) < 600;
+  const key = near ? P.id + ':' + ECON.aircraft.map((A, i) => (AIRCRAFT.out.has(i) ? '-' : A.type)).join(',') : '';
+  if (key === AIRCRAFT.showKey) { for (const S of AIRCRAFT.shown) { S.g.position.y = S.y + Math.sin(elapsed * 1.2 + S.k) * 0.25; if (S.rotor) S.rotor.rotation.y += dt * 1.5; } return; }
+  AIRCRAFT.showKey = key;
+  for (const S of AIRCRAFT.shown) { scene.remove(S.g); S.g.traverse((o) => { if (o.geometry) o.geometry.dispose(); }); }
+  AIRCRAFT.shown = []; if (!near) return;
+  let y = roofTop(P);
+  ECON.aircraft.forEach((A, i) => {
+    if (AIRCRAFT.out.has(i)) return;
+    let g, rotor = null, lift = 0;
+    if (A.type === 'heli') { const M = makeChopper(A.color || '#f4f4f2', '#2b2e33'); g = M.g; rotor = M.rotor; lift = 3.2; } // makeChopper adds it to the scene
+    else { const sp = PLANE_TYPES[A.type]; g = makePlaneModel(sp); scene.add(g); lift = sp.fus + sp.gear + 1; }
+    g.position.set(P.x, y, P.z); g.rotation.y = i * 0.9; AIRCRAFT.shown.push({ g, y, k: i, rotor }); y += lift + 1.5;
+  });
+}
+// ---------------------------------------------------------------- phone → Assets
+function assetsApp(btn, head) {
+  const safes = safesTotal();
+  head('Money');
+  btn(`💵 Cash on you: $${player.money.toLocaleString()}`, `you lose ${Math.round(DEATH_LOSS * 100)}% of it if you’re wasted — bank it or put it in a safe`, () => {}, false);
+  btn(`🏦 Savings: $${ECON.bank.toLocaleString()}`, 'safe at any bank, always', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); });
+  btn(`🔒 In your safes: $${safes.toLocaleString()}`, sharedOn() ? 'safe when you’re wasted · robbers can crack a safe while you’re offline' : 'safe when you’re wasted', () => {}, false);
+  head(ECON.props.length ? 'Your places' : 'No places yet');
+  if (!ECON.props.length) btn('🏡 Buy a house', 'Real estate on your phone · your home keeps your aircraft', () => { PROP.listings = findListings(); phoneApp('realty'); });
+  for (const P of ECON.props) btn(`${P.kind === 'house' ? '🏡' : '🏢'} ${P.name}${ECON.home && ECON.home.name === P.name ? ' · home' : ''}`, `safe $${(P.safe || 0).toLocaleString()} · ${km(P.x, P.z)}`, () => directions(P.name, P.x, P.z));
+  head(ECON.aircraft.length ? 'Your aircraft (kept over your home)' : 'No aircraft yet');
+  ECON.aircraft.forEach((A, i) => {
+    const a = AIR_BY[A.type], out = AIRCRAFT.out.get(i);
+    if (out) btn(`✈️ ${a.name} · out`, `${km(out.x, out.z)} away · send it home`, () => { sendHome(i); phoneApp('assets'); });
+    else btn(`✈️ ${a.name}`, a.type === 'heli' ? 'bring it down beside you' : 'bring it down on the nearest road', () => callAircraft(i)).classList.add('go');
+  });
+  if (ECON.garage.length) { head('Your cars'); ECON.garage.forEach((g, i) => btn(`🚗 ${CAR_LABEL[g.type]}`, 'delivered to the nearest road', () => { closePhone(); callCar(i); toast(`Your ${CAR_LABEL[g.type]} is on the nearest road`); })); }
+  head('Buy an aircraft');
+  for (const a of AIR_SHOP) btn(`${a.type === 'heli' ? '🚁' : '🛩️'} ${a.name} · $${a.price.toLocaleString()}`, homeProp() ? 'kept over your home' : 'you need a house first', () => { buyAircraft(a); phoneApp('assets'); }, !!homeProp() && player.money + ECON.bank >= a.price);
 }
 
 // ============================================================================
@@ -11504,6 +11690,9 @@ function buildHouseInterior(H) {
       const loo = place(um + 0.4, R.va + 0.35, 0.4, 0.42, 0.6, FURN.white); on(loo, 0, -0.25, 0.45, 0.45, 0.18, FURN.white, 0.42); // toilet and cistern
     }
   }
+  // an owned place has a safe in a bedroom (yours, or online someone else's to crack while they're offline: shared.js)
+  H.safeSpot = null;
+  if (houseHasSafe(H)) { const R = rooms.find((q) => q.kind === 'bed') || rooms[0], sp = place(R.ub - 0.45, R.vb - 0.45, 0.6, 0.85, 0.55, col('#2b2f33')); if (sp) { on(sp, 0, -0.29, 0.18, 0.18, 0.03, col('#c9a13a'), 0.45); H.safeSpot = { x: sp.x, z: sp.z }; } }
   if (LOOTED.has(H.id)) loot.length = 0;
   // indoors the sun can't reach: lit evenly like the shop rooms, with soft shading baked in per face direction
   for (let k = 0; k < B.col.length; k += 3) {
@@ -13656,14 +13845,14 @@ async function respawn() {
   const D = doorstepOf(P);
   player.x = D.x; player.z = D.z; player.y = 0; player.h = D.h; camYaw = D.h;
   player.health = 100; player.stars = 0; player.deadT = 0; player.state = 'foot'; player.mode = 'foot'; player.car = null; player.seq = null;
-  const fee = Math.min(player.money, 100); player.money -= fee;
+  const fee = kind === 'busted' ? Math.min(player.money, 100) : Math.round(player.money * DEATH_LOSS); player.money -= fee; // wasted: most of the cash on you is gone (the bank and your safes keep theirs)
   const confiscated = kind === 'busted' && Object.keys(player.weapons).some((w) => w !== 'pistol' || player.weapons[w] > START_AMMO);
   if (kind === 'busted') { player.weapons = {}; player.weapon = 'fist'; attachGun(); }
   givePistol(); saveGame();
   player.model.root.rotation.set(0, player.h, 0); player.model.root.visible = true;
   $('big').style.opacity = 0;
   player.exitWalk = 1.4; // a few steps out through the doors
-  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${confiscated ? ' · weapons confiscated (you get a pistol back)' : ''}` : `Discharged from ${P.name} · hospital bill -$${fee}`);
+  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${confiscated ? ' · weapons confiscated (you get a pistol back)' : ''}` : `Discharged from ${P.name} · lost $${fee.toLocaleString()} (${Math.round(DEATH_LOSS * 100)}% of the cash on you) — bank it or keep it in your house safe`);
   for (const c of cars.slice()) if (c.kind === 'police') c.remove();
   for (const p of peds.slice()) if (p.cop) p.remove();
   player.respawning = false;
@@ -13779,7 +13968,7 @@ function useKey() {
   if (player.state === 'boat') { if (player.items.rod > 0 && deepSea()) { startFishing({ ocean: true, deep: true }); return; } leaveBoat(); return; } // stopped well out to sea with a rod: fish off the side
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
-  if (towerUse() || houseUse() || propertyUse() || actUseKey()) return;
+  if (sharedUse() || towerUse() || houseUse() || propertyUse() || actUseKey()) return; // sharedUse: cracking an offline player's safe (shared.js)
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const bt = nearestBoat(4); if (bt) return boardBoat(bt);
@@ -14610,7 +14799,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateSkydive(dt); updateContracts(dt); updateTutorial(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateShared(dt); updateAircraft(dt); updateSkydive(dt); updateContracts(dt); updateTutorial(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

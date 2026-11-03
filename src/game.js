@@ -1277,14 +1277,14 @@ async function respawn() {
   const D = doorstepOf(P);
   player.x = D.x; player.z = D.z; player.y = 0; player.h = D.h; camYaw = D.h;
   player.health = 100; player.stars = 0; player.deadT = 0; player.state = 'foot'; player.mode = 'foot'; player.car = null; player.seq = null;
-  const fee = Math.min(player.money, 100); player.money -= fee;
+  const fee = kind === 'busted' ? Math.min(player.money, 100) : Math.round(player.money * DEATH_LOSS); player.money -= fee; // wasted: most of the cash on you is gone (the bank and your safes keep theirs)
   const confiscated = kind === 'busted' && Object.keys(player.weapons).some((w) => w !== 'pistol' || player.weapons[w] > START_AMMO);
   if (kind === 'busted') { player.weapons = {}; player.weapon = 'fist'; attachGun(); }
   givePistol(); saveGame();
   player.model.root.rotation.set(0, player.h, 0); player.model.root.visible = true;
   $('big').style.opacity = 0;
   player.exitWalk = 1.4; // a few steps out through the doors
-  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${confiscated ? ' · weapons confiscated (you get a pistol back)' : ''}` : `Discharged from ${P.name} · hospital bill -$${fee}`);
+  toast(kind === 'busted' ? `Released from ${P.name} · -$${fee}${confiscated ? ' · weapons confiscated (you get a pistol back)' : ''}` : `Discharged from ${P.name} · lost $${fee.toLocaleString()} (${Math.round(DEATH_LOSS * 100)}% of the cash on you) — bank it or keep it in your house safe`);
   for (const c of cars.slice()) if (c.kind === 'police') c.remove();
   for (const p of peds.slice()) if (p.cop) p.remove();
   player.respawning = false;
@@ -1400,7 +1400,7 @@ function useKey() {
   if (player.state === 'boat') { if (player.items.rod > 0 && deepSea()) { startFishing({ ocean: true, deep: true }); return; } leaveBoat(); return; } // stopped well out to sea with a rod: fish off the side
   if (player.state === 'ride') { leaveRide(); return; }
   if (player.state !== 'foot') return;
-  if (towerUse() || houseUse() || propertyUse() || actUseKey()) return;
+  if (sharedUse() || towerUse() || houseUse() || propertyUse() || actUseKey()) return; // sharedUse: cracking an offline player's safe (shared.js)
   const spot = serviceSpot(); if (spot) return openShop(spot);
   const shop = nearShop(); if (shop) return openWardrobe(shop);
   const bt = nearestBoat(4); if (bt) return boardBoat(bt);
@@ -2231,7 +2231,7 @@ function stepWorld(dt) {
   for (const p of peds.slice()) p.update(dt);
   if (player.state === 'car' && player.car && player.car.dead && player.car.sink === 0) bailOut();
   updateDetails(dt);
-  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateSkydive(dt); updateContracts(dt); updateTutorial(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
+  updateTiles(dt); updateHouses(dt); updateLoose(dt); updateUnstuck(dt); updateGrass(dt); updateTowers(dt); updateShared(dt); updateAircraft(dt); updateSkydive(dt); updateContracts(dt); updateTutorial(dt); updateEconomy(dt); updateProperty(dt); updateGear(dt); updateMods(); updateGPS(dt); updateMissions(dt); updateStory(dt); updateMick(dt); updateTrial(dt); updateActivities(dt); updateWorldJobs(dt); updateWildlife(dt); updateBusker(); updateChoppers(dt); updatePet(dt); updateStunts(dt); updateRace(dt); updateDrag(dt); updateMeet(dt); updateLife(dt); updateBusiness(dt); updateLobbies(dt); updatePlanes(dt);
   updateShops(dt);
   updateWeapons(dt);
   updatePickups(dt);

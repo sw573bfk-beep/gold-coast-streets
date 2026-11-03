@@ -16,8 +16,8 @@ function makeChopper(colA, colB) {
   scene.add(g); return { g, rotor, rotor2, tail };
 }
 class Chopper {
-  constructor(x, z, h, name) {
-    this.name = name; this.M = makeChopper(pick(['#f4f4f2', '#d6302a', '#1d3b6b', '#f2c230']), '#2b2e33');
+  constructor(x, z, h, name, colr) {
+    this.name = name; this.M = makeChopper(colr || pick(['#f4f4f2', '#d6302a', '#1d3b6b', '#f2c230']), '#2b2e33');
     this.x = x; this.z = z; this.y = groundAt(x, z); this.h = h; this.vx = 0; this.vy = 0; this.vz = 0; this.pitch = 0; this.roll = 0; this.col = 0.42; this.spin = 0; this.ground = true; this.dead = false;
     this.input = { c: 0, p: 0, r: 0, y: 0 }; CHOPPERS.push(this); this.sync(0);
   }

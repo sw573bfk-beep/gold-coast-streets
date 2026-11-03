@@ -24,7 +24,7 @@ function phoneApp(app) {
     b.addEventListener('click', fn); grid.appendChild(b);
   };
   const back = () => btn('← Home', '', () => phoneApp('home'));
-  $('phone-title').textContent = { home: 'Phone', contracts: 'Contracts', guide: 'What to do?', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
+  $('phone-title').textContent = { home: 'Phone', assets: 'Assets', contracts: 'Contracts', guide: 'What to do?', crime: 'Crime', heist: 'Bank heist', holdups: 'Hold-ups', jobs: 'Jobs', cars: 'My cars', clips: 'TikTak', travel: 'Taxi', realty: 'Real estate', listing: 'Listing', rocco: 'Rocco', mick: 'Mick (Brisbane)', online: 'Online', acts: 'Activities', swell: 'Swell forecast', weather: 'Weather', pet: 'Pet', chat: 'Chat', transit: 'Transit', crew: 'Crew', business: 'Business', events: 'Events', act: 'Activity', missions: 'Missions', stats: 'Statistics', notes: 'Notifications', job: 'Job', records: 'Records', board: 'Leaderboard', trials: 'Time trials' }[app] || 'Phone';
   if (app === 'home') {
     activeCard(body);
     head('Things to do'); grid = null;
@@ -48,6 +48,7 @@ function phoneApp(app) {
     tile('🌐', 'Online', () => phoneApp('online'), NET.status === 'on' ? String(NET.peers.size + 1) : '');
     tile('🗺️', 'Map', () => { closePhone(); toggleMap(); });
     tile('🚕', 'Taxi', () => phoneApp('travel'));
+    tile('🗂️', 'Assets', () => phoneApp('assets'), ECON.aircraft.length ? String(ECON.aircraft.length) : '');
     tile('🚗', 'My cars', () => phoneApp('cars'), ECON.garage.length ? String(ECON.garage.length) : '');
     tile('🔧', 'Mechanic', mechanic);
     head('Crime'); grid = null;
@@ -64,7 +65,7 @@ function phoneApp(app) {
     tile('🏡', 'Real estate', () => { PROP.listings = findListings(); phoneApp('realty'); }, ECON.props.length ? String(ECON.props.length) : '');
     tile('💳', 'Bank', () => { const b = nearest(SHOPS.filter((q) => q.kind === 'bank')); if (b) directions(b.name, b.x, b.z); else toast('No bank nearby'); });
     tile('📱', 'TikTak', () => phoneApp('clips'));
-    const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}`; body.appendChild(foot);
+    const foot = document.createElement('div'); foot.className = 'pfoot'; foot.textContent = `Wallet $${player.money.toLocaleString()} · savings $${ECON.bank.toLocaleString()}${safesTotal() ? ` · safes $${safesTotal().toLocaleString()}` : ''}`; body.appendChild(foot);
   } else if (app === 'travel') {
     back();
     if (WAYPOINT) btn(`🚕 Taxi to ${WAYPOINT.name}`, `${km(WAYPOINT.x, WAYPOINT.z)} · $${taxiFare()}${player.state !== 'foot' ? ' · get out of the car first' : ''}`, taxi, player.state === 'foot' && player.money >= taxiFare());
@@ -99,6 +100,7 @@ function phoneApp(app) {
   else if (app === 'swell') { back(); swellApp(btn, head); }
   else if (app === 'acts') { back(); actsApp(btn, head); }
   else if (app === 'contracts') { back(); contractsApp(btn, head); }
+  else if (app === 'assets') { back(); assetsApp(btn, head); }
   else if (app === 'guide') { back(); guideApp(btn, head); }
   else if (app === 'act') { actApp(btn, head); }
   else if (app === 'missions') { back(); missionsApp(btn, head); }

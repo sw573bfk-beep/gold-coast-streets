@@ -23,7 +23,7 @@ function safeLook(L) { // other players' looks are data: only known keys and pla
 function netQuick() {
   if (NET.status !== 'off') return;
   NET.status = 'connecting'; netHud(); toast('Finding a world…');
-  fetch(ONLINE_URL + '/match').then((r) => r.json()).then((d) => { NET.status = 'off'; netJoin(d.code, { public: true, title: 'Gold Coast ' + d.code }); })
+  fetch(ONLINE_URL + '/match').then((r) => r.json()).then((d) => { NET.status = 'off'; netJoin(d.code, { public: true, title: d.title || 'Gold Coast' }); }) // the one shared Gold Coast (a second copy only when it's full)
     .catch(() => { NET.status = 'off'; netHud(); toast('Couldn’t reach the online server — check your internet'); });
 }
 function netFriends() { // a world only people with the code can join

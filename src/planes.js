@@ -168,7 +168,7 @@ function updatePlanes(dt) {
       AIRPORT.nextAI -= dt;
       if (AIRPORT.nextAI <= 0 && !PLANES.some((p) => p.ai)) { AIRPORT.nextAI = 120; const p = new Plane('jet', R.x1 + R.ex * 40, R.z1 + R.ez * 40, R.h, { phase: 'roll' }); p.throttle = 1; }
     }
-    if (!near && AIRPORT.spawned && !player.plane) { for (const p of PLANES.slice()) if (!p.ai || Math.hypot(p.x - player.x, p.z - player.z) > 3000) p.remove(); AIRPORT.spawned = false; }
+    if (!near && AIRPORT.spawned && !player.plane) { for (const p of PLANES.slice()) if (!p.owned && (!p.ai || Math.hypot(p.x - player.x, p.z - player.z) > 3000)) p.remove(); AIRPORT.spawned = false; } // planes you own (shared.js) stay
   }
   for (const p of PLANES.slice()) {
     if (p.ai) { // the scripted airliner: full power, rotate, climb out and leave
